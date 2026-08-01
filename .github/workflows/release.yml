@@ -1,0 +1,80 @@
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-musl
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: windows-2022
+            target: aarch64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85
+          targets: ${{ matrix.target }}
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+      # HOLD(M6): the aarch64-musl linker/toolchain has not been exercised from
+      # this workspace. This CI job is the place to settle whether `cross` or a
+      # pinned linker image is the supported route before marking M6 complete.
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} -p frank-cli
+      - name: Package
+        shell: bash
+        run: cargo run --release -p xtask -- dist --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frank-${{ matrix.target }}
+          path: |
+            dist/frank-${{ matrix.target }}.tar.gz
+            dist/frank-${{ matrix.target }}.zip
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Write checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum *.tar.gz *.zip 2>/dev/null | sort -k2 > SHA256SUMS
+      # HOLD(M6): minisign signing/verification is intentionally not wired
+      # until a repository key and rotation policy are approved. Do not add a
+      # private key directly to this workflow.
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS

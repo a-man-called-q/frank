@@ -1,0 +1,131 @@
+# The default pack Frank ships with. Ported from archive/skills/caveman/SKILL.md,
+# but restructured: the original put all six intensity levels in one document
+# and filtered rows out at runtime (archive/src/hooks/caveman-activate.js:91-116).
+# Here each level composes from named fragments and is compiled ahead of time,
+# so a level never pays for another level's prose.
+#
+# See AGENTS.md and the project plan for the schema rationale.
+
+schema = 1
+
+[pack]
+id = "caveman"
+version = "2.0.0"
+title = "Caveman"
+description = "Ultra-compressed output style. Same substance, fewer words."
+default_level = "full"
+license = "MIT"
+
+[pack.budget]
+# The archive's filtered SessionStart injection measured 3176 bytes (~860
+# tokens), once per session. This budget is a compiler-enforced ceiling, not
+# a goal to approach — smaller is better as long as the rules stay legible.
+max_activation_bytes = 900
+# The reinforcement line lands at the end of every prompt and is therefore
+# never cached — a byte here is billed at full input rate on every turn,
+# unlike the activation block which sits in the cached prefix. Budget it
+# tighter for that reason.
+max_reinforce_bytes = 220
+
+[fragments]
+core = { file = "shared/core.md" }
+boundaries = { file = "shared/boundaries.md" }
+
+[[level]]
+id = "lite"
+title = "Lite"
+compose = ["core", "@rules", "boundaries", "@examples"]
+rules = "levels/lite.md"
+examples = [
+  { q = "Why does this React component re-render?", a = "Your component re-renders because you create a new object reference each render. Wrap it in useMemo." },
+]
+reinforce = "CAVEMAN ACTIVE (lite). Drop filler/hedging. Keep articles, full sentences."
+
+[[level]]
+id = "full"
+title = "Full"
+aliases = ["classic", "default"]
+inherits = "lite"
+rules = "levels/full.md"
+examples = [
+  { q = "Why does this React component re-render?", a = "New object ref each render. Wrap in useMemo." },
+]
+reinforce = "CAVEMAN ACTIVE (full). Drop articles/filler/hedging. Fragments OK. Code/commits/security: normal prose."
+
+[[level]]
+id = "ultra"
+title = "Ultra"
+inherits = "full"
+rules = "levels/ultra.md"
+examples = [
+  { q = "Why does this React component re-render?", a = "New object ref, re-render. useMemo it." },
+]
+reinforce = "CAVEMAN ACTIVE (ultra). Max compression. Code/commits/security stay normal prose."
+
+[[level]]
+id = "wenyan-full"
+title = "Wenyan"
+lang_hint = "zh-Hant"
+# Skips the "boundaries" fragment on purpose — a pack author's call, not an
+# engine rule. See the plan's pack-format section.
+compose = ["core", "@rules", "@examples"]
+rules = "levels/wenyan-full.md"
+examples = [
+  { q = "Why does this React component re-render?", a = "每繪新生對象參照，故重繪；以 useMemo 包之則免。" },
+]
+reinforce = "CAVEMAN ACTIVE (wenyan). Reply in classical Chinese, maximal terseness. Code/commits/security: normal prose, user's language."
+
+[[oneshot]]
+id = "commit"
+prompt = "oneshot/commit.md"
+restores_previous = true
+
+[[oneshot]]
+id = "review"
+prompt = "oneshot/review.md"
+restores_previous = true
+
+[[oneshot]]
+id = "compress"
+prompt = "oneshot/compress.md"
+restores_previous = true
+
+[activation]
+# Ordering discipline (off-check first, question guard second, activation
+# last) lives in frank-state, not here — these are just the pattern sources.
+# Ported from archive/src/hooks/caveman-mode-tracker.js:38-64, minus the one
+# pattern that used a negative lookahead: the `regex` crate is intentionally
+# lookaround-free (linear-time by construction — see AGENTS.md), so
+# "be brief in the summary" now also activates, a documented simplification.
+on = [
+  '\b(activate|enable|start|turn on|use|switch to|want|give me)\b[^.]{0,40}\bcaveman\b',
+  '\btalk like\b[^.]{0,40}\bcaveman\b',
+  '\bcaveman\s+mode\s+(on|please|now)\b',
+  '^caveman(\s+mode)?\s*[.!]*$',
+  '\b(less tokens|fewer tokens|be brief|be terse|shorter answers)\b',
+]
+off = [
+  '\b(stop|disable|deactivate|quit|exit|kill)\s+(the\s+)?caveman\b',
+  '\bcaveman(\s+mode)?\s+(off|stop|disabled?)\b',
+  '\bturn\s+off\s+(the\s+)?caveman\b',
+  '^(please\s+)?(go\s+|back\s+to\s+|switch\s+(back\s+)?to\s+|return\s+to\s+)?normal\s+mode\b',
+  # "normal mode" and "caveman" anywhere in the prompt, either order — the
+  # archive expressed this as (regex1.test(p) && regex2.test(p)), two
+  # independent tests ANDed together. `regex` has no lookaround, so a single
+  # pattern can't express "both present, any position" directly; this
+  # covers both orders explicitly instead.
+  '\bcaveman\b.*\bnormal\s+mode\b|\bnormal\s+mode\b.*\bcaveman\b',
+]
+question_guard = "^(what|whats|how|why|when|where|who|does|do|did|is|are|can|could|would|should|tell me|explain)\\b"
+command_prefix = "caveman"
+
+[benchmark]
+method = "anthropic-api-median3"
+
+[benchmark.reduction]
+# Only `full` has real measurements so far (ported from
+# archive/benchmarks/results, methodology in archive/benchmarks/run.py).
+# Every other level intentionally has no entry: frank-ledger reports
+# "unmeasured" for those rather than guessing, unlike the archive's single
+# hardcoded `COMPRESSION = { full: 0.65 }`.
+full = { mean = 0.65, p25 = 0.48, p75 = 0.79, n = 10, model = "claude-sonnet-4-20250514" }

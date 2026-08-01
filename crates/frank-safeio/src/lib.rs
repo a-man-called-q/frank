@@ -1,0 +1,346 @@
+//! Symlink-safe, size-capped, atomic flag and log IO. Frank's security kernel.
+//!
+//! Ported from `archive/src/hooks/caveman-config.js`'s `safeWriteFlag` /
+//! `readFlag` / `appendFlag` / `readHistory`. See `unix.rs` for what changed
+//! in the port (dirfd-anchored operations instead of path-based TOCTOU) and
+//! what was kept verbatim (the 64-byte cap, whitelist-after-read, 0600 perms,
+//! silent-fail-by-`Result`-discard contract).
+//!
+//! Every function here returns a `Result` rather than swallowing errors
+//! internally, unlike the original. Hook call sites are expected to discard
+//! it (`.ok()`) to preserve the "a hook always exits 0" contract — but
+//! keeping the `Result` here means this crate's own test suite can assert on
+//! *why* an operation was refused, which is exactly the coverage gap noted
+//! in the archive (`detectMatch`, checksum verification, and friends had zero
+//! tests despite deciding what runs on a user's machine).
+
+mod error;
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+mod windows;
+
+pub use error::{Result, SafeIoError};
+
+/// Hard cap on a flag file's size. The longest legitimate value in the
+/// built-in caveman pack is `"wenyan-ultra"` (12 bytes); 64 leaves slack
+/// without opening an exfiltration channel through an oversized flag file.
+pub const MAX_FLAG_BYTES: usize = 64;
+
+#[cfg(unix)]
+use unix as imp;
+#[cfg(windows)]
+use windows as imp;
+
+use std::path::{Path, PathBuf};
+
+/// Best-effort home directory resolution, used for path defaults (the
+/// `$CLAUDE_CONFIG_DIR` fallback, etc.) and by the Windows backend's
+/// "symlink target must stay under home" check. Deliberately minimal — no
+/// dependency on the `dirs`/`home` crates for two environment variable reads.
+pub fn home_dir() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+}
+
+/// Write `content` to `flag_path` atomically and symlink-safely: verifies
+/// (and, if the parent is itself a legitimately symlinked directory,
+/// resolves and ownership-checks) the parent, refuses if the destination is
+/// currently a symlink, writes to a temp file with 0600 permissions, then
+/// renames into place.
+pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
+    imp::write_flag_atomic(flag_path, content)
+}
+
+/// Read a flag file, symlink-safely and size-capped, and validate the
+/// trimmed/lowercased content against `valid`. Returns `None` on any
+/// anomaly — missing file, symlink, oversized, or not on the whitelist —
+/// exactly mirroring the original's "return null on any anomaly" contract,
+/// because callers (statusline, reinforcement) must never surface a raw
+/// value that wasn't validated.
+pub fn read_flag(flag_path: &Path, valid: &[&str]) -> Option<String> {
+    let raw = imp::read_flag_raw(flag_path, MAX_FLAG_BYTES).ok()?;
+    let candidate = raw.trim().to_lowercase();
+    if valid.iter().any(|v| *v == candidate) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+/// Append `line` to `path`, symlink-safely, with a single trailing newline
+/// normalized regardless of what `line` already had.
+pub fn append_line(path: &Path, line: &str) -> Result<()> {
+    imp::append_line(path, line)
+}
+
+/// Read a log/history file symlink-safely, split into non-blank lines. No
+/// size cap — history is expected to grow with use, matching the original.
+/// Returns an empty vec on any anomaly rather than propagating an error,
+/// since a missing history file is normal (first run) rather than exceptional.
+pub fn read_lines(path: &Path) -> Vec<String> {
+    imp::read_lines(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    use tempfile::tempdir;
+
+    const MODES: &[&str] = &[
+        "off", "lite", "full", "ultra", "wenyan-lite", "wenyan", "wenyan-full", "wenyan-ultra",
+        "commit", "review", "compress",
+    ];
+
+    #[test]
+    fn writes_flag_in_normal_directory() {
+        let tmp = tempdir().unwrap();
+        let flag_dir = tmp.path().join("claude-config");
+        let flag_path = flag_dir.join(".caveman-active");
+
+        write_flag_atomic(&flag_path, "full").unwrap();
+        assert_eq!(std::fs::read_to_string(&flag_path).unwrap(), "full");
+    }
+
+    #[test]
+    fn writes_flag_when_parent_is_symlink_owned_by_current_user() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-claude-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("claude-symlink");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        let flag_path = symlink_dir.join(".caveman-active");
+        write_flag_atomic(&flag_path, "ultra").unwrap();
+
+        let real_flag_path = real_dir.join(".caveman-active");
+        assert_eq!(std::fs::read_to_string(&real_flag_path).unwrap(), "ultra");
+    }
+
+    #[test]
+    fn read_flag_works_through_symlinked_parent() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-claude-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("claude-symlink");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        std::fs::write(real_dir.join(".caveman-active"), "lite").unwrap();
+
+        let result = read_flag(&symlink_dir.join(".caveman-active"), MODES);
+        assert_eq!(result.as_deref(), Some("lite"));
+    }
+
+    #[test]
+    fn write_then_read_round_trips_through_symlink() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("link-config");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        let flag_path = symlink_dir.join(".caveman-active");
+        write_flag_atomic(&flag_path, "wenyan-ultra").unwrap();
+
+        assert_eq!(read_flag(&flag_path, MODES).as_deref(), Some("wenyan-ultra"));
+    }
+
+    #[test]
+    fn refuses_flag_file_that_is_itself_a_symlink() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("link-config");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        let decoy = tmp.path().join("decoy.txt");
+        std::fs::write(&decoy, "ATTACK").unwrap();
+        let real_flag_path = real_dir.join(".caveman-active");
+        symlink(&decoy, &real_flag_path).unwrap();
+
+        let result = write_flag_atomic(&symlink_dir.join(".caveman-active"), "full");
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&decoy).unwrap(), "ATTACK");
+    }
+
+    #[test]
+    fn read_flag_refuses_symlinked_flag_file() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+
+        let secret = tmp.path().join("secret.txt");
+        std::fs::write(&secret, "SSH_PRIVATE_KEY_CONTENT").unwrap();
+        symlink(&secret, real_dir.join(".caveman-active")).unwrap();
+
+        let result = read_flag(&real_dir.join(".caveman-active"), MODES);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn flag_file_permissions_are_0600_through_symlink() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("link-config");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        write_flag_atomic(&symlink_dir.join(".caveman-active"), "full").unwrap();
+
+        let mode = std::fs::metadata(real_dir.join(".caveman-active"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn overwrites_existing_flag_through_symlinked_parent() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("link-config");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        let flag_path = symlink_dir.join(".caveman-active");
+        write_flag_atomic(&flag_path, "lite").unwrap();
+        assert_eq!(read_flag(&flag_path, MODES).as_deref(), Some("lite"));
+
+        write_flag_atomic(&flag_path, "ultra").unwrap();
+        assert_eq!(read_flag(&flag_path, MODES).as_deref(), Some("ultra"));
+    }
+
+    #[test]
+    fn creates_parent_directory_when_missing() {
+        let tmp = tempdir().unwrap();
+        let flag_path = tmp.path().join("nonexistent").join("nested").join(".caveman-active");
+
+        write_flag_atomic(&flag_path, "full").unwrap();
+        assert!(flag_path.exists());
+        assert_eq!(std::fs::read_to_string(&flag_path).unwrap(), "full");
+    }
+
+    #[test]
+    fn symlink_to_nonexistent_target_fails_without_panicking() {
+        let tmp = tempdir().unwrap();
+        let symlink_dir = tmp.path().join("broken-link");
+        if symlink("/nonexistent/path/that/does/not/exist", &symlink_dir).is_err() {
+            return; // couldn't create the symlink; nothing to assert
+        }
+
+        let flag_path = symlink_dir.join(".caveman-active");
+        let result = write_flag_atomic(&flag_path, "full");
+        assert!(result.is_err());
+        assert!(!flag_path.exists());
+    }
+
+    #[test]
+    fn all_valid_modes_round_trip_through_symlinked_parent() {
+        let tmp = tempdir().unwrap();
+        let real_dir = tmp.path().join("real-config");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let symlink_dir = tmp.path().join("link-config");
+        symlink(&real_dir, &symlink_dir).unwrap();
+
+        let flag_path = symlink_dir.join(".caveman-active");
+        for mode in MODES {
+            write_flag_atomic(&flag_path, mode).unwrap();
+            assert_eq!(read_flag(&flag_path, MODES).as_deref(), Some(*mode));
+        }
+    }
+
+    #[test]
+    fn refuses_symlinked_parent_owned_by_a_different_uid_is_untestable_here() {
+        // A genuine cross-uid test needs a container/CI job that can create a
+        // second user; see AGENTS.md / the plan's testing section. Left as a
+        // documented gap rather than a fake positive.
+    }
+
+    #[test]
+    fn read_flag_rejects_oversized_content() {
+        let tmp = tempdir().unwrap();
+        let flag_path = tmp.path().join(".caveman-active");
+        std::fs::write(&flag_path, "x".repeat(MAX_FLAG_BYTES + 1)).unwrap();
+
+        assert_eq!(read_flag(&flag_path, MODES), None);
+    }
+
+    #[test]
+    fn read_flag_rejects_non_whitelisted_value() {
+        let tmp = tempdir().unwrap();
+        let flag_path = tmp.path().join(".caveman-active");
+        std::fs::write(&flag_path, "not-a-real-mode").unwrap();
+
+        assert_eq!(read_flag(&flag_path, MODES), None);
+    }
+
+    #[test]
+    fn append_line_writes_and_appends_with_single_trailing_newline() {
+        let tmp = tempdir().unwrap();
+        let log_path = tmp.path().join(".caveman-mode-log.jsonl");
+
+        append_line(&log_path, r#"{"mode":"full"}"#).unwrap();
+        // A trailing newline already present must not become two.
+        append_line(&log_path, "{\"mode\":\"ultra\"}\n").unwrap();
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert_eq!(content, "{\"mode\":\"full\"}\n{\"mode\":\"ultra\"}\n");
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], r#"{"mode":"full"}"#);
+    }
+
+    #[test]
+    fn concurrent_appends_yield_well_formed_lines() {
+        let tmp = tempdir().unwrap();
+        let log_path = tmp.path().join(".caveman-mode-log.jsonl");
+        std::fs::create_dir_all(tmp.path()).unwrap();
+
+        let handles: Vec<_> = (0..16)
+            .map(|i| {
+                let path = log_path.clone();
+                std::thread::spawn(move || {
+                    append_line(&path, &format!(r#"{{"n":{i}}}"#)).unwrap();
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 16);
+        for line in lines {
+            assert!(line.starts_with('{') && line.ends_with('}'));
+        }
+    }
+
+    #[test]
+    fn read_lines_refuses_symlinked_file() {
+        let tmp = tempdir().unwrap();
+        let secret = tmp.path().join("secret.txt");
+        std::fs::write(&secret, "line1\nline2\n").unwrap();
+        let link = tmp.path().join("history.jsonl");
+        symlink(&secret, &link).unwrap();
+
+        assert_eq!(read_lines(&link), Vec::<String>::new());
+    }
+
+    #[test]
+    fn read_lines_filters_blank_lines() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("history.jsonl");
+        std::fs::write(&path, "a\n\nb\n\n\nc\n").unwrap();
+
+        assert_eq!(read_lines(&path), vec!["a", "b", "c"]);
+    }
+}

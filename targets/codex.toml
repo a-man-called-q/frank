@@ -1,0 +1,40 @@
+# Codex CLI.
+#
+# HONESTY NOTE: the archive's own repo ships a `.codex/config.toml` +
+# `.codex/hooks.json` (`archive/.codex/`), but that pair is a dogfooding
+# artifact for editing the *caveman* repo itself in Codex — it is never
+# referenced by `bin/install.js`, and the archive's own INSTALL.md
+# documents Codex support exclusively via `npx skills add ... -a codex`
+# (a registry Frank isn't published to). Neither path is something this
+# project has verified against a real Codex install.
+#
+# What IS well-established, independent of the archive: `AGENTS.md` is a
+# broadly recognized cross-agent convention that Codex reads. This target
+# uses that — static content only (no live level-switching, since there's
+# no confirmed hook mechanism to wire up). See AGENTS.md's Antigravity
+# section for the identical shape of this tradeoff.
+#
+# `verified = false` until someone confirms this against a real Codex CLI
+# session. Remove this comment and flip the flag when that happens.
+
+schema = 1
+
+[target]
+id = "codex"
+label = "Codex CLI"
+kind = "generic"
+verified = false
+soft = true
+
+[[detect]]
+command = "codex"
+
+[install]
+strategy = "markdown-block"
+
+[install.markdown]
+path = "./AGENTS.md"
+begin = "<!-- frank:begin caveman -->"
+end = "<!-- frank:end caveman -->"
+body = "pack:static_digest"
+create_if_missing = true

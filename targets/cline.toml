@@ -1,0 +1,41 @@
+# Cline (VS Code extension).
+#
+# The file path (`.clinerules/caveman.md`, "replace" mode) is ported
+# directly from the archive's own verified mechanism —
+# `archive/src/tools/caveman-init.js`'s AGENTS table. We use the
+# marker-fenced block strategy instead of a full-file replace: a strict
+# superset of the archive's behavior on a dedicated file, and it survives
+# gracefully if a user ever adds their own content to this file too.
+#
+# `verified = false` for the *detection* clause specifically: caveman-init
+# writes this file unconditionally when run, rather than detecting Cline
+# first — the archive's actual Cline detection lived in `bin/install.js`'s
+# PROVIDERS array as a `vscode-ext:` probe, and this manifest's `dir`
+# probe below is a reasonable guess, not a port of confirmed code. Fix
+# once verified against a real Cline install; the file-write path is
+# solid regardless.
+#
+# Static content only, same limitation as codex.toml: no hook mechanism
+# confirmed for Cline, so no live level-switching.
+
+schema = 1
+
+[target]
+id = "cline"
+label = "Cline"
+kind = "generic"
+verified = false
+soft = true
+
+[[detect]]
+dir = "$HOME/.cline"
+
+[install]
+strategy = "markdown-block"
+
+[install.markdown]
+path = "./.clinerules/frank.md"
+begin = "<!-- frank:begin caveman -->"
+end = "<!-- frank:end caveman -->"
+body = "pack:static_digest"
+create_if_missing = true

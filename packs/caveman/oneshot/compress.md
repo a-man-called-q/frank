@@ -1,0 +1,1 @@
+Rewrite the given prose into caveman style. Never touch code fences, inline code, URLs, file paths, or headings — copy them byte-for-byte. Cut filler, hedging, pleasantries, and redundant articles. Preserve every fact.

@@ -1,0 +1,312 @@
+{
+  "bench/hook-latency.sh": {
+    "mtime": 1785585318.7296982,
+    "ast_hash": "4b29eef65b9577e727eb5be9877d9574",
+    "semantic_hash": "4b29eef65b9577e727eb5be9877d9574"
+  },
+  "crates/frank-cli/src/commands.rs": {
+    "mtime": 1785585460.375799,
+    "ast_hash": "f4f6a091f6e244309ba1006c0e3c0045",
+    "semantic_hash": "f4f6a091f6e244309ba1006c0e3c0045"
+  },
+  "crates/frank-cli/src/compress_cmd.rs": {
+    "mtime": 1785585460.380478,
+    "ast_hash": "8f0d77cbf1b9ae71c6afbba1c81fa670",
+    "semantic_hash": "8f0d77cbf1b9ae71c6afbba1c81fa670"
+  },
+  "crates/frank-cli/src/flag.rs": {
+    "mtime": 1785556944.7426853,
+    "ast_hash": "a96832a9f440acb0cfa3a3c5c2104052",
+    "semantic_hash": "a96832a9f440acb0cfa3a3c5c2104052"
+  },
+  "crates/frank-cli/src/hook.rs": {
+    "mtime": 1785585011.2293935,
+    "ast_hash": "157383eea89fce05aec1d062a7e5ea23",
+    "semantic_hash": "157383eea89fce05aec1d062a7e5ea23"
+  },
+  "crates/frank-cli/src/main.rs": {
+    "mtime": 1785585460.3822124,
+    "ast_hash": "eb8a804c80e4c2eabfa35df6ede01a4c",
+    "semantic_hash": "eb8a804c80e4c2eabfa35df6ede01a4c"
+  },
+  "crates/frank-cli/src/pack.rs": {
+    "mtime": 1785585460.3747115,
+    "ast_hash": "508b464db6e7b1945e039bcfb1dc30d0",
+    "semantic_hash": "508b464db6e7b1945e039bcfb1dc30d0"
+  },
+  "crates/frank-cli/src/stats.rs": {
+    "mtime": 1785585460.378054,
+    "ast_hash": "ebf666465fb4807ff0f2f5b20b389f98",
+    "semantic_hash": "ebf666465fb4807ff0f2f5b20b389f98"
+  },
+  "crates/frank-cli/src/targets_cmd.rs": {
+    "mtime": 1785585460.3847752,
+    "ast_hash": "d48b7394c0111a8b921d37894615dfa4",
+    "semantic_hash": "d48b7394c0111a8b921d37894615dfa4"
+  },
+  "crates/frank-compress/src/backup.rs": {
+    "mtime": 1785568429.2534769,
+    "ast_hash": "9b86b4a2ae7da9b5dc9b693625d98577",
+    "semantic_hash": "9b86b4a2ae7da9b5dc9b693625d98577"
+  },
+  "crates/frank-compress/src/classify.rs": {
+    "mtime": 1785568357.3081825,
+    "ast_hash": "ffae70aab53af091228ac8f084b8b2c0",
+    "semantic_hash": "ffae70aab53af091228ac8f084b8b2c0"
+  },
+  "crates/frank-compress/src/classify_tests.rs": {
+    "mtime": 1785568033.041968,
+    "ast_hash": "ef89c0add329406f3d1019f24ef67571",
+    "semantic_hash": "ef89c0add329406f3d1019f24ef67571"
+  },
+  "crates/frank-compress/src/frontmatter.rs": {
+    "mtime": 1785568435.745457,
+    "ast_hash": "1a413e8b45af3959ad5814733cdc83b4",
+    "semantic_hash": "1a413e8b45af3959ad5814733cdc83b4"
+  },
+  "crates/frank-compress/src/lib.rs": {
+    "mtime": 1785568444.8793118,
+    "ast_hash": "c87a60e1ebe006c75b475ecd2e54c324",
+    "semantic_hash": "c87a60e1ebe006c75b475ecd2e54c324"
+  },
+  "crates/frank-compress/src/rules.rs": {
+    "mtime": 1785585754.0526729,
+    "ast_hash": "f7da11119c46aecd02fd0b2765d7649a",
+    "semantic_hash": "f7da11119c46aecd02fd0b2765d7649a"
+  },
+  "crates/frank-compress/src/rules_tests.rs": {
+    "mtime": 1785568300.3314707,
+    "ast_hash": "81428dc071f872df35636308ffbf9990",
+    "semantic_hash": "81428dc071f872df35636308ffbf9990"
+  },
+  "crates/frank-compress/src/safety_tests.rs": {
+    "mtime": 1785568459.4565623,
+    "ast_hash": "3f9a998ea92554c9016c53ecb7aba83c",
+    "semantic_hash": "3f9a998ea92554c9016c53ecb7aba83c"
+  },
+  "crates/frank-compress/src/sensitive.rs": {
+    "mtime": 1785568419.8471432,
+    "ast_hash": "eb50387b6311e3a9cf25bc6029e79fea",
+    "semantic_hash": "eb50387b6311e3a9cf25bc6029e79fea"
+  },
+  "crates/frank-compress/src/validate.rs": {
+    "mtime": 1785568361.2533474,
+    "ast_hash": "13df4653ad9a98f13b91a7b33d536d10",
+    "semantic_hash": "13df4653ad9a98f13b91a7b33d536d10"
+  },
+  "crates/frank-compress/src/validate_tests.rs": {
+    "mtime": 1785568049.6689286,
+    "ast_hash": "b5641028795a5bb2b99b2f506dba911a",
+    "semantic_hash": "b5641028795a5bb2b99b2f506dba911a"
+  },
+  "crates/frank-compress/tests/differential_compress.rs": {
+    "mtime": 1785585460.385379,
+    "ast_hash": "db9d47d5cdd5700afcd0a80ae324cd63",
+    "semantic_hash": "db9d47d5cdd5700afcd0a80ae324cd63"
+  },
+  "crates/frank-compress/tests/fixtures/caveman-shrink-compress.js": {
+    "mtime": 1785553164.895167,
+    "ast_hash": "47c672d072d39cd1eb6366fe90291c12",
+    "semantic_hash": "47c672d072d39cd1eb6366fe90291c12"
+  },
+  "crates/frank-compress/tests/fixtures/run_js_compress.js": {
+    "mtime": 1785585295.719772,
+    "ast_hash": "bc80815a66aa4b2fc142971c0ca1c4e9",
+    "semantic_hash": "bc80815a66aa4b2fc142971c0ca1c4e9"
+  },
+  "crates/frank-ledger/src/attribution.rs": {
+    "mtime": 1785562164.1212037,
+    "ast_hash": "dd55f61f9e0731e85c65b1b0f45ec95a",
+    "semantic_hash": "dd55f61f9e0731e85c65b1b0f45ec95a"
+  },
+  "crates/frank-ledger/src/attribution_tests.rs": {
+    "mtime": 1785562332.446932,
+    "ast_hash": "19175d9a6abc5322b3e5385204d30daf",
+    "semantic_hash": "19175d9a6abc5322b3e5385204d30daf"
+  },
+  "crates/frank-ledger/src/injection_ledger.rs": {
+    "mtime": 1785562195.3063178,
+    "ast_hash": "a00bb6c378f8cd0c10ba869fc13af7b7",
+    "semantic_hash": "a00bb6c378f8cd0c10ba869fc13af7b7"
+  },
+  "crates/frank-ledger/src/lib.rs": {
+    "mtime": 1785562314.5977967,
+    "ast_hash": "8dbb75850deb2eacd1279d542424843c",
+    "semantic_hash": "8dbb75850deb2eacd1279d542424843c"
+  },
+  "crates/frank-ledger/src/mode_log.rs": {
+    "mtime": 1785562147.0653932,
+    "ast_hash": "7ce4749ef85f3e8f6af31a7d32f988c7",
+    "semantic_hash": "7ce4749ef85f3e8f6af31a7d32f988c7"
+  },
+  "crates/frank-ledger/src/pricing.rs": {
+    "mtime": 1785562170.612934,
+    "ast_hash": "51211e1a22d42ddb6d55e9be705d2b40",
+    "semantic_hash": "51211e1a22d42ddb6d55e9be705d2b40"
+  },
+  "crates/frank-ledger/src/session.rs": {
+    "mtime": 1785562382.6927416,
+    "ast_hash": "9e3c306bda1fcb89f009970a9dee15d0",
+    "semantic_hash": "9e3c306bda1fcb89f009970a9dee15d0"
+  },
+  "crates/frank-ledger/src/session_tests.rs": {
+    "mtime": 1785562386.0507467,
+    "ast_hash": "269cff58c945080b2c8619e99bac1532",
+    "semantic_hash": "269cff58c945080b2c8619e99bac1532"
+  },
+  "crates/frank-ledger/src/stats.rs": {
+    "mtime": 1785567605.726814,
+    "ast_hash": "04803deed5f79a7ca4f7d119515a5f91",
+    "semantic_hash": "04803deed5f79a7ca4f7d119515a5f91"
+  },
+  "crates/frank-ledger/src/stats_tests.rs": {
+    "mtime": 1785567632.289982,
+    "ast_hash": "0e14282ffb6662462609fc6ab6d428ad",
+    "semantic_hash": "0e14282ffb6662462609fc6ab6d428ad"
+  },
+  "crates/frank-mcp/src/lib.rs": {
+    "mtime": 1785585754.2521517,
+    "ast_hash": "c706be9a8a5f8626557d132db68377b5",
+    "semantic_hash": "c706be9a8a5f8626557d132db68377b5"
+  },
+  "crates/frank-mcp/src/proxy.rs": {
+    "mtime": 1785585754.3499382,
+    "ast_hash": "ec9a455278894b5842bd946745cad465",
+    "semantic_hash": "ec9a455278894b5842bd946745cad465"
+  },
+  "crates/frank-mcp/src/transform.rs": {
+    "mtime": 1785585754.153894,
+    "ast_hash": "bfba606fe77562296828d9c055b80dce",
+    "semantic_hash": "bfba606fe77562296828d9c055b80dce"
+  },
+  "crates/frank-pack/src/compiler.rs": {
+    "mtime": 1785585460.3637269,
+    "ast_hash": "c1fc6aa943c1f79d3535f8f1223f347a",
+    "semantic_hash": "c1fc6aa943c1f79d3535f8f1223f347a"
+  },
+  "crates/frank-pack/src/error.rs": {
+    "mtime": 1785585403.4779105,
+    "ast_hash": "58cabea96e69c62591cbaa2e818957bf",
+    "semantic_hash": "58cabea96e69c62591cbaa2e818957bf"
+  },
+  "crates/frank-pack/src/lib.rs": {
+    "mtime": 1785585460.3698833,
+    "ast_hash": "7492eefc82d64ff1d0f9eed1d94f44d5",
+    "semantic_hash": "7492eefc82d64ff1d0f9eed1d94f44d5"
+  },
+  "crates/frank-pack/src/manifest.rs": {
+    "mtime": 1785556481.3304431,
+    "ast_hash": "4a4a1aa1cc27b24a850af7b645165f57",
+    "semantic_hash": "4a4a1aa1cc27b24a850af7b645165f57"
+  },
+  "crates/frank-pack/src/store.rs": {
+    "mtime": 1785585650.4458659,
+    "ast_hash": "bb3fcb8814642eaba70e1f27eba4a65f",
+    "semantic_hash": "bb3fcb8814642eaba70e1f27eba4a65f"
+  },
+  "crates/frank-safeio/src/error.rs": {
+    "mtime": 1785556375.4194033,
+    "ast_hash": "dc3165f93ee47255f7666385243d93a4",
+    "semantic_hash": "dc3165f93ee47255f7666385243d93a4"
+  },
+  "crates/frank-safeio/src/lib.rs": {
+    "mtime": 1785556924.4459205,
+    "ast_hash": "6bb030544bd53455a4f959b2996a755b",
+    "semantic_hash": "6bb030544bd53455a4f959b2996a755b"
+  },
+  "crates/frank-safeio/src/unix.rs": {
+    "mtime": 1785557655.110142,
+    "ast_hash": "b7cf43fb92d8c03429c7c9936db50c05",
+    "semantic_hash": "b7cf43fb92d8c03429c7c9936db50c05"
+  },
+  "crates/frank-safeio/src/windows.rs": {
+    "mtime": 1785556930.4172382,
+    "ast_hash": "504bc8a523f2423bd2550089d0dca059",
+    "semantic_hash": "504bc8a523f2423bd2550089d0dca059"
+  },
+  "crates/frank-state/src/config.rs": {
+    "mtime": 1785557942.258308,
+    "ast_hash": "3b067925412e4810ad3322c68af42964",
+    "semantic_hash": "3b067925412e4810ad3322c68af42964"
+  },
+  "crates/frank-state/src/engine.rs": {
+    "mtime": 1785557987.033131,
+    "ast_hash": "c67c42e470de5e6f3a921ddfe4ba1461",
+    "semantic_hash": "c67c42e470de5e6f3a921ddfe4ba1461"
+  },
+  "crates/frank-state/src/intent.rs": {
+    "mtime": 1785558060.4965327,
+    "ast_hash": "846f58f890888bccf154f70f85fadf2d",
+    "semantic_hash": "846f58f890888bccf154f70f85fadf2d"
+  },
+  "crates/frank-state/src/lib.rs": {
+    "mtime": 1785558146.6153004,
+    "ast_hash": "f0ed95ebc06a46b23a448373ee642790",
+    "semantic_hash": "f0ed95ebc06a46b23a448373ee642790"
+  },
+  "crates/frank-target/src/claude_code.rs": {
+    "mtime": 1785561808.6717322,
+    "ast_hash": "db7c71a3cf38a2924d2348af48c3db21",
+    "semantic_hash": "db7c71a3cf38a2924d2348af48c3db21"
+  },
+  "crates/frank-target/src/detect.rs": {
+    "mtime": 1785568881.4333966,
+    "ast_hash": "f4eebbda38189f7b12a621fe7104b905",
+    "semantic_hash": "f4eebbda38189f7b12a621fe7104b905"
+  },
+  "crates/frank-target/src/generic.rs": {
+    "mtime": 1785569080.1758075,
+    "ast_hash": "6720e9167acb20c7cb4c7c844b6dc5ba",
+    "semantic_hash": "6720e9167acb20c7cb4c7c844b6dc5ba"
+  },
+  "crates/frank-target/src/lib.rs": {
+    "mtime": 1785569152.4209611,
+    "ast_hash": "569cd3f234996aadcfdcf1563b30cc5c",
+    "semantic_hash": "569cd3f234996aadcfdcf1563b30cc5c"
+  },
+  "crates/frank-target/src/manifest.rs": {
+    "mtime": 1785568839.328575,
+    "ast_hash": "1ed3dc2dc7b140f3a3bf04f2104c8246",
+    "semantic_hash": "1ed3dc2dc7b140f3a3bf04f2104c8246"
+  },
+  "crates/frank-target/src/manifest_tests.rs": {
+    "mtime": 1785569148.5189672,
+    "ast_hash": "758c74e33dbda13955ecfabe7d698daf",
+    "semantic_hash": "758c74e33dbda13955ecfabe7d698daf"
+  },
+  "crates/frank-target/src/markdown_block.rs": {
+    "mtime": 1785568951.1915622,
+    "ast_hash": "87cd97bea6dabdaf9729747c67ca9d31",
+    "semantic_hash": "87cd97bea6dabdaf9729747c67ca9d31"
+  },
+  "crates/frank-target/src/plan.rs": {
+    "mtime": 1785569055.6302602,
+    "ast_hash": "ba91bb760409a5dafaac247632e1e696",
+    "semantic_hash": "ba91bb760409a5dafaac247632e1e696"
+  },
+  "crates/frank-target/src/settings.rs": {
+    "mtime": 1785561823.5042045,
+    "ast_hash": "8e5f3d2a70a37324e8e4132b7535289e",
+    "semantic_hash": "8e5f3d2a70a37324e8e4132b7535289e"
+  },
+  "crates/frank-target/src/settings_tests.rs": {
+    "mtime": 1785561860.053131,
+    "ast_hash": "3a2e9fbf6652bbe488d291f0d0381708",
+    "semantic_hash": "3a2e9fbf6652bbe488d291f0d0381708"
+  },
+  "crates/frank-target/tests/claude_code_roundtrip.rs": {
+    "mtime": 1785569102.9585493,
+    "ast_hash": "5c2e4d2e36d52c3857408170feaf8cc5",
+    "semantic_hash": "5c2e4d2e36d52c3857408170feaf8cc5"
+  },
+  "packs/caveman/compiled.rs": {
+    "mtime": 1785585700.2476144,
+    "ast_hash": "034f3397ebb565037fffa34f3b1b38fa",
+    "semantic_hash": "034f3397ebb565037fffa34f3b1b38fa"
+  },
+  "xtask/src/main.rs": {
+    "mtime": 1785585208.381746,
+    "ast_hash": "fb3d825a7463e790e72bf1289cf7b03b",
+    "semantic_hash": "fb3d825a7463e790e72bf1289cf7b03b"
+  }
+}
