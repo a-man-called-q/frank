@@ -13,7 +13,9 @@ mod tests {
 
     #[test]
     fn drops_filler_and_pleasantries() {
-        let out = compress("Sure, this just basically returns the value").compressed.to_lowercase();
+        let out = compress("Sure, this just basically returns the value")
+            .compressed
+            .to_lowercase();
         assert!(!out.contains("sure"));
         assert!(!out.contains("just"));
         assert!(!out.contains("basically"));
@@ -69,7 +71,12 @@ mod tests {
             Returns the temperature in Fahrenheit. \
             Please make sure to provide the location as a city name.";
         let result = compress(input);
-        assert!(result.after < result.before, "{} -> {}", result.before, result.after);
+        assert!(
+            result.after < result.before,
+            "{} -> {}",
+            result.before,
+            result.after
+        );
         let reduction = (result.before - result.after) as f64 / result.before as f64;
         assert!(reduction > 0.15, "wanted >15% savings, got {reduction}");
         let lower = result.compressed.to_lowercase();
@@ -110,13 +117,22 @@ mod tests {
         // `/gi` matches any letter, not just lowercase. Verified directly
         // against the archive: `compress("The API returned an error")` →
         // `"API returned error"`. See rules.rs's `strip_articles` doc.
-        assert_eq!(compress("The API returned an error").compressed, "API returned error");
+        assert_eq!(
+            compress("The API returned an error").compressed,
+            "API returned error"
+        );
     }
 
     #[test]
     fn articles_survive_before_a_non_letter() {
-        assert_eq!(compress("a 5-minute task remains").compressed, "A 5-minute task remains");
-        assert_eq!(compress("an $100 fee applies").compressed, "An $100 fee applies");
+        assert_eq!(
+            compress("a 5-minute task remains").compressed,
+            "A 5-minute task remains"
+        );
+        assert_eq!(
+            compress("an $100 fee applies").compressed,
+            "An $100 fee applies"
+        );
     }
 
     #[test]
@@ -138,7 +154,11 @@ mod tests {
         for input in inputs {
             let out = compress(input).compressed;
             let result = validate(input, &out);
-            assert!(result.is_valid(), "input {input:?} -> {out:?} failed: {:?}", result.findings);
+            assert!(
+                result.is_valid(),
+                "input {input:?} -> {out:?} failed: {:?}",
+                result.findings
+            );
         }
     }
 
@@ -159,6 +179,13 @@ mod tests {
         #[test]
         fn compress_never_panics_on_arbitrary_utf8_ish_input(s in ".{0,200}") {
             let _ = compress(&s);
+        }
+
+        #[test]
+        fn compression_is_idempotent_for_prose(s in "[a-zA-Z ,.?!`_]{0,200}") {
+            let once = compress(&s).compressed;
+            let twice = compress(&once).compressed;
+            proptest::prop_assert_eq!(once, twice);
         }
     }
 }

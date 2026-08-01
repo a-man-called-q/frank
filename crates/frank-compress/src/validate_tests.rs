@@ -24,7 +24,10 @@ mod tests {
         let orig = "```\na\n```\ntext\n```\nb\n```\n";
         let comp = "```\nb\n```\ntext\n```\na\n```\n";
         let r = validate(orig, comp);
-        assert!(!r.is_valid(), "swapping block order must be an error even though the set of blocks is the same");
+        assert!(
+            !r.is_valid(),
+            "swapping block order must be an error even though the set of blocks is the same"
+        );
     }
 
     #[test]
@@ -65,7 +68,10 @@ mod tests {
 
         let comp_reworded = "# One Reworded\n\n## Two\n";
         let r2 = validate(orig, comp_reworded);
-        assert!(r2.is_valid(), "heading text change alone must not be an error");
+        assert!(
+            r2.is_valid(),
+            "heading text change alone must not be an error"
+        );
         assert!(r2.warnings().any(|f| f.message.contains("Heading text")));
     }
 
@@ -86,7 +92,10 @@ mod tests {
         let comp = "Plain text with `new_code` added.";
         let r = validate(orig, comp);
         assert!(r.is_valid());
-        assert!(r.warnings().any(|f| f.message.contains("Inline code added")));
+        assert!(
+            r.warnings()
+                .any(|f| f.message.contains("Inline code added"))
+        );
     }
 
     #[test]
@@ -103,7 +112,9 @@ mod tests {
         let orig = "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h\n- i\n- j\n";
         let comp = "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h\n- i\n";
         let r = validate(orig, comp);
-        assert!(r.warnings().next().is_none() || !r.warnings().any(|f| f.message.contains("Bullet")));
+        assert!(
+            r.warnings().next().is_none() || !r.warnings().any(|f| f.message.contains("Bullet"))
+        );
     }
 
     #[test]
@@ -111,6 +122,9 @@ mod tests {
         let orig = "- a\n- b\n- c\n- d\n- e\n- f\n- g\n- h\n- i\n- j\n";
         let comp = "- a\n- b\n";
         let r = validate(orig, comp);
-        assert!(r.warnings().any(|f| f.message.contains("Bullet count changed too much")));
+        assert!(
+            r.warnings()
+                .any(|f| f.message.contains("Bullet count changed too much"))
+        );
     }
 }

@@ -1,0 +1,20 @@
+$schema: 'https://moonrepo.dev/schemas/tasks.json'
+
+taskOptions:
+  retryCount: 0
+
+inheritedBy:
+  toolchains: ['rust']
+
+tasks:
+  format:
+    command: 'cargo fmt --all -- --check'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/crates/**/*.rs'
+      - '/xtask/**/*.rs'
+      - '/apps/**/*.rs'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false

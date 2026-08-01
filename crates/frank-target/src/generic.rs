@@ -17,7 +17,7 @@ pub fn build_install_plan(
     ctx: &InstallCtx,
     resolve_body: impl Fn(&str) -> Option<String>,
 ) -> InstallPlan {
-    let mut plan = InstallPlan::new(manifest.target.id.clone());
+    let mut plan = InstallPlan::scoped(manifest.target.id.clone(), ctx.scope_roots());
 
     match &manifest.install {
         InstallSpec::Spawn { steps, .. } => {
@@ -58,13 +58,18 @@ pub fn build_install_plan(
                     owned_marker: h.owned_marker.clone(),
                 })
                 .collect();
-            plan.push(Action::MergeSettingsHooks { settings_path: path, add: hooks });
+            plan.push(Action::MergeSettingsHooks {
+                settings_path: path,
+                add: hooks,
+            });
         }
         InstallSpec::Files { .. } => {
             // No concrete manifest needs this yet — the `files` strategy
             // is schema-complete but not wired to an executor. Reporting
             // a clear no-op beats silently doing nothing.
-            plan.push(Action::Noop { reason: "'files' install strategy not yet implemented".to_string() });
+            plan.push(Action::Noop {
+                reason: "'files' install strategy not yet implemented".to_string(),
+            });
         }
     }
 
@@ -72,7 +77,7 @@ pub fn build_install_plan(
 }
 
 pub fn build_uninstall_plan(manifest: &TargetManifest, ctx: &InstallCtx) -> InstallPlan {
-    let mut plan = InstallPlan::new(manifest.target.id.clone());
+    let mut plan = InstallPlan::scoped(manifest.target.id.clone(), ctx.scope_roots());
     match &manifest.install {
         InstallSpec::Spawn { uninstall, .. } => match uninstall {
             Some(step) => plan.push(Action::SpawnSteps {
@@ -125,7 +130,13 @@ mod tests {
     fn spawn_strategy_expands_frank_bin_template() {
         let manifest = TargetManifest {
             schema: 1,
-            target: TargetMeta { id: "x".into(), label: "X".into(), kind: "generic".into(), verified: true, soft: false },
+            target: TargetMeta {
+                id: "x".into(),
+                label: "X".into(),
+                kind: "generic".into(),
+                verified: true,
+                soft: false,
+            },
             detect: vec![],
             install: InstallSpec::Spawn {
                 steps: vec![SpawnStep {
@@ -138,7 +149,9 @@ mod tests {
             },
         };
         let plan = build_install_plan(&manifest, &ctx(), |_| None);
-        let Action::SpawnSteps { steps } = &plan.actions[0] else { panic!() };
+        let Action::SpawnSteps { steps } = &plan.actions[0] else {
+            panic!()
+        };
         assert_eq!(steps[0].args[0], "/usr/local/bin/frank");
     }
 
@@ -146,7 +159,13 @@ mod tests {
     fn markdown_block_resolves_project_relative_path() {
         let manifest = TargetManifest {
             schema: 1,
-            target: TargetMeta { id: "x".into(), label: "X".into(), kind: "generic".into(), verified: true, soft: false },
+            target: TargetMeta {
+                id: "x".into(),
+                label: "X".into(),
+                kind: "generic".into(),
+                verified: true,
+                soft: false,
+            },
             detect: vec![],
             install: InstallSpec::MarkdownBlock {
                 markdown: MarkdownBlockSpec {
@@ -158,8 +177,12 @@ mod tests {
                 },
             },
         };
-        let plan = build_install_plan(&manifest, &ctx(), |r| (r == "pack:static_digest").then(|| "hi".to_string()));
-        let Action::MarkdownBlockAppend { path, body, .. } = &plan.actions[0] else { panic!() };
+        let plan = build_install_plan(&manifest, &ctx(), |r| {
+            (r == "pack:static_digest").then(|| "hi".to_string())
+        });
+        let Action::MarkdownBlockAppend { path, body, .. } = &plan.actions[0] else {
+            panic!()
+        };
         assert_eq!(path, &PathBuf::from("/repo/AGENTS.md"));
         assert_eq!(body, "hi");
     }
@@ -168,15 +191,57 @@ mod tests {
     fn uninstall_without_a_configured_step_reports_manual_removal() {
         let manifest = TargetManifest {
             schema: 1,
-            target: TargetMeta { id: "goose".into(), label: "Goose".into(), kind: "generic".into(), verified: false, soft: false },
+            target: TargetMeta {
+                id: "goose".into(),
+                label: "Goose".into(),
+                kind: "generic".into(),
+                verified: false,
+                soft: false,
+            },
             detect: vec![],
             install: InstallSpec::Spawn {
-                steps: vec![SpawnStep { program: "npx".into(), args: vec![], win_shell: false, success: "status_zero".into() }],
+                steps: vec![SpawnStep {
+                    program: "npx".into(),
+                    args: vec![],
+                    win_shell: false,
+                    success: "status_zero".into(),
+                }],
                 uninstall: None,
             },
         };
         let plan = build_uninstall_plan(&manifest, &ctx());
-        let Action::Noop { reason } = &plan.actions[0] else { panic!() };
+        let Action::Noop { reason } = &plan.actions[0] else {
+            panic!()
+        };
         assert!(reason.contains("manually"));
+    }
+
+    #[test]
+    fn plan_scope_rejects_parent_traversal_before_apply() {
+        let manifest = TargetManifest {
+            schema: 1,
+            target: TargetMeta {
+                id: "escape".into(),
+                label: "Escape".into(),
+                kind: "generic".into(),
+                verified: true,
+                soft: false,
+            },
+            detect: vec![],
+            install: InstallSpec::MarkdownBlock {
+                markdown: MarkdownBlockSpec {
+                    path: "./../outside.md".into(),
+                    begin: "<!-- begin -->".into(),
+                    end: "<!-- end -->".into(),
+                    body: "body".into(),
+                    create_if_missing: true,
+                },
+            },
+        };
+        let plan = build_install_plan(&manifest, &ctx(), |_| Some("body".into()));
+        assert!(matches!(
+            plan.validate_scope(),
+            Err(crate::plan::ApplyError::OutOfScope(_))
+        ));
     }
 }

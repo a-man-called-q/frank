@@ -28,10 +28,14 @@ pub struct TokenBucket {
 
 impl TokenBucket {
     fn add(&mut self, t: &SessionTurn) {
-        self.output_tokens += t.output_tokens;
-        self.input_tokens += t.input_tokens;
-        self.cache_creation_input_tokens += t.cache_creation_input_tokens;
-        self.cache_read_input_tokens += t.cache_read_input_tokens;
+        self.output_tokens = self.output_tokens.saturating_add(t.output_tokens);
+        self.input_tokens = self.input_tokens.saturating_add(t.input_tokens);
+        self.cache_creation_input_tokens = self
+            .cache_creation_input_tokens
+            .saturating_add(t.cache_creation_input_tokens);
+        self.cache_read_input_tokens = self
+            .cache_read_input_tokens
+            .saturating_add(t.cache_read_input_tokens);
     }
 }
 
@@ -106,18 +110,36 @@ pub fn attribute_by_mode(
         };
     }
 
+    // `read_mode_log` already sorts rows, but this function is public and is
+    // also used directly by property/state-machine tests. Normalize here as
+    // well so a caller supplying duplicated or out-of-order events cannot
+    // make attribution depend on JSONL append order. `sort_by_key` is stable,
+    // which gives equal-timestamp rows deterministic last-write-wins behavior
+    // below without discarding evidence.
+    let mut ordered_log = mode_log.to_vec();
+    ordered_log.sort_by_key(|row| row.ts);
+
     let (events, basis, prefix_mode): (Vec<Event>, AttributionBasis, Option<Option<String>>) =
         if use_flag_mtime {
             (
-                vec![Event { ts: flag_mtime_ms.unwrap(), mode: current_mode.map(String::from) }],
+                vec![Event {
+                    ts: flag_mtime_ms.unwrap(),
+                    mode: current_mode.map(String::from),
+                }],
                 AttributionBasis::FlagMtime,
                 None,
             )
         } else {
             (
-                mode_log.iter().map(|r| Event { ts: r.ts, mode: r.mode.clone() }).collect(),
+                ordered_log
+                    .iter()
+                    .map(|r| Event {
+                        ts: r.ts,
+                        mode: r.mode.clone(),
+                    })
+                    .collect(),
                 AttributionBasis::Log,
-                Some(mode_log[0].prev.clone()),
+                Some(ordered_log[0].prev.clone()),
             )
         };
 
@@ -152,5 +174,10 @@ pub fn attribute_by_mode(
         }
     }
 
-    Attribution { by_mode, unknown, sidechain, basis }
+    Attribution {
+        by_mode,
+        unknown,
+        sidechain,
+        basis,
+    }
 }

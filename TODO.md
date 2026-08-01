@@ -63,6 +63,23 @@
 - [ ] Verify checksums match published artifacts
 - [ ] Verify installer URLs work correctly
 
+### Desktop Distribution Security (unsigned MVP)
+
+The MVP desktop artifacts are intentionally unsigned and must be labelled
+“unsigned / development build” wherever they are published. Do not describe an
+unsigned artifact as trusted or production-ready.
+
+- [ ] macOS Developer ID application signing and hardened-runtime entitlements
+- [ ] macOS notarization, stapling, and Gatekeeper clean-machine verification
+- [ ] Windows Authenticode signing (GUI, `frank.exe`, and MSI) with timestamping
+- [ ] Linux package signing and repository metadata verification for `.deb`/`.rpm`
+- [ ] minisign signatures for every archive, installer, and `SHA256SUMS`
+- [ ] Public-key pinning and signature verification in the installer/smoke test
+- [ ] Document secret storage, least-privilege CI access, and key rotation/revocation
+- [ ] Enforce signed tags and protected release branches before publishing
+- [ ] Keep auto-update disabled until signed metadata, rollback, and downgrade
+      protections are reviewed
+
 ## Implementation Gaps (Held Features)
 
 ### M6 Gaps

@@ -13,7 +13,14 @@ use regex::Regex;
 
 const SENSITIVE_PATH_COMPONENTS: &[&str] = &[".ssh", ".aws", ".gnupg", ".kube", ".docker"];
 const SENSITIVE_NAME_TOKENS: &[&str] = &[
-    "secret", "credential", "password", "passwd", "apikey", "accesskey", "token", "privatekey",
+    "secret",
+    "credential",
+    "password",
+    "passwd",
+    "apikey",
+    "accesskey",
+    "token",
+    "privatekey",
 ];
 
 fn sensitive_basename_regex() -> Regex {
@@ -40,5 +47,7 @@ pub fn is_sensitive_path(path: &Path) -> bool {
     // Normalize separators so "api-key" and "api_key" both match "apikey".
     let normalize = Regex::new(r"[_\-\s.]").unwrap();
     let normalized = normalize.replace_all(&name.to_lowercase(), "").into_owned();
-    SENSITIVE_NAME_TOKENS.iter().any(|tok| normalized.contains(tok))
+    SENSITIVE_NAME_TOKENS
+        .iter()
+        .any(|tok| normalized.contains(tok))
 }

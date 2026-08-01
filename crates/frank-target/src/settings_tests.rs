@@ -66,6 +66,25 @@ mod tests {
     }
 
     #[test]
+    fn read_settings_refuses_symlinks_directories_and_oversized_documents() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("settings.json");
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(read_settings(&path), None);
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, "x".repeat(frank_safeio::MAX_CONFIG_BYTES + 1)).unwrap();
+        assert_eq!(read_settings(&path), None);
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&path).unwrap();
+            let target = tmp.path().join("target.json");
+            write(&target, "{}\n");
+            std::os::unix::fs::symlink(&target, &path).unwrap();
+            assert_eq!(read_settings(&path), None);
+        }
+    }
+
+    #[test]
     fn write_settings_round_trips() {
         let tmp = tempdir().unwrap();
         let path = tmp.path().join("settings.json");
@@ -99,7 +118,10 @@ mod tests {
             "hooks": { "SessionStart": [ { "hooks": [ { "type": "agent", "prompt": "do the thing" } ] } ] }
         });
         validate_hook_fields(&mut v);
-        assert_eq!(v["hooks"]["SessionStart"][0]["hooks"][0]["prompt"], "do the thing");
+        assert_eq!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["prompt"],
+            "do the thing"
+        );
     }
 
     #[test]
@@ -135,6 +157,25 @@ mod tests {
         assert_eq!(v, before);
     }
 
+    #[test]
+    fn validate_hook_fields_handles_non_objects_and_empty_agent_prompts() {
+        let mut scalar = json!("not a settings object");
+        validate_hook_fields(&mut scalar);
+        assert_eq!(scalar, json!("not a settings object"));
+
+        let mut malformed = json!({
+            "hooks": ["not an object"]
+        });
+        validate_hook_fields(&mut malformed);
+        assert_eq!(malformed, json!({}));
+
+        let mut empty_agent = json!({
+            "hooks": { "SessionStart": [ { "hooks": [ { "type": "agent", "prompt": "" } ] } ] }
+        });
+        validate_hook_fields(&mut empty_agent);
+        assert_eq!(empty_agent, json!({}));
+    }
+
     fn spec(event: &str, command: &str, marker: &str) -> HookSpec {
         HookSpec {
             event: event.to_string(),
@@ -148,10 +189,46 @@ mod tests {
     #[test]
     fn add_command_hook_is_idempotent() {
         let mut v = json!({});
-        let s = spec("SessionStart", "frank hook session-start", "hook session-start");
+        let s = spec(
+            "SessionStart",
+            "frank hook session-start",
+            "hook session-start",
+        );
         assert!(add_command_hook(&mut v, &s));
         assert!(!add_command_hook(&mut v, &s));
         assert_eq!(v["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn add_command_hook_repairs_scalar_root_and_preserves_optional_fields() {
+        let mut v = json!("bad root");
+        let mut s = spec(
+            "SessionStart",
+            "frank hook session-start",
+            "hook session-start",
+        );
+        s.status_message = Some("Loading".into());
+        assert!(add_command_hook(&mut v, &s));
+        assert_eq!(v["hooks"]["SessionStart"][0]["hooks"][0]["timeout"], 5);
+        assert_eq!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["statusMessage"],
+            "Loading"
+        );
+
+        let mut no_optional = json!({"hooks": {"SessionStart": []}});
+        let mut s = spec(
+            "SessionStart",
+            "frank hook session-start",
+            "hook session-start",
+        );
+        s.timeout = None;
+        s.status_message = None;
+        assert!(add_command_hook(&mut no_optional, &s));
+        assert!(
+            no_optional["hooks"]["SessionStart"][0]["hooks"][0]
+                .get("timeout")
+                .is_none()
+        );
     }
 
     #[test]
@@ -188,6 +265,22 @@ mod tests {
     }
 
     #[test]
+    fn remove_owned_hooks_ignores_malformed_entries_and_empty_markers() {
+        let mut v = json!({
+            "hooks": {
+                "SessionStart": [
+                    "malformed",
+                    { "hooks": "not an array" },
+                    { "hooks": [ { "type": "command", "command": "echo user" } ] }
+                ],
+                "Other": "not an array"
+            }
+        });
+        assert_eq!(remove_owned_hooks(&mut v, &["never-match"]), 0);
+        assert_eq!(v["hooks"]["SessionStart"].as_array().unwrap().len(), 3);
+    }
+
+    #[test]
     fn prune_orphaned_removes_hooks_whose_target_is_unreachable() {
         let mut v = json!({
             "hooks": {
@@ -213,5 +306,23 @@ mod tests {
         let pruned = prune_orphaned(&mut v, &["hook session-start"], |_cmd| true);
         assert_eq!(pruned, 0);
         assert!(v["hooks"]["SessionStart"].as_array().unwrap().len() == 1);
+    }
+
+    #[test]
+    fn prune_orphaned_keeps_non_command_hooks_and_cleans_empty_events() {
+        let mut v = json!({
+            "hooks": {
+                "SessionStart": [
+                    { "hooks": [ { "type": "agent", "prompt": "do work" } ] },
+                    { "hooks": [ { "type": "command" } ] }
+                ]
+            }
+        });
+        assert_eq!(
+            prune_orphaned(&mut v, &["hook session-start"], |_| false),
+            0
+        );
+        assert_eq!(v["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
+        assert_eq!(v["hooks"]["SessionStart"][0]["hooks"][0]["type"], "agent");
     }
 }

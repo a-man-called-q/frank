@@ -51,7 +51,7 @@ fn read_mode_from_file(pack: &CompiledPack, path: &Path) -> Option<String> {
     if meta.file_type().is_symlink() || !meta.is_file() {
         return None;
     }
-    let raw = std::fs::read_to_string(path).ok()?;
+    let raw = frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES).ok()?;
     let parsed: ConfigFile = toml::from_str(&raw).ok()?;
     let candidate = parsed.default_level?.trim().to_lowercase();
     is_valid_default(pack, &candidate).then_some(candidate)
@@ -93,6 +93,19 @@ fn user_config_dir() -> Option<PathBuf> {
 /// chain above. `env_var` is normally `"FRANK_DEFAULT_LEVEL"` — parameterized
 /// for tests.
 pub fn resolve_default_level(pack: &CompiledPack, cwd: &Path, env_var: &str) -> String {
+    resolve_default_level_with_user_dir(pack, cwd, env_var, user_config_dir().as_deref())
+}
+
+/// Resolve the same precedence chain while allowing an application service to
+/// supply its already-resolved user config root. This keeps tests and frontends
+/// that use an explicit `FrankPaths` value on exactly the same path contract as
+/// the process-level CLI/hooks.
+pub fn resolve_default_level_with_user_dir(
+    pack: &CompiledPack,
+    cwd: &Path,
+    env_var: &str,
+    user_dir: Option<&Path>,
+) -> String {
     if let Some(v) = env_default(pack, env_var) {
         return v;
     }
@@ -101,7 +114,7 @@ pub fn resolve_default_level(pack: &CompiledPack, cwd: &Path, env_var: &str) -> 
             return v;
         }
     }
-    if let Some(dir) = user_config_dir() {
+    if let Some(dir) = user_dir {
         if let Some(v) = read_mode_from_file(pack, &dir.join("config.toml")) {
             return v;
         }

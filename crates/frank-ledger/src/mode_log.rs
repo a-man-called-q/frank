@@ -39,3 +39,32 @@ pub fn read_mode_log(path: &Path, valid: &[&str]) -> Vec<ModeLogRow> {
     rows.sort_by_key(|r| r.ts);
     rows
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn mode_log_filters_malformed_values_and_sorts_clock_skew() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("mode.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"ts\":20,\"mode\":\"full\",\"prev\":null}\n",
+                "{\"ts\":10,\"mode\":\"off\",\"prev\":\"full\"}\n",
+                "{\"ts\":30,\"mode\":\"unknown\",\"prev\":null}\n",
+                "partial\n",
+                "{\"ts\":15,\"mode\":null,\"prev\":\"off\"}\n"
+            ),
+        )
+        .unwrap();
+        let rows = read_mode_log(&path, &["full", "off"]);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].ts, 10);
+        assert_eq!(rows[1].ts, 15);
+        assert_eq!(rows[1].mode, None);
+        assert_eq!(rows[2].mode.as_deref(), Some("full"));
+    }
+}

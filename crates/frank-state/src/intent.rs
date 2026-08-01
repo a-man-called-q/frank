@@ -50,9 +50,7 @@ fn normalize(prompt: &str) -> String {
 
 fn any_match(patterns: &[String], text: &str) -> bool {
     patterns.iter().any(|p| {
-        Regex::new(p)
-            .map(|re| re.is_match(text))
-            .unwrap_or(false) // an invalid pattern never matches; frank-pack::compile already rejects these at pack-build time
+        Regex::new(p).map(|re| re.is_match(text)).unwrap_or(false) // an invalid pattern never matches; frank-pack::compile already rejects these at pack-build time
     })
 }
 
@@ -77,7 +75,12 @@ fn match_stats(prompt: &str, prefix: &str) -> Option<Vec<String>> {
 /// distinct from `Some(Intent::None)`, "a slash command with an
 /// unrecognized argument" (flag stays untouched, per the archive's "no
 /// silent overwrite" rule).
-fn parse_slash_command(prompt: &str, prefix: &str, pack: &CompiledPack, resolved_default: &str) -> Option<Intent> {
+fn parse_slash_command(
+    prompt: &str,
+    prefix: &str,
+    pack: &CompiledPack,
+    resolved_default: &str,
+) -> Option<Intent> {
     let mut tokens = prompt.split_whitespace();
     let cmd = tokens.next()?;
     let arg = tokens.next().unwrap_or("");
@@ -147,7 +150,11 @@ pub fn classify(prompt: &str, pack: &CompiledPack, resolved_default: &str) -> In
         .activation
         .question_guard
         .as_deref()
-        .map(|p| Regex::new(p).map(|re| re.is_match(&prompt)).unwrap_or(false))
+        .map(|p| {
+            Regex::new(p)
+                .map(|re| re.is_match(&prompt))
+                .unwrap_or(false)
+        })
         .unwrap_or(false);
 
     let slash_intent = parse_slash_command(&prompt, prefix, pack, resolved_default);

@@ -21,6 +21,6 @@ mod manifest_tests;
 mod settings_tests;
 
 pub use plan::{
-    apply, Action, ApplyError, Detection, Diagnosis, InstallCtx, InstallPlan, ProbeEnv,
-    ResolvedSpawnStep,
+    Action, ApplyError, Detection, Diagnosis, InstallCtx, InstallPlan, ProbeEnv, ResolvedSpawnStep,
+    apply,
 };

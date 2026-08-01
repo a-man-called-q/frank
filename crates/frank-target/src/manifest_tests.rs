@@ -7,7 +7,12 @@ mod tests {
     use tempfile::tempdir;
 
     fn env(home: Option<PathBuf>, path_dirs: Vec<PathBuf>) -> ProbeEnv {
-        ProbeEnv { path_dirs, home, extra_dirs: vec![], is_macos: false }
+        ProbeEnv {
+            path_dirs,
+            home,
+            extra_dirs: vec![],
+            is_macos: false,
+        }
     }
 
     fn parse(toml: &str) -> TargetManifest {
@@ -74,7 +79,10 @@ dir = "$HOME/.myagent"
 strategy = "spawn"
 "#,
         );
-        assert_eq!(detect(&m, &env(Some(tmp.path().to_path_buf()), vec![])), Detection::Detected);
+        assert_eq!(
+            detect(&m, &env(Some(tmp.path().to_path_buf()), vec![])),
+            Detection::Detected
+        );
     }
 
     #[test]
@@ -96,7 +104,10 @@ command = "realtool"
 strategy = "spawn"
 "#,
         );
-        assert_eq!(detect(&m, &env(None, vec![tmp.path().to_path_buf()])), Detection::Detected);
+        assert_eq!(
+            detect(&m, &env(None, vec![tmp.path().to_path_buf()])),
+            Detection::Detected
+        );
     }
 
     #[test]
@@ -118,7 +129,10 @@ dir = "$HOME/.nonexistent-dir-xyz"
 strategy = "spawn"
 "#,
         );
-        let e = env(Some(tmp.path().to_path_buf()), vec![tmp.path().to_path_buf()]);
+        let e = env(
+            Some(tmp.path().to_path_buf()),
+            vec![tmp.path().to_path_buf()],
+        );
         assert_eq!(detect(&m, &e), Detection::NotDetected);
     }
 
@@ -160,7 +174,9 @@ args = ["-y", "skills", "add", "repo", "-a", "x"]
 success = "status_zero"
 "#,
         );
-        let crate::manifest::InstallSpec::Spawn { steps, uninstall } = &m.install else { panic!() };
+        let crate::manifest::InstallSpec::Spawn { steps, uninstall } = &m.install else {
+            panic!()
+        };
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].program, "npx");
         assert!(uninstall.is_none());
@@ -185,6 +201,9 @@ body = "pack:static_digest"
 create_if_missing = true
 "#,
         );
-        assert!(matches!(m.install, crate::manifest::InstallSpec::MarkdownBlock { .. }));
+        assert!(matches!(
+            m.install,
+            crate::manifest::InstallSpec::MarkdownBlock { .. }
+        ));
     }
 }

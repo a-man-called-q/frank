@@ -1,0 +1,45 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'javascript'
+stack: 'frontend'
+toolchains:
+  default: 'node'
+  javascript: 'pnpm'
+dependsOn: []
+
+tasks:
+  dev:
+    # Tauri validates bundled resource paths even for `tauri dev`; the wrapper
+    # prepares a local CLI sidecar before opening the desktop window.
+    command: './scripts/gui-dev.sh'
+    options:
+      cache: false
+      runInCI: false
+      runFromWorkspaceRoot: true
+
+  lint:
+    command: 'pnpm lint'
+    inputs: ['src/**/*', '*.json', '*.ts', '*.tsx']
+    options: { cache: false }
+
+  typecheck:
+    command: 'pnpm typecheck'
+    inputs: ['src/**/*', '*.json', '*.ts', '*.tsx']
+    options: { cache: false }
+
+  test:
+    command: 'pnpm test --coverage'
+    inputs: ['src/**/*', '*.json', '*.ts', '*.tsx']
+    options: { cache: false }
+
+  build:
+    command: 'pnpm build'
+    deps: ['~:lint', '~:typecheck', '~:test']
+    inputs: ['src/**/*', 'index.html', '*.json', '*.ts', '*.tsx', 'src-tauri/**/*']
+    outputs: ['dist']
+    options: { cache: false }
+
+  verify:
+    command: 'pnpm test --coverage'
+    deps: ['~:lint', '~:typecheck']
+    options: { cache: false }

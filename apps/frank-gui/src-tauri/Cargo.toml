@@ -1,0 +1,24 @@
+[package]
+name = "frank-gui"
+version.workspace = true
+description = "Frank desktop control panel"
+authors = ["Frank contributors"]
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[lib]
+name = "frank_gui_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+frank-app = { path = "../../../crates/frank-app", version = "0.1.0" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2.4.3"

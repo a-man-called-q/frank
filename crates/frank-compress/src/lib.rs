@@ -14,11 +14,11 @@ pub mod sensitive;
 pub mod validate;
 
 pub use backup::{backup_dir_for, backup_path_for};
-pub use classify::{detect_file_type, should_compress, FileClass};
+pub use classify::{FileClass, detect_file_type, should_compress};
 pub use frontmatter::split_frontmatter;
-pub use rules::{compress, compress_prose, protected_spans, CompressResult};
+pub use rules::{CompressResult, compress, compress_prose, protected_spans};
 pub use sensitive::is_sensitive_path;
-pub use validate::{validate, ValidationResult};
+pub use validate::{ValidationResult, validate};
 
 #[cfg(test)]
 mod classify_tests;

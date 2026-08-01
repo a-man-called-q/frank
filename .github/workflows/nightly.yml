@@ -1,0 +1,58 @@
+name: nightly scrutiny
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scrutiny:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - run: pnpm install --frozen-lockfile
+      - name: Install scrutiny tools
+        run: |
+          cargo install cargo-nextest --version 0.9.100 --locked
+          cargo install cargo-llvm-cov --version 0.6.18 --locked
+          cargo install cargo-deny --version 0.18.3 --locked
+          cargo install cargo-audit --version 0.22.0 --locked
+          cargo install cargo-fuzz --version 0.12.0 --locked
+          cargo install cargo-mutants --version 25.3.1 --locked
+      - name: Run full nightly suite
+        run: moon run :nightly
+
+  sanitizers:
+    name: ${{ matrix.sanitizer }} sanitizer (pure Rust critical crates)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: x86_64-unknown-linux-gnu
+          components: rust-src
+      - name: Run ${{ matrix.sanitizer }} sanitizer with leak/error detection
+        env:
+          FRANK_SANITIZER: ${{ matrix.sanitizer }}
+        run: ./scripts/sanitizers-nightly.sh

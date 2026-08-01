@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <!-- Add the per-user application directory to PATH without replacing the
+         user's existing value. The component is removed with the MSI. -->
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="FrankCliPath" Guid="*">
+        <File
+          Id="FrankCliBinary"
+          Source="$(var.ProjectDir)\packaging\frank.exe"
+          KeyPath="yes" />
+        <Environment
+          Id="FrankCliPathEnvironment"
+          Name="PATH"
+          Value="[INSTALLDIR]"
+          Part="last"
+          Action="set"
+          System="no"
+          Permanent="no" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

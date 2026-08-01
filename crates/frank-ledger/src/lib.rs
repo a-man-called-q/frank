@@ -21,9 +21,9 @@ mod session_tests;
 #[cfg(test)]
 mod stats_tests;
 
-pub use attribution::{attribute_by_mode, Attribution, AttributionBasis, TokenBucket};
+pub use attribution::{Attribution, AttributionBasis, TokenBucket, attribute_by_mode};
 pub use injection_ledger::InjectionEntry;
-pub use mode_log::{read_mode_log, ModeLogRow};
+pub use mode_log::{ModeLogRow, read_mode_log};
 pub use pricing::{format_usd, price_for_model};
-pub use session::{find_recent_session, parse_session, SessionScan, SessionTurn};
-pub use stats::{build_session_report, render_json, render_text, HistoryRow, SessionReport};
+pub use session::{SessionScan, SessionTurn, find_recent_session, parse_session};
+pub use stats::{HistoryRow, SessionReport, build_session_report, render_json, render_text};

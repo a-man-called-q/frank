@@ -50,3 +50,57 @@ pub fn totals_for_session(entries: &[InjectionEntry], session_id: &str) -> (usiz
     }
     (activate, reinforce)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn injection_ledger_round_trips_and_ignores_unknown_kinds_for_totals() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("ledger.jsonl");
+        append(
+            &path,
+            &InjectionEntry {
+                ts: 1,
+                kind: "activate".into(),
+                session: Some("s".into()),
+                level: Some("full".into()),
+                inject_bytes: 10,
+            },
+        );
+        append(
+            &path,
+            &InjectionEntry {
+                ts: 2,
+                kind: "reinforce".into(),
+                session: Some("s".into()),
+                level: Some("full".into()),
+                inject_bytes: 3,
+            },
+        );
+        append(
+            &path,
+            &InjectionEntry {
+                ts: 3,
+                kind: "future-kind".into(),
+                session: Some("s".into()),
+                level: None,
+                inject_bytes: 100,
+            },
+        );
+        let rows = read_all(&path);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(totals_for_session(&rows, "s"), (10, 3));
+        assert_eq!(totals_for_session(&rows, "other"), (0, 0));
+    }
+
+    #[test]
+    fn malformed_injection_lines_are_ignored() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("ledger.jsonl");
+        std::fs::write(&path, "not-json\n{\"ts\":1}\n").unwrap();
+        assert!(read_all(&path).is_empty());
+    }
+}

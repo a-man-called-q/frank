@@ -42,7 +42,7 @@ impl ClaudeCodeTarget {
     }
 
     pub fn plan_install(ctx: &InstallCtx) -> InstallPlan {
-        let mut plan = InstallPlan::new(Self::id());
+        let mut plan = InstallPlan::scoped(Self::id(), ctx.scope_roots());
         let settings_path = Self::settings_path(ctx);
 
         plan.push(Action::EnsureDir(ctx.config_dir.clone()));
@@ -73,7 +73,7 @@ impl ClaudeCodeTarget {
     }
 
     pub fn plan_uninstall(ctx: &InstallCtx) -> InstallPlan {
-        let mut plan = InstallPlan::new(Self::id());
+        let mut plan = InstallPlan::scoped(Self::id(), ctx.scope_roots());
         plan.push(Action::RemoveSettingsHooks {
             settings_path: Self::settings_path(ctx),
             markers: vec![
@@ -105,7 +105,11 @@ impl ClaudeCodeTarget {
                     arr.iter().any(|e| {
                         e["hooks"]
                             .as_array()
-                            .map(|hs| hs.iter().any(|h| h["command"].as_str().is_some_and(|c| c.contains(marker))))
+                            .map(|hs| {
+                                hs.iter().any(|h| {
+                                    h["command"].as_str().is_some_and(|c| c.contains(marker))
+                                })
+                            })
                             .unwrap_or(false)
                     })
                 })

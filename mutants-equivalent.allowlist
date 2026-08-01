@@ -1,0 +1,3 @@
+# Exact cargo-mutants output lines for reviewed equivalent mutants only.
+# Every entry must have a nearby issue/reason in the review record. Broad
+# globs, package-wide exemptions, and unexplained suppressions are forbidden.

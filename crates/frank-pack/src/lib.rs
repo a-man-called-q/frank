@@ -25,6 +25,7 @@ pub use store::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::fs;
     use tempfile::tempdir;
 
@@ -251,5 +252,26 @@ inherits = "full""#,
 
         let err = compile(&PackSource::load(tmp.path()).unwrap()).unwrap_err();
         assert!(matches!(err, PackError::UnsafePath(_)), "{err:?}");
+    }
+
+    proptest! {
+        #[test]
+        fn malformed_manifest_text_never_panics(raw in any::<String>()) {
+            let _: std::result::Result<PackManifest, _> = toml::from_str(&raw);
+        }
+
+        #[test]
+        fn generated_aliases_resolve_to_the_same_level(alias in "[a-z][a-z0-9_-]{0,10}") {
+            let tmp = tempdir().unwrap();
+            minimal_pack(tmp.path());
+            let manifest_path = tmp.path().join("pack.toml");
+            let raw = fs::read_to_string(&manifest_path).unwrap().replace(
+                "aliases = [\"classic\"]",
+                &format!("aliases = [\"{alias}\"]"),
+            );
+            fs::write(manifest_path, raw).unwrap();
+            let pack = compile(&PackSource::load(tmp.path()).unwrap()).unwrap();
+            prop_assert_eq!(&pack.resolve_level(&alias).unwrap().id, "full");
+        }
     }
 }

@@ -1,14 +1,15 @@
 [package]
 name = "xtask"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish = false
 
 [dependencies]
-frank-pack.workspace = true
-frank-target.workspace = true
+frank-pack = { path = "../crates/frank-pack", version = "0.1.0" }
+frank-target = { path = "../crates/frank-target", version = "0.1.0" }
 anyhow.workspace = true
 sha2.workspace = true
 clap.workspace = true
 toml.workspace = true
+serde_json.workspace = true

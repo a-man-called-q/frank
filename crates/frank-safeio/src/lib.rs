@@ -27,6 +27,16 @@ pub use error::{Result, SafeIoError};
 /// without opening an exfiltration channel through an oversized flag file.
 pub const MAX_FLAG_BYTES: usize = 64;
 
+/// Maximum size for user configuration documents written through the shared
+/// safe IO boundary. Configuration is intentionally much larger than a mode
+/// flag, but still bounded so a corrupted or hostile file cannot force an
+/// unbounded allocation in a hook-adjacent process.
+pub const MAX_CONFIG_BYTES: usize = 64 * 1024;
+/// Session transcripts may be larger than settings documents, but remain
+/// bounded at the parser boundary so a malformed path cannot force an
+/// unbounded allocation in a stats command.
+pub const MAX_SESSION_BYTES: usize = 16 * 1024 * 1024;
+
 #[cfg(unix)]
 use unix as imp;
 #[cfg(windows)]
@@ -58,6 +68,31 @@ pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
     imp::write_flag_atomic(flag_path, content)
 }
 
+/// Write a bounded text document atomically using the same symlink-safe
+/// implementation as flag files. This is the common write primitive for
+/// Frank-owned TOML/JSON configuration; callers choose the appropriate cap
+/// at the API boundary rather than bypassing this crate with `fs::write`.
+pub fn write_text_atomic(path: &Path, content: &str, max_bytes: usize) -> Result<()> {
+    if content.len() > max_bytes {
+        return Err(SafeIoError::TooLarge(max_bytes));
+    }
+    imp::write_flag_atomic(path, content)
+}
+
+/// Create and verify a directory that will receive Frank-owned files. A
+/// symlink to a user-owned directory is allowed (dotfiles setups commonly
+/// use one); a symlink to a non-directory or, on Windows, outside the user's
+/// home is rejected by the platform backend.
+pub fn ensure_dir(path: &Path) -> Result<()> {
+    imp::ensure_dir(path)
+}
+
+/// Read a bounded UTF-8 document without following a symlink at the file
+/// entry. The platform backends perform the metadata and no-follow checks.
+pub fn read_text_capped(path: &Path, max_bytes: usize) -> Result<String> {
+    imp::read_flag_raw(path, max_bytes)
+}
+
 /// Read a flag file, symlink-safely and size-capped, and validate the
 /// trimmed/lowercased content against `valid`. Returns `None` on any
 /// anomaly — missing file, symlink, oversized, or not on the whitelist —
@@ -80,6 +115,21 @@ pub fn append_line(path: &Path, line: &str) -> Result<()> {
     imp::append_line(path, line)
 }
 
+/// Remove a regular Frank-owned file without following a symlink. The parent
+/// is verified and the unlink is anchored to its directory fd; callers supply
+/// an ownership marker so uninstall cannot delete an unrelated user file.
+pub fn remove_file_if_contains(path: &Path, marker: &str) -> Result<bool> {
+    imp::remove_file_if_contains(path, marker)
+}
+
+/// Remove a regular Frank-owned file without following a symlink. This is
+/// intentionally separate from [`remove_file_if_contains`]: state flags are
+/// small, validated values rather than marker-bearing scripts, but they still
+/// need the same directory-anchored unlink and no-follow checks.
+pub fn remove_file(path: &Path) -> Result<bool> {
+    imp::remove_file(path)
+}
+
 /// Read a log/history file symlink-safely, split into non-blank lines. No
 /// size cap — history is expected to grow with use, matching the original.
 /// Returns an empty vec on any anomaly rather than propagating an error,
@@ -88,15 +138,25 @@ pub fn read_lines(path: &Path) -> Vec<String> {
     imp::read_lines(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{symlink, PermissionsExt};
+    use std::os::unix::ffi::OsStringExt;
+    use std::os::unix::fs::{PermissionsExt, symlink};
     use tempfile::tempdir;
 
     const MODES: &[&str] = &[
-        "off", "lite", "full", "ultra", "wenyan-lite", "wenyan", "wenyan-full", "wenyan-ultra",
-        "commit", "review", "compress",
+        "off",
+        "lite",
+        "full",
+        "ultra",
+        "wenyan-lite",
+        "wenyan",
+        "wenyan-full",
+        "wenyan-ultra",
+        "commit",
+        "review",
+        "compress",
     ];
 
     #[test]
@@ -149,7 +209,10 @@ mod tests {
         let flag_path = symlink_dir.join(".caveman-active");
         write_flag_atomic(&flag_path, "wenyan-ultra").unwrap();
 
-        assert_eq!(read_flag(&flag_path, MODES).as_deref(), Some("wenyan-ultra"));
+        assert_eq!(
+            read_flag(&flag_path, MODES).as_deref(),
+            Some("wenyan-ultra")
+        );
     }
 
     #[test]
@@ -221,7 +284,11 @@ mod tests {
     #[test]
     fn creates_parent_directory_when_missing() {
         let tmp = tempdir().unwrap();
-        let flag_path = tmp.path().join("nonexistent").join("nested").join(".caveman-active");
+        let flag_path = tmp
+            .path()
+            .join("nonexistent")
+            .join("nested")
+            .join(".caveman-active");
 
         write_flag_atomic(&flag_path, "full").unwrap();
         assert!(flag_path.exists());
@@ -280,6 +347,77 @@ mod tests {
         std::fs::write(&flag_path, "not-a-real-mode").unwrap();
 
         assert_eq!(read_flag(&flag_path, MODES), None);
+    }
+
+    #[test]
+    fn supports_non_utf8_unix_filenames_without_following_them() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join(std::ffi::OsString::from_vec(vec![
+            b'f', b'r', b'a', b'n', b'k', b'-', 0xff,
+        ]));
+
+        if let Err(error) = write_flag_atomic(&path, "full") {
+            // APFS on macOS rejects byte sequences that are not valid UTF-8
+            // at the filesystem boundary. Linux filesystems permit them, so
+            // the same test remains active there instead of being a fake
+            // unconditional pass on every platform.
+            if matches!(error, SafeIoError::Io(ref e) if e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(92))
+            {
+                return;
+            }
+            panic!("unexpected non-UTF-8 path error: {error:?}");
+        }
+        assert_eq!(read_flag(&path, MODES).as_deref(), Some("full"));
+    }
+
+    #[test]
+    fn reading_a_missing_path_does_not_create_its_parent() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("missing").join("flag");
+
+        assert!(read_text_capped(&path, MAX_FLAG_BYTES).is_err());
+        assert!(!tmp.path().join("missing").exists());
+    }
+
+    #[test]
+    fn refuses_a_parent_symlink_that_resolves_to_a_file() {
+        let tmp = tempdir().unwrap();
+        let file = tmp.path().join("not-a-directory");
+        std::fs::write(&file, "secret").unwrap();
+        let parent = tmp.path().join("parent-link");
+        symlink(&file, &parent).unwrap();
+
+        let error = read_text_capped(&parent.join("flag"), MAX_FLAG_BYTES).unwrap_err();
+        assert!(matches!(error, SafeIoError::SymlinkTargetNotDir));
+    }
+
+    #[test]
+    fn removes_only_a_regular_file_with_the_requested_marker() {
+        let tmp = tempdir().unwrap();
+        let managed = tmp.path().join("managed");
+        let user = tmp.path().join("user");
+        std::fs::write(&managed, "#!/bin/sh\n# frank-managed\n").unwrap();
+        std::fs::write(&user, "#!/bin/sh\n# user-owned\n").unwrap();
+
+        assert!(remove_file_if_contains(&managed, "frank-managed").unwrap());
+        assert!(!managed.exists());
+        assert!(!remove_file_if_contains(&user, "frank-managed").unwrap());
+        assert!(user.exists());
+    }
+
+    #[test]
+    fn refuses_to_remove_a_managed_symlink() {
+        let tmp = tempdir().unwrap();
+        let secret = tmp.path().join("secret");
+        let link = tmp.path().join("managed");
+        std::fs::write(&secret, "frank-managed").unwrap();
+        symlink(&secret, &link).unwrap();
+
+        assert!(matches!(
+            remove_file_if_contains(&link, "frank-managed"),
+            Err(SafeIoError::IsSymlink)
+        ));
+        assert!(secret.exists());
     }
 
     #[test]

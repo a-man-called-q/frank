@@ -215,15 +215,21 @@ pub fn compress(text: &str) -> CompressResult {
     // ever consume *trailing* whitespace after a matched word, never the
     // whitespace preceding it, so the separator before a protected span is
     // always whatever was already in the source — nothing to reinsert.
-    let spans = protected_spans(text);
-    let mut out = String::with_capacity(text.len());
+    // `compress` trims the final result. Trim leading whitespace before the
+    // gap pass as well so recapitalization sees the actual first character;
+    // otherwise `" a"` becomes `"a"` on the first pass and `"A"` on the
+    // second, violating the deterministic/idempotent compressor contract.
+    // Protected spans are still copied byte-for-byte from this trimmed source.
+    let source = text.trim_start();
+    let spans = protected_spans(source);
+    let mut out = String::with_capacity(source.len());
     let mut last = 0;
     for span in &spans {
-        out.push_str(&compress_prose(&text[last..span.start]));
-        out.push_str(&text[span.start..span.end]);
+        out.push_str(&compress_prose(&source[last..span.start]));
+        out.push_str(&source[span.start..span.end]);
         last = span.end;
     }
-    out.push_str(&compress_prose(&text[last..]));
+    out.push_str(&compress_prose(&source[last..]));
     let out = out.trim().to_string();
 
     CompressResult {

@@ -30,8 +30,13 @@ mod tests {
 
     #[test]
     fn refuses_by_extension() {
-        for ext in ["pem", "key", "p12", "pfx", "crt", "cer", "jks", "keystore", "asc", "gpg"] {
-            assert!(is_sensitive_path(Path::new(&format!("thing.{ext}"))), "{ext}");
+        for ext in [
+            "pem", "key", "p12", "pfx", "crt", "cer", "jks", "keystore", "asc", "gpg",
+        ] {
+            assert!(
+                is_sensitive_path(Path::new(&format!("thing.{ext}"))),
+                "{ext}"
+            );
         }
     }
 
@@ -76,7 +81,11 @@ mod tests {
         let (fm, body) = split_frontmatter(text);
         assert_eq!(fm, "---\ntitle: x\n---\n");
         assert_eq!(body, "Body text here.");
-        assert_eq!(format!("{fm}{body}"), text, "frontmatter + body must reassemble byte-exactly");
+        assert_eq!(
+            format!("{fm}{body}"),
+            text,
+            "frontmatter + body must reassemble byte-exactly"
+        );
     }
 
     #[test]
@@ -99,7 +108,10 @@ mod tests {
     fn dashes_mid_document_are_not_mistaken_for_frontmatter() {
         let text = "Some text\n---\nnot frontmatter\n---\nmore";
         let (fm, body) = split_frontmatter(text);
-        assert_eq!(fm, "", "frontmatter must start at the very beginning of the file");
+        assert_eq!(
+            fm, "",
+            "frontmatter must start at the very beginning of the file"
+        );
         assert_eq!(body, text);
     }
 }

@@ -16,13 +16,37 @@ pub enum FileClass {
     Unknown,
 }
 
-const COMPRESSIBLE_EXTENSIONS: &[&str] =
-    &["md", "txt", "markdown", "rst", "typ", "typst", "tex"];
+const COMPRESSIBLE_EXTENSIONS: &[&str] = &["md", "txt", "markdown", "rst", "typ", "typst", "tex"];
 
 const SKIP_EXTENSIONS_CODE: &[&str] = &[
-    "py", "js", "ts", "tsx", "jsx", "css", "scss", "html", "xml", "sql", "sh", "bash", "zsh",
-    "go", "rs", "java", "c", "cpp", "h", "hpp", "rb", "php", "swift", "kt", "lua", "dockerfile",
-    "makefile", "csv",
+    "py",
+    "js",
+    "ts",
+    "tsx",
+    "jsx",
+    "css",
+    "scss",
+    "html",
+    "xml",
+    "sql",
+    "sh",
+    "bash",
+    "zsh",
+    "go",
+    "rs",
+    "java",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "rb",
+    "php",
+    "swift",
+    "kt",
+    "lua",
+    "dockerfile",
+    "makefile",
+    "csv",
 ];
 
 const SKIP_EXTENSIONS_CONFIG: &[&str] =
@@ -32,8 +56,17 @@ const SKIP_EXTENSIONS_CONFIG: &[&str] =
 /// matches it, and `CMakeLists.txt` would otherwise ride the compressible
 /// `.txt` rule — checked by basename before any extension rule.
 const KNOWN_CODE_FILENAMES: &[&str] = &[
-    "dockerfile", "makefile", "gnumakefile", "jenkinsfile", "vagrantfile", "rakefile", "gemfile",
-    "justfile", "procfile", "brewfile", "cmakelists.txt",
+    "dockerfile",
+    "makefile",
+    "gnumakefile",
+    "jenkinsfile",
+    "vagrantfile",
+    "rakefile",
+    "gemfile",
+    "justfile",
+    "procfile",
+    "brewfile",
+    "cmakelists.txt",
 ];
 
 fn code_patterns() -> Vec<Regex> {
@@ -126,7 +159,10 @@ pub fn detect_file_type(path: &Path) -> FileClass {
     }
 
     let patterns = code_patterns();
-    let code_lines = lines.iter().filter(|l| !l.trim().is_empty() && is_code_line(l, &patterns)).count();
+    let code_lines = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty() && is_code_line(l, &patterns))
+        .count();
     let non_empty = lines.iter().filter(|l| !l.trim().is_empty()).count();
     if non_empty > 0 && (code_lines as f64 / non_empty as f64) > 0.4 {
         return FileClass::Code;

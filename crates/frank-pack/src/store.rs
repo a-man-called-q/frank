@@ -12,8 +12,8 @@
 //! workstation. The CLI reports that path as an explicit HOLD rather than
 //! silently treating a URL as a local path.
 
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +28,9 @@ const LOCK_SCHEMA: u32 = 1;
 pub enum PackStoreError {
     #[error("pack store I/O at {0}: {1}")]
     Io(PathBuf, #[source] io::Error),
+
+    #[error("pack store safe I/O failed: {0}")]
+    SafeIo(#[from] frank_safeio::SafeIoError),
 
     #[error("could not parse pack lockfile {0}: {1}")]
     LockToml(PathBuf, #[source] Box<toml::de::Error>),
@@ -166,10 +169,12 @@ impl PackStore {
 
     pub fn load_lock(&self) -> StoreResult<PackLock> {
         let path = self.lock_path();
-        let raw = match fs::read_to_string(&path) {
+        let raw = match frank_safeio::read_text_capped(&path, frank_safeio::MAX_CONFIG_BYTES) {
             Ok(raw) => raw,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(PackLock::default()),
-            Err(e) => return Err(PackStoreError::Io(path, e)),
+            Err(frank_safeio::SafeIoError::Io(e)) if e.kind() == io::ErrorKind::NotFound => {
+                return Ok(PackLock::default());
+            }
+            Err(e) => return Err(PackStoreError::SafeIo(e)),
         };
         let lock: PackLock = toml::from_str(&raw)
             .map_err(|e| PackStoreError::LockToml(path.clone(), Box::new(e)))?;
@@ -183,42 +188,10 @@ impl PackStore {
     pub fn save_lock(&self, lock: &PackLock) -> StoreResult<()> {
         validate_lock(lock)?;
         let path = self.lock_path();
-        if fs::symlink_metadata(&path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(PackStoreError::Symlink(path));
-        }
-        fs::create_dir_all(&self.root).map_err(|e| PackStoreError::Io(self.root.clone(), e))?;
-        if fs::symlink_metadata(&path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            return Err(PackStoreError::Symlink(path));
-        }
+        frank_safeio::ensure_dir(&self.root)?;
         let raw = toml::to_string_pretty(lock)
             .map_err(|e| PackStoreError::LockSerialize(path.clone(), e))?;
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let tmp = self
-            .root
-            .join(format!(".packs.lock.{}-{stamp}.tmp", std::process::id()));
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(|e| PackStoreError::Io(tmp.clone(), e))?;
-        if let Err(e) = file.write_all(raw.as_bytes()).and_then(|_| file.sync_all()) {
-            let _ = fs::remove_file(&tmp);
-            return Err(PackStoreError::Io(tmp, e));
-        }
-        drop(file);
-        if let Err(e) = fs::rename(&tmp, &path) {
-            let _ = fs::remove_file(&tmp);
-            return Err(PackStoreError::Io(path, e));
-        }
+        frank_safeio::write_text_atomic(&path, &raw, frank_safeio::MAX_CONFIG_BYTES)?;
         Ok(())
     }
 
@@ -272,8 +245,7 @@ impl PackStore {
         if fs::symlink_metadata(&destination).is_ok() {
             return Err(PackStoreError::AlreadyInstalled(pack_ref.display_name()));
         }
-        fs::create_dir_all(destination.parent().expect("packs has a parent"))
-            .map_err(|e| PackStoreError::Io(destination.clone(), e))?;
+        frank_safeio::ensure_dir(destination.parent().expect("packs has a parent"))?;
         let staging = create_staging_dir(&destination)?;
         if let Err(e) = copy_tree(&source, &staging) {
             let _ = fs::remove_dir_all(&staging);
@@ -706,6 +678,27 @@ mod tests {
         assert!(matches!(err, PackStoreError::Symlink(_)));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn nested_symlinked_pack_directory_is_rejected_before_reading_outside() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        let source = tmp.path().join("source");
+        write_pack(&source, "demo", "1.0.0");
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("full.md"), "outside prompt").unwrap();
+        fs::remove_dir_all(source.join("levels")).unwrap();
+        symlink(&outside, source.join("levels")).unwrap();
+
+        let error = crate::compile(&crate::PackSource::load(&source).unwrap()).unwrap_err();
+        assert!(
+            matches!(error, crate::PackError::UnsafePath(_)),
+            "{error:?}"
+        );
+    }
+
     #[test]
     fn lock_paths_must_stay_inside_the_pack_store() {
         let tmp = tempdir().unwrap();
@@ -732,5 +725,22 @@ mod tests {
             outside.is_dir(),
             "tampered lock must not remove outside data"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lockfile_symlink_is_rejected_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("data");
+        fs::create_dir_all(&root).unwrap();
+        let decoy = tmp.path().join("decoy.toml");
+        fs::write(&decoy, "schema = 1\n").unwrap();
+        symlink(&decoy, root.join("packs.lock")).unwrap();
+
+        let error = PackStore::new(root).load_lock().unwrap_err();
+        assert!(matches!(error, PackStoreError::SafeIo(_)));
+        assert_eq!(fs::read_to_string(decoy).unwrap(), "schema = 1\n");
     }
 }

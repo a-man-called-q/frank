@@ -1,0 +1,27 @@
+$schema: 'https://moonrepo.dev/schemas/workspace.json'
+
+projects:
+  frank-rust: '.moon/projects/frank-rust'
+  frank-gui: 'apps/frank-gui'
+  frank-release: '.moon/projects/frank-release'
+  frank-scrutiny: '.moon/projects/frank-scrutiny'
+
+defaultProject: 'frank-rust'
+
+cache:
+  cas:
+    verifyIntegrity: true
+
+hasher:
+  warnOnMissingInputs: true
+
+pipeline:
+  killProcessThreshold: 5000
+  logRunningCommand: true
+
+telemetry: false
+
+vcs:
+  client: 'git'
+  defaultBranch: 'main'
+  provider: 'github'

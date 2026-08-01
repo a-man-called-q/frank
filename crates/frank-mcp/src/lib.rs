@@ -6,5 +6,5 @@
 mod proxy;
 mod transform;
 
-pub use proxy::{run, ProxyConfig};
+pub use proxy::{ProxyConfig, run};
 pub use transform::{compress_descriptions_in_place, transform_response};

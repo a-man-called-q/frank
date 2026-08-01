@@ -24,7 +24,7 @@
 
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Read `settings.json`, tolerating JSON5-ish comments and trailing commas.
 /// Mirrors the archive's `readSettings` contract: missing file or blank
@@ -32,8 +32,21 @@ use serde_json::{json, Value};
 /// exists but fails to parse is `None` — callers must refuse to touch it
 /// rather than silently overwriting a config they couldn't understand.
 pub fn read_settings(path: &Path) -> Option<Value> {
-    match std::fs::read_to_string(path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(json!({})),
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(json!({})),
+        Err(_) => return None,
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > frank_safeio::MAX_CONFIG_BYTES as u64
+    {
+        return None;
+    }
+    match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
+        Err(frank_safeio::SafeIoError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Some(json!({}))
+        }
         Err(_) => None,
         Ok(raw) => {
             if raw.trim().is_empty() {
@@ -55,7 +68,7 @@ pub fn read_settings(path: &Path) -> Option<Value> {
 /// once, on first write, before this ever runs — see `plan.rs`.
 pub fn write_settings(path: &Path, value: &Value) -> frank_safeio::Result<()> {
     let text = serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string());
-    frank_safeio::write_flag_atomic(path, &format!("{text}\n"))
+    frank_safeio::write_text_atomic(path, &format!("{text}\n"), frank_safeio::MAX_CONFIG_BYTES)
 }
 
 /// Drop anything in `settings.hooks` that doesn't match Claude Code's
@@ -140,10 +153,10 @@ fn hooks_array<'a>(settings: &'a mut Value, event: &str) -> &'a mut Vec<Value> {
     let obj = settings
         .as_object_mut()
         .expect("settings.json root must be an object");
-    let hooks = obj
-        .entry("hooks")
-        .or_insert_with(|| json!({}));
-    let hooks_obj = hooks.as_object_mut().expect("hooks field must be an object");
+    let hooks = obj.entry("hooks").or_insert_with(|| json!({}));
+    let hooks_obj = hooks
+        .as_object_mut()
+        .expect("hooks field must be an object");
     hooks_obj
         .entry(event.to_string())
         .or_insert_with(|| Value::Array(Vec::new()))
@@ -159,11 +172,8 @@ fn has_marker(settings: &Value, event: &str, marker: &str) -> bool {
                 entry["hooks"]
                     .as_array()
                     .map(|hs| {
-                        hs.iter().any(|h| {
-                            h["command"]
-                                .as_str()
-                                .is_some_and(|c| c.contains(marker))
-                        })
+                        hs.iter()
+                            .any(|h| h["command"].as_str().is_some_and(|c| c.contains(marker)))
                     })
                     .unwrap_or(false)
             })
@@ -214,7 +224,12 @@ pub fn remove_owned_hooks(settings: &mut Value, markers: &[&str]) -> usize {
         let kept: Vec<Value> = arr
             .iter()
             .filter_map(|entry| {
-                let hs = entry["hooks"].as_array()?;
+                let Some(hs) = entry["hooks"].as_array() else {
+                    // An uninstall must not delete a user's malformed or
+                    // future-shaped hook entry merely because Frank cannot
+                    // inspect its ownership marker.
+                    return Some(entry.clone());
+                };
                 let survivors: Vec<Value> = hs
                     .iter()
                     .filter(|h| {
@@ -277,7 +292,9 @@ pub fn prune_orphaned(
         let kept: Vec<Value> = arr
             .iter()
             .filter_map(|entry| {
-                let hs = entry["hooks"].as_array()?;
+                let Some(hs) = entry["hooks"].as_array() else {
+                    return Some(entry.clone());
+                };
                 let survivors: Vec<Value> = hs
                     .iter()
                     .filter(|h| {

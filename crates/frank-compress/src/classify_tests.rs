@@ -11,27 +11,42 @@ mod tests {
         assert_eq!(detect_file_type(Path::new("Dockerfile")), FileClass::Code);
         assert_eq!(detect_file_type(Path::new("dockerfile")), FileClass::Code);
         assert_eq!(detect_file_type(Path::new("Makefile")), FileClass::Code);
-        assert_eq!(detect_file_type(Path::new("CMakeLists.txt")), FileClass::Code);
+        assert_eq!(
+            detect_file_type(Path::new("CMakeLists.txt")),
+            FileClass::Code
+        );
     }
 
     #[test]
     fn compressible_extensions_are_natural_language() {
         for ext in ["md", "txt", "markdown", "rst", "tex"] {
-            assert_eq!(detect_file_type(Path::new(&format!("readme.{ext}"))), FileClass::NaturalLanguage, "{ext}");
+            assert_eq!(
+                detect_file_type(Path::new(&format!("readme.{ext}"))),
+                FileClass::NaturalLanguage,
+                "{ext}"
+            );
         }
     }
 
     #[test]
     fn code_extensions_are_code() {
         for ext in ["py", "js", "rs", "go", "sh", "sql"] {
-            assert_eq!(detect_file_type(Path::new(&format!("f.{ext}"))), FileClass::Code, "{ext}");
+            assert_eq!(
+                detect_file_type(Path::new(&format!("f.{ext}"))),
+                FileClass::Code,
+                "{ext}"
+            );
         }
     }
 
     #[test]
     fn config_extensions_are_config_not_code() {
         for ext in ["json", "yaml", "yml", "toml", "ini", "cfg", "env"] {
-            assert_eq!(detect_file_type(Path::new(&format!("f.{ext}"))), FileClass::Config, "{ext}");
+            assert_eq!(
+                detect_file_type(Path::new(&format!("f.{ext}"))),
+                FileClass::Config,
+                "{ext}"
+            );
         }
     }
 
@@ -60,7 +75,11 @@ mod tests {
     fn extensionless_yaml_content_is_config() {
         let tmp = tempdir().unwrap();
         let p = tmp.path().join("dotfile");
-        std::fs::write(&p, "name: test\nversion: 1.0\nsteps:\n  - run: echo hi\n  - run: echo bye\n").unwrap();
+        std::fs::write(
+            &p,
+            "name: test\nversion: 1.0\nsteps:\n  - run: echo hi\n  - run: echo bye\n",
+        )
+        .unwrap();
         assert_eq!(detect_file_type(&p), FileClass::Config);
     }
 

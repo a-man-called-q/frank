@@ -1,0 +1,4 @@
+{
+  // preserve comments while parsing
+  "hooks": { "SessionStart": [], },
+}

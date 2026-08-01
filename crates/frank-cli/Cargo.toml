@@ -1,6 +1,6 @@
 [package]
 name = "frank-cli"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,16 +10,20 @@ name = "frank"
 path = "src/main.rs"
 
 [dependencies]
-frank-pack.workspace = true
-frank-state.workspace = true
-frank-safeio.workspace = true
-frank-ledger.workspace = true
-frank-compress.workspace = true
-frank-target.workspace = true
-frank-mcp.workspace = true
+frank-app = { path = "../frank-app", version = "0.1.0" }
+frank-pack = { path = "../frank-pack", version = "0.1.0" }
+frank-state = { path = "../frank-state", version = "0.1.0" }
+frank-safeio = { path = "../frank-safeio", version = "0.1.0" }
+frank-ledger = { path = "../frank-ledger", version = "0.1.0" }
+frank-compress = { path = "../frank-compress", version = "0.1.0" }
+frank-target = { path = "../frank-target", version = "0.1.0" }
+frank-mcp = { path = "../frank-mcp", version = "0.1.0" }
 clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 anyhow.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

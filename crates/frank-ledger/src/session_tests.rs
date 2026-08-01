@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::session::*;
+    use proptest::prelude::*;
     use std::io::Write;
     use tempfile::tempdir;
 
@@ -25,6 +26,27 @@ mod tests {
             std::fs::write(&path, raw).unwrap();
             let scan = parse_session(&path);
             assert_eq!(scan.turns[0].ts, Some(*expected), "input: {input}");
+        }
+    }
+
+    #[test]
+    fn invalid_iso8601_timestamps_are_left_unattributed() {
+        for timestamp in [
+            "2026-02-30T00:00:00.000Z",
+            "2026-13-01T00:00:00.000Z",
+            "2026-01-01T24:00:00.000Z",
+            "2026-01-01T00:60:00.000Z",
+            "2026-01-01T00:00:00.0000Z",
+            "not-a-timestamp",
+        ] {
+            let raw = format!(
+                r#"{{"type":"assistant","timestamp":"{timestamp}","message":{{"usage":{{"output_tokens":1}}}}}}"#
+            );
+            let tmp = tempdir().unwrap();
+            let path = tmp.path().join("invalid.jsonl");
+            std::fs::write(&path, raw).unwrap();
+            let scan = parse_session(&path);
+            assert_eq!(scan.turns[0].ts, None, "input: {timestamp}");
         }
     }
 
@@ -70,6 +92,30 @@ mod tests {
     }
 
     #[test]
+    fn oversized_or_symlinked_session_is_rejected_without_following_it() {
+        let tmp = tempdir().unwrap();
+        let oversized = tmp.path().join("oversized.jsonl");
+        let file = std::fs::File::create(&oversized).unwrap();
+        file.set_len((frank_safeio::MAX_SESSION_BYTES + 1) as u64)
+            .unwrap();
+        assert!(parse_session(&oversized).turns.is_empty());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let secret = tmp.path().join("secret.jsonl");
+            std::fs::write(
+                &secret,
+                r#"{"type":"assistant","message":{"usage":{"output_tokens":99}}}"#,
+            )
+            .unwrap();
+            let link = tmp.path().join("link.jsonl");
+            symlink(&secret, &link).unwrap();
+            assert!(parse_session(&link).turns.is_empty());
+        }
+    }
+
+    #[test]
     fn sidechain_turns_are_flagged() {
         let tmp = tempdir().unwrap();
         let path = write_lines(
@@ -84,6 +130,17 @@ mod tests {
         assert!(scan.turns[0].is_sidechain);
         assert!(!scan.turns[1].is_sidechain);
         assert_eq!(scan.turn_count(), 1); // sidechain excluded from the turn count
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_partial_jsonl_is_a_total_scan(input in prop::collection::vec(any::<u8>(), 0..4096)) {
+            let tmp = tempdir().unwrap();
+            let path = tmp.path().join("partial.jsonl");
+            std::fs::write(&path, &input).unwrap();
+            let scan = parse_session(&path);
+            prop_assert!(scan.turns.len() <= input.split(|byte| *byte == b'\n').count());
+        }
     }
 
     #[test]
@@ -109,14 +166,33 @@ mod tests {
         assert_eq!(find_recent_session(tmp.path()), None);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn find_recent_session_skips_symlinked_project_entries() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempdir().unwrap();
+        let projects = tmp.path().join("projects");
+        std::fs::create_dir_all(&projects).unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let secret = outside.join("secret.jsonl");
+        std::fs::write(&secret, "{}").unwrap();
+        symlink(&outside, projects.join("linked")).unwrap();
+        assert_eq!(find_recent_session(tmp.path()), None);
+    }
+
     /// The real Claude Code session log for *this* project — a genuine,
     /// non-synthetic fixture. Skips cleanly if the file isn't present
     /// (e.g. CI, or a different machine) rather than failing.
     #[test]
     fn parses_a_real_claude_code_session_file_if_present() {
-        let Some(home) = frank_safeio::home_dir() else { return };
+        let Some(home) = frank_safeio::home_dir() else {
+            return;
+        };
         let dir = home.join(".claude/projects/-Volumes-external-Works-personal-caveman");
-        let Ok(entries) = std::fs::read_dir(&dir) else { return };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
         let Some(path) = entries
             .filter_map(|e| e.ok())
             .map(|e| e.path())
@@ -126,13 +202,22 @@ mod tests {
         };
 
         let scan = parse_session(&path);
-        assert!(!scan.turns.is_empty(), "expected at least one assistant turn in a real session file");
+        assert!(
+            !scan.turns.is_empty(),
+            "expected at least one assistant turn in a real session file"
+        );
         assert!(scan.model.is_some());
         // Every real turn has both output and (usually) cache-read tokens;
         // this is the assertion that would have caught the archive's gap —
         // input_tokens/cache_creation_input_tokens must not all be zero
         // across a real multi-turn session.
-        let any_input = scan.turns.iter().any(|t| t.input_tokens > 0 || t.cache_creation_input_tokens > 0);
-        assert!(any_input, "expected at least one turn with nonzero input/cache-creation tokens");
+        let any_input = scan
+            .turns
+            .iter()
+            .any(|t| t.input_tokens > 0 || t.cache_creation_input_tokens > 0);
+        assert!(
+            any_input,
+            "expected at least one turn with nonzero input/cache-creation tokens"
+        );
     }
 }

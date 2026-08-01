@@ -10,12 +10,13 @@
 //! following operation (`openat`/`renameat`) is anchored to that directory's
 //! *file descriptor*, not its path, so there is nothing left to swap.
 
+use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rustix::fd::OwnedFd;
-use rustix::fs::{self, AtFlags, FileType, Mode, OFlags, CWD};
+use rustix::fs::{self, AtFlags, CWD, FileType, Mode, OFlags};
 
 use crate::error::{Result, SafeIoError};
 
@@ -25,8 +26,10 @@ use crate::error::{Result, SafeIoError};
 /// dotfiles repo or shared config volume" pattern — in which case we resolve
 /// it and require the real target be a directory owned by the current uid.
 /// A symlink pointing at a directory owned by someone else is refused.
-fn open_verified_dir(dir: &Path) -> Result<OwnedFd> {
-    std::fs::create_dir_all(dir)?;
+fn open_verified_dir_inner(dir: &Path, create: bool) -> Result<OwnedFd> {
+    if create {
+        std::fs::create_dir_all(dir)?;
+    }
 
     let lst = std::fs::symlink_metadata(dir)?;
     let real_dir: PathBuf = if lst.file_type().is_symlink() {
@@ -59,6 +62,23 @@ fn open_verified_dir(dir: &Path) -> Result<OwnedFd> {
     Ok(dirfd)
 }
 
+fn open_verified_dir(dir: &Path) -> Result<OwnedFd> {
+    open_verified_dir_inner(dir, true)
+}
+
+/// Read-only callers must not create directories as a side effect of a
+/// missing log/config path. They still use the exact same ownership and
+/// no-follow checks as writers, so a symlink escape cannot turn a harmless
+/// read into an arbitrary-file read.
+fn open_existing_verified_dir(dir: &Path) -> Result<OwnedFd> {
+    open_verified_dir_inner(dir, false)
+}
+
+pub fn ensure_dir(path: &Path) -> Result<()> {
+    let _ = open_verified_dir(path)?;
+    Ok(())
+}
+
 /// Open `name` inside `dirfd` for append, creating it if missing.
 ///
 /// This is deliberately *not* a single `openat(..., O_CREAT | O_NOFOLLOW,
@@ -74,7 +94,7 @@ fn open_verified_dir(dir: &Path) -> Result<OwnedFd> {
 /// exists; if that's `ENOENT`, race to create it exclusively; if we lose
 /// that race (`EEXIST`, someone else just created it), fall back to
 /// opening it as already-existing. Every branch keeps `O_NOFOLLOW`.
-fn open_append_create(dirfd: &OwnedFd, name: &str) -> Result<rustix::fd::OwnedFd> {
+fn open_append_create(dirfd: &OwnedFd, name: &OsStr) -> Result<rustix::fd::OwnedFd> {
     let open_existing = || {
         fs::openat(
             dirfd,
@@ -93,7 +113,12 @@ fn open_append_create(dirfd: &OwnedFd, name: &str) -> Result<rustix::fd::OwnedFd
     match fs::openat(
         dirfd,
         name,
-        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        OFlags::WRONLY
+            | OFlags::CREATE
+            | OFlags::EXCL
+            | OFlags::APPEND
+            | OFlags::NOFOLLOW
+            | OFlags::CLOEXEC,
         Mode::from_raw_mode(0o600),
     ) {
         Ok(fd) => Ok(fd),
@@ -108,12 +133,14 @@ fn open_append_create(dirfd: &OwnedFd, name: &str) -> Result<rustix::fd::OwnedFd
 /// safe on its own (rename never dereferences its target), but we still
 /// refuse outright rather than silently deleting a symlink a user may have
 /// placed there deliberately.
-fn refuse_if_symlink(dirfd: &OwnedFd, name: &str) -> Result<()> {
+fn refuse_if_symlink(dirfd: &OwnedFd, name: &OsStr) -> Result<()> {
     match fs::statat(dirfd, name, AtFlags::SYMLINK_NOFOLLOW) {
         Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::Symlink => {
             Err(SafeIoError::IsSymlink)
         }
-        Ok(_) | Err(_) => Ok(()), // missing, or exists-and-not-a-symlink: proceed
+        Ok(_) => Ok(()), // exists-and-not-a-symlink: proceed
+        Err(e) if e == rustix::io::Errno::NOENT => Ok(()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -122,10 +149,9 @@ pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = flag_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename")))?;
+    let name = flag_path.file_name().ok_or_else(|| {
+        SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename"))
+    })?;
 
     let dirfd = open_verified_dir(dir)?;
     refuse_if_symlink(&dirfd, name)?;
@@ -135,7 +161,7 @@ pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or_default();
-    let tmp_name = format!(".{name}.{pid}.{nanos}.tmp");
+    let tmp_name = format!(".{}.{pid}.{nanos}.tmp", name.to_string_lossy());
 
     let tmp_fd = fs::openat(
         &dirfd,
@@ -172,17 +198,11 @@ pub fn read_flag_raw(flag_path: &Path, max_bytes: usize) -> Result<String> {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = flag_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename")))?;
+    let name = flag_path.file_name().ok_or_else(|| {
+        SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename"))
+    })?;
 
-    let dirfd = fs::openat(
-        CWD,
-        dir,
-        OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
+    let dirfd = open_existing_verified_dir(dir)?;
 
     let st = fs::statat(&dirfd, name, AtFlags::SYMLINK_NOFOLLOW)?;
     let ft = FileType::from_raw_mode(st.st_mode);
@@ -202,10 +222,22 @@ pub fn read_flag_raw(flag_path: &Path, max_bytes: usize) -> Result<String> {
         OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )?;
-    let mut buf = vec![0u8; max_bytes];
-    let n = rustix::io::read(&fd, &mut buf)?;
-    buf.truncate(n);
-    String::from_utf8(buf).map_err(|e| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))
+    let capacity = max_bytes.saturating_add(1);
+    let mut buf = vec![0u8; capacity];
+    let mut total = 0;
+    while total < capacity {
+        let n = rustix::io::read(&fd, &mut buf[total..])?;
+        if n == 0 {
+            break;
+        }
+        total += n;
+    }
+    if total > max_bytes {
+        return Err(SafeIoError::TooLarge(max_bytes));
+    }
+    buf.truncate(total);
+    String::from_utf8(buf)
+        .map_err(|e| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))
 }
 
 pub fn append_line(path: &Path, line: &str) -> Result<()> {
@@ -213,10 +245,9 @@ pub fn append_line(path: &Path, line: &str) -> Result<()> {
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename")))?;
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename"))
+    })?;
 
     let dirfd = open_verified_dir(dir)?;
     refuse_if_symlink(&dirfd, name)?;
@@ -237,6 +268,85 @@ pub fn append_line(path: &Path, line: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn remove_file_if_contains(path: &Path, marker: &str) -> Result<bool> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename"))
+    })?;
+    let dirfd = match open_existing_verified_dir(dir) {
+        Ok(fd) => fd,
+        Err(SafeIoError::Io(error)) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let stat = match fs::statat(&dirfd, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) => stat,
+        Err(error) if error == rustix::io::Errno::NOENT => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let file_type = FileType::from_raw_mode(stat.st_mode);
+    if file_type == FileType::Symlink {
+        return Err(SafeIoError::IsSymlink);
+    }
+    if file_type != FileType::RegularFile {
+        return Err(SafeIoError::NotAFile);
+    }
+    if stat.st_size as u64 > crate::MAX_CONFIG_BYTES as u64 {
+        return Err(SafeIoError::TooLarge(crate::MAX_CONFIG_BYTES));
+    }
+    let fd = fs::openat(
+        &dirfd,
+        name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let mut content = Vec::with_capacity(stat.st_size as usize);
+    let mut chunk = [0u8; 8192];
+    loop {
+        match rustix::io::read(&fd, &mut chunk) {
+            Ok(0) => break,
+            Ok(n) => content.extend_from_slice(&chunk[..n]),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if !String::from_utf8_lossy(&content).contains(marker) {
+        return Ok(false);
+    }
+    fs::unlinkat(&dirfd, name, AtFlags::empty())?;
+    Ok(true)
+}
+
+pub fn remove_file(path: &Path) -> Result<bool> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidInput, "no filename"))
+    })?;
+    let dirfd = match open_existing_verified_dir(dir) {
+        Ok(fd) => fd,
+        Err(SafeIoError::Io(error)) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    let stat = match fs::statat(&dirfd, name, AtFlags::SYMLINK_NOFOLLOW) {
+        Ok(stat) => stat,
+        Err(error) if error == rustix::io::Errno::NOENT => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    let file_type = FileType::from_raw_mode(stat.st_mode);
+    if file_type == FileType::Symlink {
+        return Err(SafeIoError::IsSymlink);
+    }
+    if file_type != FileType::RegularFile {
+        return Err(SafeIoError::NotAFile);
+    }
+    fs::unlinkat(&dirfd, name, AtFlags::empty())?;
+    Ok(true)
+}
+
 pub fn read_lines(path: &Path) -> Vec<String> {
     let Ok(lst) = std::fs::symlink_metadata(path) else {
         return Vec::new();
@@ -251,13 +361,19 @@ pub fn read_lines(path: &Path) -> Vec<String> {
     else {
         return Vec::new();
     };
-    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+    let Some(name) = path.file_name() else {
         return Vec::new();
     };
-    let Ok(dirfd) = fs::openat(CWD, dir, OFlags::DIRECTORY | OFlags::CLOEXEC, Mode::empty())
-    else {
+    let Ok(dirfd) = open_existing_verified_dir(dir) else {
         return Vec::new();
     };
+    let Ok(st) = fs::statat(&dirfd, name, AtFlags::SYMLINK_NOFOLLOW) else {
+        return Vec::new();
+    };
+    let ft = FileType::from_raw_mode(st.st_mode);
+    if ft == FileType::Symlink || ft != FileType::RegularFile {
+        return Vec::new();
+    }
     let Ok(fd) = fs::openat(
         &dirfd,
         name,

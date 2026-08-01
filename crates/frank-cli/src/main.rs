@@ -7,6 +7,7 @@ mod stats;
 mod targets_cmd;
 
 use clap::{Parser, Subcommand};
+use std::panic::UnwindSafe;
 
 /// `hook` is dispatched before clap's `Command` tree is even constructed —
 /// clap's builder allocation is the dominant startup cost in a binary this
@@ -20,16 +21,24 @@ fn main() {
         // Backstop: hook::dispatch is written to never panic, but a hook
         // exiting non-zero (or crashing) can break the host agent's turn,
         // so this is a hard guarantee, not an optimization.
-        let code = std::panic::catch_unwind(|| hook::dispatch(&name)).unwrap_or(0);
+        let code = guarded_hook(|| hook::dispatch(&name));
         std::process::exit(code);
     }
     std::process::exit(run());
 }
 
+fn guarded_hook<F>(run: F) -> i32
+where
+    F: FnOnce() -> i32 + UnwindSafe,
+{
+    std::panic::catch_unwind(run).unwrap_or(0)
+}
+
 #[derive(Parser)]
 #[command(
     name = "frank",
-    about = "Frank — an extensible output-style engine for AI coding agents"
+    about = "Frank — an extensible output-style engine for AI coding agents",
+    version
 )]
 struct Cli {
     #[command(subcommand)]
@@ -235,5 +244,15 @@ fn run() -> i32 {
             }
             PackCommand::Show { selector } => pack::show(selector.as_deref()),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::guarded_hook;
+
+    #[test]
+    fn a_caught_hook_panic_is_a_successful_noop() {
+        assert_eq!(guarded_hook(|| panic!("simulated hook panic")), 0);
     }
 }

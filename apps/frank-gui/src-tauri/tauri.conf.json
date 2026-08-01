@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Frank",
+  "version": "0.1.0",
+  "identifier": "dev.frank.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "Frank", "width": 980, "height": 720, "minWidth": 720, "minHeight": 560, "resizable": true }],
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "msi", "deb", "rpm"],
+    "externalBin": ["binaries/frank-sidecar"],
+    "resources": {
+      "packaging/install-frank-cli.command": "install-frank-cli.command",
+      "packaging/frank": "frank-cli/frank",
+      "packaging/frank.exe": "frank-cli/frank.exe"
+    },
+    "icon": ["icons/icon.png", "icons/frank.svg"],
+    "category": "Utility",
+    "shortDescription": "Frank persona engine control panel",
+    "longDescription": "Manage Frank modes, persona packs, and AI coding agent integrations.",
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/bin/frank": "packaging/frank"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/bin/frank": "packaging/frank"
+        }
+      }
+    },
+    "windows": {
+      "wix": {
+        "fragmentPaths": ["./packaging/windows/frank-path.wxs"],
+        "componentRefs": ["FrankCliPath"]
+      }
+    }
+  }
+}

@@ -1,0 +1,80 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'rust'
+stack: 'systems'
+toolchains:
+  default: 'rust'
+
+tasks:
+  build:
+    command: 'cargo build --workspace --all-targets --locked'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/crates/**/*'
+      - '/packs/**/*'
+      - '/targets/**/*'
+      - '/xtask/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  test:
+    command: 'cargo test --workspace --locked'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/crates/**/*'
+      - '/packs/**/*'
+      - '/targets/**/*'
+      - '/xtask/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  nextest:
+    command: 'cargo nextest run --workspace --locked --profile ci'
+    deps: ['~:format']
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/.config/nextest.toml'
+      - '/crates/**/*'
+      - '/packs/**/*'
+      - '/targets/**/*'
+      - '/xtask/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  doctest:
+    command: 'cargo test --workspace --doc --locked'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  clippy:
+    command: 'cargo clippy --workspace --all-targets --locked -- -D warnings'
+    deps: ['~:format']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  check-packs:
+    command: 'cargo run --locked -p xtask -- build-packs'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  lint-targets:
+    command: 'cargo run --locked -p xtask -- lint-targets'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  verify:
+    command: 'cargo test --workspace --locked'
+    deps: ['~:format', '~:clippy', '~:doctest', '~:check-packs', '~:lint-targets']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false

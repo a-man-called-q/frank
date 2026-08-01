@@ -1,0 +1,26 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'unknown'
+stack: 'infrastructure'
+
+tasks:
+  strict:
+    command: './scripts/verify-strict.sh'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/.config/**/*'
+      - '/crates/**/*'
+      - '/apps/**/*'
+      - '/scripts/**/*'
+      - '/xtask/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  nightly:
+    command: './scripts/scrutiny-nightly.sh'
+    deps: ['~:strict']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false

@@ -1,0 +1,75 @@
+[package]
+name = "frank-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+frank-app = { path = "../crates/frank-app" }
+frank-compress = { path = "../crates/frank-compress" }
+frank-ledger = { path = "../crates/frank-ledger" }
+frank-pack = { path = "../crates/frank-pack" }
+frank-state = { path = "../crates/frank-state" }
+frank-target = { path = "../crates/frank-target" }
+serde_json = "1"
+toml = "0.8"
+
+[[bin]]
+name = "pack_manifest"
+path = "fuzz_targets/pack_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "intent_parser"
+path = "fuzz_targets/intent_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session_jsonl"
+path = "fuzz_targets/session_jsonl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "compressor"
+path = "fuzz_targets/compressor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ledger_attribution"
+path = "fuzz_targets/ledger_attribution.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jsonc_settings"
+path = "fuzz_targets/jsonc_settings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "marker_fences"
+path = "fuzz_targets/marker_fences.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tauri_payloads"
+path = "fuzz_targets/tauri_payloads.rs"
+test = false
+doc = false
+bench = false

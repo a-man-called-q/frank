@@ -40,7 +40,10 @@ pub fn run(config: ProxyConfig) -> i32 {
     let mut child: Child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("frank-mcp: failed to spawn upstream '{}': {e}", config.upstream_cmd);
+            eprintln!(
+                "frank-mcp: failed to spawn upstream '{}': {e}",
+                config.upstream_cmd
+            );
             return 1;
         }
     };

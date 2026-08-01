@@ -27,7 +27,8 @@ curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/frank/main/dist/insta
 
 ### From Source
 
-Requirements: Rust 1.85 or newer
+Requirements: Rust 1.85 or newer. The repository also pins Node 24, pnpm 10,
+and Moon 2.4.5 through proto for GUI and release tasks.
 
 ```sh
 git clone https://github.com/YOUR_USERNAME/frank.git
@@ -35,6 +36,22 @@ cd frank
 cargo build --release -p frank-cli
 ./target/release/frank --help
 ```
+
+### Desktop control panel
+
+The Tauri desktop app is an optional control plane; hooks and the CLI never
+need the GUI process to be running. During development:
+
+```sh
+pnpm install --frozen-lockfile
+moon run frank-gui:dev
+```
+
+The tray-first app exposes status/levels, persona packs, integrations,
+diagnostics, and settings. Release builds can produce `.dmg`, `.msi`, `.deb`,
+and `.rpm` packages with `moon run frank-release:bundle`. MVP packages are
+unsigned and are labelled as development builds; signing and notarization are
+tracked in [`TODO.md`](TODO.md).
 
 ## Getting Started
 
@@ -150,6 +167,30 @@ cargo run -p xtask -- build-packs
 cargo run -p xtask -- lint-targets
 ```
 
+The fast workspace gate is:
+
+```sh
+moon run :verify
+```
+
+The mandatory strict gate (coverage, audit, browser tests, and clean generated
+output checks) is:
+
+```sh
+moon run :verify-strict
+```
+
+Native Tauri smoke (hidden launch, single-instance hand-off, and quit) runs
+against a packaged executable supplied by the platform job:
+
+```sh
+FRANK_GUI_BINARY=/path/to/Frank moon run frank-release:native-smoke
+```
+
+`cargo` remains the source of truth for Rust builds; Moon only orchestrates
+the task graph. Release tasks intentionally run without affected filtering or
+cache reuse.
+
 ### Project Structure
 
 Frank is built with modular Rust crates:
@@ -160,6 +201,8 @@ Frank is built with modular Rust crates:
 - `frank-ledger` - Token usage tracking and accounting
 - `frank-compress` - Document compression engine
 - `frank-target` - AI assistant integration layer
+- `frank-app` - shared application service used by CLI, hooks, and GUI
+- `apps/frank-gui` - Tauri v2 + React desktop control plane
 
 Full architecture details in [`AGENTS.md`](AGENTS.md).
 

@@ -22,7 +22,7 @@ pub enum SafeIoError {
     #[error("target is not a regular file")]
     NotAFile,
 
-    #[error("file exceeds the {0}-byte flag cap")]
+    #[error("file exceeds the {0}-byte safety cap")]
     TooLarge(usize),
 
     #[error("value is not on the caller-supplied whitelist")]

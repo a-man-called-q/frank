@@ -41,6 +41,11 @@ fn verify_dir(dir: &Path) -> Result<PathBuf> {
     Ok(real_dir)
 }
 
+pub fn ensure_dir(path: &Path) -> Result<()> {
+    let _ = verify_dir(path)?;
+    Ok(())
+}
+
 fn is_symlink_at(path: &Path) -> bool {
     std::fs::symlink_metadata(path)
         .map(|m| m.file_type().is_symlink())
@@ -53,9 +58,12 @@ pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let real_dir = verify_dir(dir)?;
-    let name = flag_path
-        .file_name()
-        .ok_or_else(|| SafeIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no filename")))?;
+    let name = flag_path.file_name().ok_or_else(|| {
+        SafeIoError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no filename",
+        ))
+    })?;
     let real_flag_path = real_dir.join(name);
 
     if is_symlink_at(&real_flag_path) {
@@ -101,9 +109,20 @@ pub fn read_flag_raw(flag_path: &Path, max_bytes: usize) -> Result<String> {
         .read(true)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(flag_path)?;
-    let mut buf = vec![0u8; max_bytes];
-    let n = f.read(&mut buf)?;
-    buf.truncate(n);
+    let capacity = max_bytes.saturating_add(1);
+    let mut buf = vec![0u8; capacity];
+    let mut total = 0;
+    while total < capacity {
+        let n = f.read(&mut buf[total..])?;
+        if n == 0 {
+            break;
+        }
+        total += n;
+    }
+    if total > max_bytes {
+        return Err(SafeIoError::TooLarge(max_bytes));
+    }
+    buf.truncate(total);
     String::from_utf8(buf)
         .map_err(|e| SafeIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
 }
@@ -114,9 +133,12 @@ pub fn append_line(path: &Path, line: &str) -> Result<()> {
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     let real_dir = verify_dir(dir)?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| SafeIoError::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, "no filename")))?;
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no filename",
+        ))
+    })?;
     let real_path = real_dir.join(name);
 
     if is_symlink_at(&real_path) {
@@ -132,6 +154,69 @@ pub fn append_line(path: &Path, line: &str) -> Result<()> {
     f.write_all(trimmed.as_bytes())?;
     f.write_all(b"\n")?;
     Ok(())
+}
+
+pub fn remove_file_if_contains(path: &Path, marker: &str) -> Result<bool> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let real_dir = verify_dir(dir)?;
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no filename",
+        ))
+    })?;
+    let real_path = real_dir.join(name);
+    let metadata = match std::fs::symlink_metadata(&real_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(SafeIoError::IsSymlink);
+    }
+    if !metadata.is_file() {
+        return Err(SafeIoError::NotAFile);
+    }
+    if metadata.len() > MAX_CONFIG_BYTES as u64 {
+        return Err(SafeIoError::TooLarge(MAX_CONFIG_BYTES));
+    }
+    let content = std::fs::read_to_string(&real_path)?;
+    if !content.contains(marker) {
+        return Ok(false);
+    }
+    std::fs::remove_file(real_path)?;
+    Ok(true)
+}
+
+pub fn remove_file(path: &Path) -> Result<bool> {
+    let dir = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let real_dir = verify_dir(dir)?;
+    let name = path.file_name().ok_or_else(|| {
+        SafeIoError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no filename",
+        ))
+    })?;
+    let real_path = real_dir.join(name);
+    let metadata = match std::fs::symlink_metadata(&real_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(SafeIoError::IsSymlink);
+    }
+    if !metadata.is_file() {
+        return Err(SafeIoError::NotAFile);
+    }
+    std::fs::remove_file(real_path)?;
+    Ok(true)
 }
 
 pub fn read_lines(path: &Path) -> Vec<String> {
@@ -156,4 +241,43 @@ pub fn read_lines(path: &Path) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn writes_and_reads_a_path_with_spaces() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("config with spaces").join(".frank-active");
+        write_flag_atomic(&path, "full").unwrap();
+        assert_eq!(read_flag_raw(&path, 64).unwrap(), "full");
+    }
+
+    #[test]
+    fn refuses_a_reparse_point_file_without_touching_its_target() {
+        use std::os::windows::fs::symlink_file;
+
+        let tmp = tempdir().unwrap();
+        let target = tmp.path().join("target.txt");
+        std::fs::write(&target, "untouched").unwrap();
+        let link = tmp.path().join(".frank-active");
+        // Creating a symlink may be denied on an unprivileged Windows CI
+        // worker; that environment still gets the real package smoke tests.
+        if symlink_file(&target, &link).is_err() {
+            return;
+        }
+        assert!(write_flag_atomic(&link, "full").is_err());
+        assert_eq!(std::fs::read_to_string(target).unwrap(), "untouched");
+    }
+
+    #[test]
+    fn missing_read_does_not_create_a_directory() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("missing").join(".frank-active");
+        assert!(read_flag_raw(&path, 64).is_err());
+        assert!(!path.parent().unwrap().exists());
+    }
 }

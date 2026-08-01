@@ -337,12 +337,20 @@ fn safe_pack_path(root: &Path, relative: &str) -> Result<PathBuf> {
     {
         return Err(PackError::UnsafePath(relative.to_string()));
     }
-    let path = root.join(candidate);
-    if std::fs::symlink_metadata(&path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        return Err(PackError::UnsafePath(relative.to_string()));
+    // Check every component, not only the final file. A symlinked `levels/`
+    // directory would otherwise make `levels/full.md` look like an ordinary
+    // file while allowing a pack to read outside its root during preview.
+    let mut path = root.to_path_buf();
+    for component in candidate.components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        path.push(name);
+        if let Ok(metadata) = std::fs::symlink_metadata(&path) {
+            if metadata.file_type().is_symlink() {
+                return Err(PackError::UnsafePath(relative.to_string()));
+            }
+        }
     }
     Ok(path)
 }

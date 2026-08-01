@@ -31,8 +31,12 @@ pub fn strip_all(text: &str, block: &Block) -> String {
         out.push_str(&text[i..b]);
 
         let after_begin = b + block.begin.len();
-        let next_b = text[after_begin..].find(&block.begin).map(|p| after_begin + p);
-        let e = text[after_begin..].find(&block.end).map(|p| after_begin + p);
+        let next_b = text[after_begin..]
+            .find(&block.begin)
+            .map(|p| after_begin + p);
+        let e = text[after_begin..]
+            .find(&block.end)
+            .map(|p| after_begin + p);
 
         match e {
             Some(e) if next_b.is_none_or(|nb| e < nb) => {
@@ -80,7 +84,12 @@ pub fn append(text: &str, block: &Block, body: &str) -> AppendOutcome {
 
     let trimmed = stripped.trim_end();
     let separator = if trimmed.is_empty() { "" } else { "\n\n" };
-    let new_text = format!("{trimmed}{separator}{}\n{}\n{}\n", block.begin, body.trim(), block.end);
+    let new_text = format!(
+        "{trimmed}{separator}{}\n{}\n{}\n",
+        block.begin,
+        body.trim(),
+        block.end
+    );
 
     if begin_count == 0 && end_count == 0 {
         AppendOutcome::Appended(new_text)
@@ -106,13 +115,18 @@ mod tests {
     use super::*;
 
     fn block() -> Block {
-        Block { begin: "<!-- frank:begin -->".to_string(), end: "<!-- frank:end -->".to_string() }
+        Block {
+            begin: "<!-- frank:begin -->".to_string(),
+            end: "<!-- frank:end -->".to_string(),
+        }
     }
 
     #[test]
     fn append_to_empty_file() {
         let out = append("", &block(), "hello");
-        let AppendOutcome::Appended(text) = out else { panic!() };
+        let AppendOutcome::Appended(text) = out else {
+            panic!()
+        };
         assert!(text.contains("<!-- frank:begin -->\nhello\n<!-- frank:end -->\n"));
     }
 
@@ -120,7 +134,9 @@ mod tests {
     fn append_preserves_existing_user_content() {
         let existing = "# My AGENTS.md\n\nSome rules I wrote.\n";
         let out = append(existing, &block(), "frank rules");
-        let AppendOutcome::Appended(text) = out else { panic!() };
+        let AppendOutcome::Appended(text) = out else {
+            panic!()
+        };
         assert!(text.starts_with("# My AGENTS.md\n\nSome rules I wrote."));
         assert!(text.contains("frank rules"));
     }
@@ -169,7 +185,8 @@ mod tests {
 
     #[test]
     fn each_begin_pairs_with_nearest_end_before_next_begin() {
-        let text = "<!-- frank:begin -->\nfirst\n<!-- frank:begin -->\nsecond\n<!-- frank:end -->\ntail";
+        let text =
+            "<!-- frank:begin -->\nfirst\n<!-- frank:begin -->\nsecond\n<!-- frank:end -->\ntail";
         // First begin has no end before the SECOND begin -> orphan, only marker removed.
         // Second begin pairs with the end that follows it.
         let stripped = strip_all(text, &block());

@@ -5,8 +5,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frank_ledger::stats::{HistoryRow, aggregate_history, append_history, read_history};
-use frank_ledger::{find_recent_session, pricing};
+use frank_app::{FrankPaths, FrankService};
+use frank_ledger::pricing;
+use frank_ledger::stats::{aggregate_history, read_history};
 
 use crate::{flag, pack};
 
@@ -17,73 +18,11 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn flag_mtime_ms() -> Option<i64> {
-    std::fs::metadata(flag::path())
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64)
-}
-
 /// Build the current-session report and, if it has any turns, append a
 /// lifetime history row. Shared by `frank stats` and the
 /// `/caveman-stats` hook interception.
 pub fn build_and_record(session_override: Option<&Path>) -> frank_ledger::SessionReport {
-    let config_dir = flag::config_dir();
-    let compiled = pack::current_or_builtin();
-
-    let session_path = session_override
-        .map(PathBuf::from)
-        .or_else(|| find_recent_session(&config_dir));
-
-    let Some(session_path) = session_path else {
-        // No session found at all: report zero turns rather than reading a
-        // path we know doesn't exist.
-        return frank_ledger::SessionReport {
-            session_path: None,
-            session_id: None,
-            turns: 0,
-            model: None,
-            attribution: frank_ledger::attribute_by_mode(&[], &[], None, None),
-            injection_activate_bytes: 0,
-            injection_reinforce_bytes: 0,
-        };
-    };
-
-    let mode_log_path = config_dir.join(".frank-mode-log.jsonl");
-    let ledger_path = config_dir.join(".frank-ledger.jsonl");
-    let valid = pack::valid_flag_values(&compiled);
-    let valid = valid.iter().map(String::as_str).collect::<Vec<_>>();
-    let current_mode = frank_safeio::read_flag(&flag::path(), &valid);
-
-    let report = frank_ledger::build_session_report(
-        &session_path,
-        &mode_log_path,
-        &ledger_path,
-        &compiled,
-        current_mode.as_deref(),
-        flag_mtime_ms(),
-    );
-
-    if report.turns > 0 {
-        if let Some(sid) = &report.session_id {
-            let output_total = frank_ledger::stats::measured_output_total(&report.attribution);
-            let input_total = frank_ledger::stats::measured_input_total(&report.attribution);
-            append_history(
-                &config_dir.join(".frank-history.jsonl"),
-                &HistoryRow {
-                    ts: now_ms(),
-                    session_id: sid.clone(),
-                    model: report.model.clone(),
-                    output_tokens: output_total,
-                    input_tokens: input_total,
-                    turns: report.turns,
-                },
-            );
-        }
-    }
-
-    report
+    FrankService::new(FrankPaths::from_process()).build_and_record_stats(session_override)
 }
 
 pub struct StatsArgs {

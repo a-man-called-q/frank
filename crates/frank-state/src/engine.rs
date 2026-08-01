@@ -63,8 +63,8 @@ fn record_mode_change(paths: &FlagPaths, pack: &CompiledPack, next: Option<&str>
 
 fn deactivate(paths: &FlagPaths, pack: &CompiledPack) {
     record_mode_change(paths, pack, None);
-    let _ = std::fs::remove_file(&paths.active);
-    let _ = std::fs::remove_file(&paths.prev);
+    let _ = frank_safeio::remove_file(&paths.active);
+    let _ = frank_safeio::remove_file(&paths.prev);
 }
 
 fn activate(paths: &FlagPaths, pack: &CompiledPack, level: &str) {
@@ -105,7 +105,7 @@ pub fn apply(intent: &Intent, pack: &CompiledPack, paths: &FlagPaths) -> Applied
     if let Some(cur) = active.clone() {
         if pack.oneshots.contains_key(&cur) && !set_oneshot_this_turn {
             let prev = frank_safeio::read_flag(&paths.prev, &valid_values(pack));
-            let _ = std::fs::remove_file(&paths.prev);
+            let _ = frank_safeio::remove_file(&paths.prev);
             match prev.filter(|p| !pack.oneshots.contains_key(p)) {
                 Some(p) => {
                     record_mode_change(paths, pack, Some(&p));
@@ -114,7 +114,7 @@ pub fn apply(intent: &Intent, pack: &CompiledPack, paths: &FlagPaths) -> Applied
                 }
                 None => {
                     record_mode_change(paths, pack, None);
-                    let _ = std::fs::remove_file(&paths.active);
+                    let _ = frank_safeio::remove_file(&paths.active);
                     active = None;
                 }
             }

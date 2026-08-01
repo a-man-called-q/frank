@@ -1,0 +1,26 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'unknown'
+stack: 'infrastructure'
+workspace:
+  inheritedTasks:
+    include: []
+
+tasks:
+  verify:
+    command: 'moon run frank-rust:verify frank-gui:verify'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  verify-strict:
+    command: 'moon run frank-scrutiny:strict'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  nightly:
+    command: 'moon run frank-scrutiny:nightly'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false

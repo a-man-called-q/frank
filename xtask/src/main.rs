@@ -26,8 +26,10 @@ enum Command {
     BuildPacks,
     /// Parse and validate every targets/*.toml manifest.
     LintTargets,
-    /// Write dist/SHA256SUMS for every archive under dist/.
+    /// Write dist/SHA256SUMS for every published CLI or desktop artifact.
     Checksums,
+    /// Ensure CLI, GUI, and package metadata use one workspace version.
+    VersionCheck,
     /// Package a release binary into dist/. Without --target this uses the
     /// host triple; CI passes an explicit target after cross-compiling it.
     Dist {
@@ -43,8 +45,47 @@ fn main() -> Result<()> {
         Command::BuildPacks => build_packs(&root),
         Command::LintTargets => lint_targets(&root),
         Command::Checksums => checksums(&root),
+        Command::VersionCheck => version_check(&root),
         Command::Dist { target } => dist(&root, target.as_deref()),
     }
+}
+
+fn version_check(root: &Path) -> Result<()> {
+    let cargo_path = root.join("Cargo.toml");
+    let cargo: toml::Value = toml::from_str(
+        &std::fs::read_to_string(&cargo_path)
+            .with_context(|| format!("reading {}", cargo_path.display()))?,
+    )?;
+    let expected = cargo
+        .get("workspace")
+        .and_then(|v| v.get("package"))
+        .and_then(|v| v.get("version"))
+        .and_then(toml::Value::as_str)
+        .context("[workspace.package].version is missing")?;
+
+    for relative in [
+        "apps/frank-gui/package.json",
+        "apps/frank-gui/src-tauri/tauri.conf.json",
+    ] {
+        let path = root.join(relative);
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?,
+        )?;
+        let actual = json
+            .get("version")
+            .and_then(serde_json::Value::as_str)
+            .with_context(|| format!("version is missing from {}", path.display()))?;
+        if actual != expected {
+            anyhow::bail!(
+                "version mismatch: workspace is {expected}, {} is {actual}",
+                path.display()
+            );
+        }
+    }
+
+    println!("xtask version-check: all application metadata is {expected}");
+    Ok(())
 }
 
 fn repo_root() -> Result<PathBuf> {
@@ -283,7 +324,22 @@ fn str_slice(items: &[String]) -> String {
 /// to write outside those two roots should fail CI, not merely warn a
 /// user at install.
 fn check_path_scope(field: &str, raw: &str, errors: &mut Vec<String>) {
-    if raw.starts_with("$HOME") || raw.starts_with("./") {
+    let (prefix, remainder) = if let Some(rest) = raw.strip_prefix("$HOME") {
+        if rest.is_empty() || rest.starts_with('/') || rest.starts_with('\\') {
+            ("$HOME", rest)
+        } else {
+            ("", raw)
+        }
+    } else if let Some(rest) = raw.strip_prefix("./") {
+        ("./", rest)
+    } else {
+        ("", raw)
+    };
+    if !prefix.is_empty()
+        && !remainder
+            .split(['/', '\\'])
+            .any(|component| component == "..")
+    {
         return;
     }
     errors.push(format!(
@@ -520,11 +576,12 @@ fn checksums(root: &Path) -> Result<()> {
     for entry in std::fs::read_dir(&dist_dir)? {
         let entry = entry?;
         let path = entry.path();
-        let is_archive = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.ends_with(".tar.gz") || n.ends_with(".zip"));
-        if !is_archive {
+        let is_artifact = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            [".tar.gz", ".zip", ".dmg", ".msi", ".deb", ".rpm"]
+                .iter()
+                .any(|suffix| n.ends_with(suffix))
+        });
+        if !is_artifact {
             continue;
         }
         if !path.is_file() {
@@ -542,10 +599,7 @@ fn checksums(root: &Path) -> Result<()> {
     lines.sort();
 
     if lines.is_empty() {
-        anyhow::bail!(
-            "no .tar.gz or .zip archives found in {}",
-            dist_dir.display()
-        );
+        anyhow::bail!("no published artifacts found in {}", dist_dir.display());
     }
 
     let manifest_path = dist_dir.join("SHA256SUMS");
@@ -560,7 +614,7 @@ fn checksums(root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_name, binary_name};
+    use super::{archive_name, binary_name, check_path_scope};
 
     #[test]
     fn unix_artifacts_use_tar_gzip_and_unix_binary_name() {
@@ -578,5 +632,22 @@ mod tests {
             archive_name("x86_64-pc-windows-msvc"),
             "frank-x86_64-pc-windows-msvc.zip"
         );
+    }
+
+    #[test]
+    fn target_path_lint_rejects_prefix_spoofing_and_parent_escape() {
+        for raw in ["$HOMEfoo/file", "$HOME/../outside", "./../../outside"] {
+            let mut errors = Vec::new();
+            check_path_scope("path", raw, &mut errors);
+            assert!(
+                !errors.is_empty(),
+                "unsafe path unexpectedly accepted: {raw}"
+            );
+        }
+        for raw in ["$HOME/.config/frank", "./AGENTS.md"] {
+            let mut errors = Vec::new();
+            check_path_scope("path", raw, &mut errors);
+            assert!(errors.is_empty(), "safe path unexpectedly rejected: {raw}");
+        }
     }
 }

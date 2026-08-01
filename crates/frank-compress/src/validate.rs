@@ -40,16 +40,26 @@ impl ValidationResult {
         !self.findings.iter().any(|f| f.severity == Severity::Error)
     }
     pub fn errors(&self) -> impl Iterator<Item = &Finding> {
-        self.findings.iter().filter(|f| f.severity == Severity::Error)
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Error)
     }
     pub fn warnings(&self) -> impl Iterator<Item = &Finding> {
-        self.findings.iter().filter(|f| f.severity == Severity::Warning)
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
     }
     fn error(&mut self, message: impl Into<String>) {
-        self.findings.push(Finding { severity: Severity::Error, message: message.into() });
+        self.findings.push(Finding {
+            severity: Severity::Error,
+            message: message.into(),
+        });
     }
     fn warning(&mut self, message: impl Into<String>) {
-        self.findings.push(Finding { severity: Severity::Warning, message: message.into() });
+        self.findings.push(Finding {
+            severity: Severity::Warning,
+            message: message.into(),
+        });
     }
 }
 
@@ -123,11 +133,17 @@ pub fn extract_code_blocks(text: &str) -> Vec<String> {
 }
 
 fn extract_urls(text: &str) -> HashSet<String> {
-    url_regex().find_iter(text).map(|m| m.as_str().to_string()).collect()
+    url_regex()
+        .find_iter(text)
+        .map(|m| m.as_str().to_string())
+        .collect()
 }
 
 fn extract_paths(text: &str) -> HashSet<String> {
-    path_regex().find_iter(text).map(|m| m.as_str().to_string()).collect()
+    path_regex()
+        .find_iter(text)
+        .map(|m| m.as_str().to_string())
+        .collect()
 }
 
 fn count_bullets(text: &str) -> usize {
@@ -146,7 +162,10 @@ fn extract_inline_codes(text: &str) -> Vec<String> {
     let without_backtick_fences = strip_backtick.replace_all(text, "");
     let no_fences = strip_tilde.replace_all(&without_backtick_fences, "");
     let inline = Regex::new(r"`([^`]+)`").unwrap();
-    inline.captures_iter(&no_fences).map(|c| c[1].to_string()).collect()
+    inline
+        .captures_iter(&no_fences)
+        .map(|c| c[1].to_string())
+        .collect()
 }
 
 fn counter(items: &[String]) -> HashMap<String, usize> {
@@ -163,7 +182,11 @@ pub fn validate(orig: &str, comp: &str) -> ValidationResult {
     let h1 = extract_headings(orig);
     let h2 = extract_headings(comp);
     if h1.len() != h2.len() {
-        result.error(format!("Heading count mismatch: {} vs {}", h1.len(), h2.len()));
+        result.error(format!(
+            "Heading count mismatch: {} vs {}",
+            h1.len(),
+            h2.len()
+        ));
     }
     if h1 != h2 {
         result.warning("Heading text/order changed");
@@ -207,13 +230,18 @@ pub fn validate(orig: &str, comp: &str) -> ValidationResult {
         for (code, count) in &ic1 {
             match ic2.get(code) {
                 None => lost.push(code.clone()),
-                Some(c2) if c2 < count => {
-                    lost.push(format!("{code} (lost {} of {count} occurrences)", count - c2))
-                }
+                Some(c2) if c2 < count => lost.push(format!(
+                    "{code} (lost {} of {count} occurrences)",
+                    count - c2
+                )),
                 _ => {}
             }
         }
-        let added: Vec<_> = ic2.keys().filter(|c| !ic1.contains_key(*c)).cloned().collect();
+        let added: Vec<_> = ic2
+            .keys()
+            .filter(|c| !ic1.contains_key(*c))
+            .cloned()
+            .collect();
         if !lost.is_empty() {
             result.error(format!("Inline code lost: {lost:?}"));
         }

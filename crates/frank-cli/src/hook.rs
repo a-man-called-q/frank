@@ -12,6 +12,7 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
+use frank_app::{FrankPaths, FrankService};
 use frank_ledger::injection_ledger::{self, InjectionEntry};
 use frank_state::{AppliedState, FlagPaths};
 
@@ -91,9 +92,9 @@ fn user_prompt_submit() -> i32 {
         Ok(pack) => pack,
         Err(_) => return 0,
     };
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let resolved_default =
-        frank_state::resolve_default_level(&compiled, &cwd, "FRANK_DEFAULT_LEVEL");
+    let resolved_default = FrankService::new(FrankPaths::from_process())
+        .effective_default_level()
+        .unwrap_or_else(|_| compiled.default_level.clone());
     let intent = frank_state::classify(prompt, &compiled, &resolved_default);
 
     let paths = FlagPaths::under(&flag::config_dir());

@@ -12,9 +12,9 @@ mod config;
 mod engine;
 mod intent;
 
-pub use config::resolve_default_level;
-pub use engine::{apply, AppliedState, FlagPaths};
-pub use intent::{classify, Intent};
+pub use config::{resolve_default_level, resolve_default_level_with_user_dir};
+pub use engine::{AppliedState, FlagPaths, apply};
+pub use intent::{Intent, classify};
 
 use frank_pack::CompiledLevel;
 
@@ -31,7 +31,8 @@ pub fn reinforce_text(level: &CompiledLevel) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frank_pack::{compile, PackSource};
+    use frank_pack::{PackSource, compile};
+    use proptest::prelude::*;
     use std::fs;
     use std::path::Path;
     use tempfile::tempdir;
@@ -125,13 +126,19 @@ command_prefix = "caveman"
             ("how do I exit vim normal mode", Intent::None),
             ("how do i get back to normal mode in vim", Intent::None),
             // but "normal mode" + "caveman" anywhere still counts.
-            ("caveman is fun, back to normal mode now", Intent::Deactivate),
+            (
+                "caveman is fun, back to normal mode now",
+                Intent::Deactivate,
+            ),
             // questions must never activate.
             ("what is caveman mode?", Intent::None),
             ("how does caveman work", Intent::None),
             ("does caveman lite drop articles?", Intent::None),
             // NL activation.
-            ("talk like a caveman please", Intent::Activate("full".into())),
+            (
+                "talk like a caveman please",
+                Intent::Activate("full".into()),
+            ),
             ("activate caveman mode", Intent::Activate("full".into())),
             ("caveman mode on", Intent::Activate("full".into())),
             ("caveman", Intent::Activate("full".into())),
@@ -335,10 +342,13 @@ command_prefix = "caveman"
         let pack = fixture_pack(tmp.path());
         let nested = tmp.path().join("a/b/c");
         fs::create_dir_all(&nested).unwrap();
-        fs::write(tmp.path().join(".frank.toml"), "default_level = \"ultra\"\n").unwrap();
+        fs::write(
+            tmp.path().join(".frank.toml"),
+            "default_level = \"ultra\"\n",
+        )
+        .unwrap();
 
-        let resolved =
-            resolve_default_level(&pack, &nested, "FRANK_TEST_DEFAULT_LEVEL_UNSET_ABC");
+        let resolved = resolve_default_level(&pack, &nested, "FRANK_TEST_DEFAULT_LEVEL_UNSET_ABC");
         assert_eq!(resolved, "ultra");
     }
 
@@ -354,5 +364,26 @@ command_prefix = "caveman"
         let resolved =
             resolve_default_level(&pack, tmp.path(), "FRANK_TEST_DEFAULT_LEVEL_UNSET_DEF");
         assert_eq!(resolved, pack.default_level);
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_prompt_text_is_total(prompt in any::<String>()) {
+            let tmp = tempdir().unwrap();
+            let pack = fixture_pack(tmp.path());
+            let intent = classify(&prompt, &pack, &pack.default_level);
+            prop_assert!(matches!(
+                intent,
+                Intent::None | Intent::Activate(_) | Intent::Deactivate | Intent::Oneshot(_) | Intent::Stats(_)
+            ));
+        }
+
+        #[test]
+        fn deactivation_precedence_survives_arbitrary_suffix(suffix in any::<String>()) {
+            let tmp = tempdir().unwrap();
+            let pack = fixture_pack(tmp.path());
+            let prompt = format!("please stop caveman {suffix}");
+            prop_assert_eq!(classify(&prompt, &pack, &pack.default_level), Intent::Deactivate);
+        }
     }
 }

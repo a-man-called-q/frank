@@ -21,12 +21,14 @@ fn data_home() -> PathBuf {
     }
     #[cfg(not(windows))]
     {
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| {
-            frank_safeio::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".local")
-                .join("share")
-        })
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                frank_safeio::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".local")
+                    .join("share")
+            })
     }
 }
 
@@ -39,10 +41,16 @@ pub fn backup_dir_for(filepath: &Path) -> PathBuf {
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         .unwrap_or("");
-    data_home().join("frank-compress").join("backups").join(parent_name)
+    data_home()
+        .join("frank-compress")
+        .join("backups")
+        .join(parent_name)
 }
 
 pub fn backup_path_for(filepath: &Path) -> PathBuf {
-    let stem = filepath.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+    let stem = filepath
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
     backup_dir_for(filepath).join(format!("{stem}.original.md"))
 }

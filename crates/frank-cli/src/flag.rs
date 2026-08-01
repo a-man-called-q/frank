@@ -11,14 +11,10 @@
 
 use std::path::PathBuf;
 
+use frank_app::FrankPaths;
+
 pub fn config_dir() -> PathBuf {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            frank_safeio::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".claude")
-        })
+    FrankPaths::from_process().config_dir
 }
 
 /// Named `.frank-active`, not `.caveman-active` — this is Frank's own flag,

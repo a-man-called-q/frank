@@ -36,12 +36,22 @@ fn compress_one(path: &Path, check: bool, dry_run: bool) -> i32 {
         );
         return 1;
     }
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        eprintln!("frank: cannot read {}", path.display());
+        return 1;
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        eprintln!(
+            "frank: refusing non-regular or symlinked path {}",
+            path.display()
+        );
+        return 1;
+    }
     if !frank_compress::should_compress(path) {
         println!("frank: skipping {} (not natural language)", path.display());
         return 0;
     }
-
-    let Ok(text) = std::fs::read_to_string(path) else {
+    let Ok(text) = frank_safeio::read_text_capped(path, frank_safeio::MAX_SESSION_BYTES) else {
         eprintln!("frank: cannot read {}", path.display());
         return 1;
     };
@@ -96,12 +106,36 @@ fn compress_one(path: &Path, check: bool, dry_run: bool) -> i32 {
     }
 
     let backup_path = frank_compress::backup_path_for(path);
-    if backup_path.exists() {
-        eprintln!(
-            "frank: refusing to overwrite existing backup at {} — run with --restore first if you want to recompress",
-            backup_path.display()
-        );
-        return 1;
+    match std::fs::symlink_metadata(&backup_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            eprintln!(
+                "frank: refusing symlinked backup at {}",
+                backup_path.display()
+            );
+            return 1;
+        }
+        Ok(metadata) if !metadata.is_file() => {
+            eprintln!(
+                "frank: refusing non-file backup at {}",
+                backup_path.display()
+            );
+            return 1;
+        }
+        Ok(_) => {
+            eprintln!(
+                "frank: refusing to overwrite existing backup at {} — run with --restore first if you want to recompress",
+                backup_path.display()
+            );
+            return 1;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            eprintln!(
+                "frank: cannot inspect backup {}: {error}",
+                backup_path.display()
+            );
+            return 1;
+        }
     }
 
     if dry_run {
@@ -118,7 +152,7 @@ fn compress_one(path: &Path, check: bool, dry_run: bool) -> i32 {
     }
 
     if let Some(dir) = backup_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(dir) {
+        if let Err(e) = frank_safeio::ensure_dir(dir) {
             eprintln!("frank: failed to create backup directory: {e}");
             return 1;
         }
@@ -130,14 +164,14 @@ fn compress_one(path: &Path, check: bool, dry_run: bool) -> i32 {
     // Read the backup back and byte-compare before ever touching the
     // source — a failed backup must never be discovered after the
     // original is already gone.
-    match std::fs::read_to_string(&backup_path) {
+    match frank_safeio::read_text_capped(&backup_path, frank_safeio::MAX_SESSION_BYTES) {
         Ok(read_back) if read_back == text => {}
         _ => {
             eprintln!(
                 "frank: backup verification failed, aborting before touching {}",
                 path.display()
             );
-            let _ = std::fs::remove_file(&backup_path);
+            let _ = frank_safeio::remove_file(&backup_path);
             return 1;
         }
     }
@@ -159,7 +193,29 @@ fn restore_all(paths: &[PathBuf]) -> i32 {
     let mut exit = 0;
     for path in paths {
         let backup_path = frank_compress::backup_path_for(path);
-        if !backup_path.exists() {
+        let backup_metadata = match std::fs::symlink_metadata(&backup_path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                eprintln!("frank: refusing symlinked backup for {}", path.display());
+                exit = 1;
+                continue;
+            }
+            Ok(metadata) if !metadata.is_file() => {
+                eprintln!("frank: backup is not a regular file for {}", path.display());
+                exit = 1;
+                continue;
+            }
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                eprintln!(
+                    "frank: cannot inspect backup for {}: {error}",
+                    path.display()
+                );
+                exit = 1;
+                continue;
+            }
+        };
+        if backup_metadata.is_none() {
             eprintln!(
                 "frank: no backup found for {} (looked at {})",
                 path.display(),
@@ -168,11 +224,11 @@ fn restore_all(paths: &[PathBuf]) -> i32 {
             exit = 1;
             continue;
         }
-        match std::fs::read_to_string(&backup_path) {
+        match frank_safeio::read_text_capped(&backup_path, frank_safeio::MAX_SESSION_BYTES) {
             Ok(original) => match frank_safeio::write_flag_atomic(path, &original) {
                 Ok(()) => {
                     println!("frank: restored {} from backup", path.display());
-                    let _ = std::fs::remove_file(&backup_path);
+                    let _ = frank_safeio::remove_file(&backup_path);
                 }
                 Err(e) => {
                     eprintln!("frank: failed to restore {}: {e}", path.display());
@@ -186,4 +242,54 @@ fn restore_all(paths: &[PathBuf]) -> i32 {
         }
     }
     exit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn empty_compress_invocation_is_usage_error() {
+        assert_eq!(
+            run(CompressArgs {
+                paths: vec![],
+                check: false,
+                dry_run: false,
+                restore: false,
+            }),
+            2
+        );
+    }
+
+    #[test]
+    fn directories_and_symlinks_fail_closed_before_reading_content() {
+        let tmp = tempdir().unwrap();
+        let directory = tmp.path().join("notes.md");
+        std::fs::create_dir(&directory).unwrap();
+        assert_eq!(compress_one(&directory, false, false), 1);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let real = tmp.path().join("real.md");
+            std::fs::write(&real, "A useful paragraph that should stay intact.").unwrap();
+            let link = tmp.path().join("link.md");
+            symlink(&real, &link).unwrap();
+            assert_eq!(compress_one(&link, false, false), 1);
+            assert_eq!(
+                std::fs::read_to_string(real).unwrap(),
+                "A useful paragraph that should stay intact."
+            );
+        }
+    }
+
+    #[test]
+    fn restore_missing_backup_is_a_failure_without_touching_source() {
+        let tmp = tempdir().unwrap();
+        let source = tmp.path().join("notes.md");
+        std::fs::write(&source, "original").unwrap();
+        assert_eq!(restore_all(std::slice::from_ref(&source)), 1);
+        assert_eq!(std::fs::read_to_string(source).unwrap(), "original");
+    }
 }

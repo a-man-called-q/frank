@@ -42,10 +42,10 @@ jobs:
       # this workspace. This CI job is the place to settle whether `cross` or a
       # pinned linker image is the supported route before marking M6 complete.
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p frank-cli
+        run: cargo build --locked --release --target ${{ matrix.target }} -p frank-cli
       - name: Package
         shell: bash
-        run: cargo run --release -p xtask -- dist --target ${{ matrix.target }}
+        run: cargo run --locked --release -p xtask -- dist --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: frank-${{ matrix.target }}
@@ -53,8 +53,118 @@ jobs:
             dist/frank-${{ matrix.target }}.tar.gz
             dist/frank-${{ matrix.target }}.zip
 
+  # Desktop packages are built separately from the portable CLI archives.
+  # The sidecar is the same frank-cli binary, so the GUI never becomes a
+  # second implementation of hooks or installation behavior.
+  gui-build:
+    name: GUI ${{ matrix.bundle }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            bundle: dmg
+            sidecar_target: universal-apple-darwin
+            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
+          - runner: ubuntu-24.04
+            bundle: deb,rpm
+            sidecar_target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+          - runner: windows-2022
+            bundle: msi
+            sidecar_target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85
+          targets: ${{ matrix.rust_targets }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build unsigned desktop package
+        shell: bash
+        env:
+          FRANK_SIDECAR_TARGET: ${{ matrix.sidecar_target }}
+          FRANK_BUNDLES: ${{ matrix.bundle }}
+        run: ./scripts/build-release.sh
+      - name: Inventory desktop package
+        shell: bash
+        env:
+          FRANK_EXPECT_BUNDLES: ${{ matrix.bundle }}
+        run: |
+          set -euo pipefail
+          # Use the same inventory writer as the final publish job. This is
+          # deliberately broader than the GUI-only glob: a clean checkout may
+          # also contain a portable CLI archive, and package-smoke must verify
+          # every artifact present rather than accidentally ignoring one.
+          cargo run --locked -p xtask -- checksums
+          ./scripts/package-smoke.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frank-gui-${{ matrix.runner }}
+          path: |
+            dist/*.dmg
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
+
+  release-gate:
+    name: release strict gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+      - name: Install Tauri Linux build dependencies for the strict gate
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - run: pnpm install --frozen-lockfile
+      - name: Install pinned verification tools
+        run: |
+          cargo install cargo-nextest --version 0.9.100 --locked
+          cargo install cargo-llvm-cov --version 0.6.18 --locked
+          cargo install cargo-deny --version 0.18.3 --locked
+          cargo install cargo-audit --version 0.22.0 --locked
+          cargo install cargo-fuzz --version 0.12.0 --locked
+          cargo install cargo-mutants --version 25.3.1 --locked
+      - name: Run the complete mandatory gate before publishing
+        env:
+          FRANK_FUZZ_SECONDS: '15'
+          FRANK_MUTATION_TIMEOUT: '120'
+        run: moon run :verify-strict
+
   publish:
-    needs: build
+    needs: [build, gui-build, release-gate]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -67,14 +177,40 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum *.tar.gz *.zip 2>/dev/null | sort -k2 > SHA256SUMS
+          shopt -s nullglob
+          artifacts=( *.tar.gz *.zip *.dmg *.msi *.deb *.rpm )
+          ((${#artifacts[@]} > 0)) || { echo 'no release artifacts found' >&2; exit 1; }
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${artifacts[@]}" | sort -k2 > SHA256SUMS
+          else
+            shasum -a 256 "${artifacts[@]}" | sort -k2 > SHA256SUMS
+          fi
+      - name: Release CLI and installer smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$(mktemp -d)"
+          trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
+          archive="$(find dist -maxdepth 1 -name 'frank-x86_64-unknown-linux-musl.tar.gz' -print -quit)"
+          [[ -n "$archive" ]] || { echo 'Linux x86_64 CLI archive is required for release smoke' >&2; exit 1; }
+          tar -xzf "$archive" -C "$smoke_root"
+          FRANK_SMOKE_BINARY="$smoke_root/frank" FRANK_SMOKE_APPLY=1 ./scripts/package-smoke.sh
+          ./scripts/installer-smoke.sh
       # HOLD(M6): minisign signing/verification is intentionally not wired
       # until a repository key and rotation policy are approved. Do not add a
       # private key directly to this workflow.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body: |
+            Unsigned / development build. Verify `SHA256SUMS` before use.
+            Signing, notarization, Authenticode, Linux package signatures, and
+            minisign metadata remain explicitly tracked in `TODO.md`.
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.dmg
+            dist/*.msi
+            dist/*.deb
+            dist/*.rpm
             dist/SHA256SUMS

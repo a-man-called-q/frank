@@ -14,7 +14,9 @@ use serde_json::Value;
 const KNOWN_ARRAYS: &[&str] = &["tools", "prompts", "resources", "resourceTemplates"];
 
 pub fn transform_response(msg: &mut Value, fields: &[String]) {
-    let Some(result) = msg.get_mut("result") else { return };
+    let Some(result) = msg.get_mut("result") else {
+        return;
+    };
     if !result.is_object() {
         return;
     }
@@ -35,7 +37,9 @@ pub fn transform_response(msg: &mut Value, fields: &[String]) {
 }
 
 fn compress_fields_in_object(item: &mut Value, fields: &[String]) -> bool {
-    let Some(obj) = item.as_object_mut() else { return false };
+    let Some(obj) = item.as_object_mut() else {
+        return false;
+    };
     let mut found = false;
     for field in fields {
         if let Some(Value::String(s)) = obj.get(field) {
@@ -112,7 +116,9 @@ mod tests {
             }
         });
         transform_response(&mut msg, &fields());
-        let desc = msg["result"]["nested"]["thing"]["description"].as_str().unwrap();
+        let desc = msg["result"]["nested"]["thing"]["description"]
+            .as_str()
+            .unwrap();
         assert!(!desc.to_lowercase().contains("sure"));
     }
 
@@ -135,10 +141,19 @@ mod tests {
         });
         transform_response(&mut msg, &fields());
         // Top-level compressed:
-        assert!(!msg["result"]["tools"][0]["description"].as_str().unwrap().to_lowercase().contains("please"));
+        assert!(
+            !msg["result"]["tools"][0]["description"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("please")
+        );
         // Nested schema description untouched, since the top-level match
         // short-circuits the recursive fallback:
-        assert_eq!(msg["result"]["tools"][0]["inputSchema"]["properties"]["url"]["description"], "Please provide the URL.");
+        assert_eq!(
+            msg["result"]["tools"][0]["inputSchema"]["properties"]["url"]["description"],
+            "Please provide the URL."
+        );
     }
 
     #[test]
@@ -158,8 +173,15 @@ mod tests {
 
     #[test]
     fn custom_field_list_is_respected() {
-        let mut msg = json!({ "result": { "tools": [ { "summary": "Please summarize just this." } ] } });
+        let mut msg =
+            json!({ "result": { "tools": [ { "summary": "Please summarize just this." } ] } });
         transform_response(&mut msg, &["summary".to_string()]);
-        assert!(!msg["result"]["tools"][0]["summary"].as_str().unwrap().to_lowercase().contains("please"));
+        assert!(
+            !msg["result"]["tools"][0]["summary"]
+                .as_str()
+                .unwrap()
+                .to_lowercase()
+                .contains("please")
+        );
     }
 }

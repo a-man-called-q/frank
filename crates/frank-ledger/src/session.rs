@@ -85,15 +85,54 @@ fn parse_iso8601_ms(s: &str) -> Option<i64> {
     let year: i64 = date_parts.next()?.parse().ok()?;
     let month: i64 = date_parts.next()?.parse().ok()?;
     let day: i64 = date_parts.next()?.parse().ok()?;
+    if date_parts.next().is_some() || !(1..=9999).contains(&year) || !(1..=12).contains(&month) {
+        return None;
+    }
+
+    let leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        2 if leap_year => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if !(1..=days_in_month).contains(&day) {
+        return None;
+    }
 
     let (time, millis) = match time.split_once('.') {
-        Some((t, ms)) => (t, ms.parse::<i64>().ok()?),
+        Some((t, fraction)) => {
+            // Claude writes millisecond precision. Accept one or two digits
+            // as the equivalent padded fraction, but reject malformed or
+            // overly precise values instead of silently treating microseconds
+            // as milliseconds.
+            if fraction.is_empty()
+                || fraction.len() > 3
+                || !fraction.bytes().all(|b| b.is_ascii_digit())
+            {
+                return None;
+            }
+            let raw = fraction.parse::<i64>().ok()?;
+            let millis = match fraction.len() {
+                1 => raw * 100,
+                2 => raw * 10,
+                _ => raw,
+            };
+            (t, millis)
+        }
         None => (time, 0),
     };
     let mut time_parts = time.split(':');
     let hour: i64 = time_parts.next()?.parse().ok()?;
     let min: i64 = time_parts.next()?.parse().ok()?;
     let sec: i64 = time_parts.next()?.parse().ok()?;
+    if time_parts.next().is_some()
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&min)
+        || !(0..=59).contains(&sec)
+    {
+        return None;
+    }
 
     // Days since epoch via a standard civil-from-days inverse (Howard
     // Hinnant's algorithm) — no calendar crate needed for a UTC-only,
@@ -111,7 +150,7 @@ fn parse_iso8601_ms(s: &str) -> Option<i64> {
 }
 
 pub fn parse_session(path: &Path) -> SessionScan {
-    let Ok(raw) = std::fs::read_to_string(path) else {
+    let Ok(raw) = frank_safeio::read_text_capped(path, frank_safeio::MAX_SESSION_BYTES) else {
         return SessionScan::default();
     };
 
@@ -128,7 +167,9 @@ pub fn parse_session(path: &Path) -> SessionScan {
         if entry.kind != "assistant" {
             continue;
         }
-        let Some(message) = entry.message else { continue };
+        let Some(message) = entry.message else {
+            continue;
+        };
         let Some(usage) = message.usage else { continue };
 
         if model.is_none() {
@@ -162,14 +203,26 @@ pub fn find_recent_session(config_dir: &Path) -> Option<PathBuf> {
 
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
     while let Some(p) = stack.pop() {
-        let Ok(meta) = std::fs::metadata(&p) else { continue };
+        let Ok(meta) = std::fs::symlink_metadata(&p) else {
+            continue;
+        };
+        // Discovery is read-only, but following a symlink would still let a
+        // project tree point stats at an unrelated transcript. Keep the same
+        // fail-closed policy as flag/config reads.
+        if meta.file_type().is_symlink() {
+            continue;
+        }
         if meta.is_dir() {
             if let Ok(rd) = std::fs::read_dir(&p) {
                 stack.extend(rd.filter_map(|e| e.ok()).map(|e| e.path()));
             }
         } else if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
-            if best.as_ref().map(|(_, best_mtime)| mtime > *best_mtime).unwrap_or(true) {
+            if best
+                .as_ref()
+                .map(|(_, best_mtime)| mtime > *best_mtime)
+                .unwrap_or(true)
+            {
                 best = Some((p, mtime));
             }
         }
