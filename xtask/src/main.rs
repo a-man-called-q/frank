@@ -7,6 +7,7 @@
 //! caller besides `frank pack add`, so it's exercised as a library from day
 //! one rather than only through a future runtime path.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
@@ -32,6 +33,8 @@ enum Command {
     Checksums,
     /// Ensure CLI, GUI, and package metadata use one workspace version.
     VersionCheck,
+    /// Validate the allowed direct dependency edges between Frank crates.
+    ArchitectureCheck,
     /// Validate a cargo-llvm-cov JSON report against the repository policy.
     CoverageCheck {
         /// JSON report produced by cargo-llvm-cov.
@@ -54,9 +57,10 @@ fn main() -> Result<()> {
     let root = repo_root()?;
     match cli.command {
         Command::BuildPacks => build_packs(&root),
-        Command::LintTargets => lint_targets(&root),
+        Command::LintTargets => lint_targets(&root).map(|_| ()),
         Command::Checksums => checksums(&root),
         Command::VersionCheck => version_check(&root),
+        Command::ArchitectureCheck => architecture_check(&root),
         Command::CoverageCheck { report, policy } => coverage::check(&report, &policy),
         Command::Dist { target } => dist(&root, target.as_deref()),
     }
@@ -109,9 +113,112 @@ fn repo_root() -> Result<PathBuf> {
         .to_path_buf())
 }
 
+fn architecture_check(root: &Path) -> Result<()> {
+    let packages = [
+        ("frank-app", "crates/frank-app/Cargo.toml"),
+        ("frank-cli", "crates/frank-cli/Cargo.toml"),
+        ("frank-compress", "crates/frank-compress/Cargo.toml"),
+        ("frank-ledger", "crates/frank-ledger/Cargo.toml"),
+        ("frank-mcp", "crates/frank-mcp/Cargo.toml"),
+        ("frank-pack", "crates/frank-pack/Cargo.toml"),
+        ("frank-safeio", "crates/frank-safeio/Cargo.toml"),
+        ("frank-state", "crates/frank-state/Cargo.toml"),
+        ("frank-target", "crates/frank-target/Cargo.toml"),
+        ("frank-gui", "apps/frank-gui/src-tauri/Cargo.toml"),
+        ("xtask", "xtask/Cargo.toml"),
+    ];
+
+    let mut errors = Vec::new();
+    for (package, relative) in packages {
+        let path = root.join(relative);
+        let manifest: toml::Value = toml::from_str(
+            &std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?,
+        )
+        .with_context(|| format!("parsing {}", path.display()))?;
+        let actual = frank_dependencies(&manifest);
+        let expected = expected_architecture_dependencies(package)
+            .with_context(|| format!("no architecture policy for package {package}"))?;
+        let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+        if actual != expected {
+            errors.push(format!(
+                "{package}: expected {:?}, found {:?}",
+                expected, actual
+            ));
+        }
+    }
+
+    if errors.is_empty() {
+        println!("xtask architecture-check: dependency graph is within policy");
+        Ok(())
+    } else {
+        for error in errors {
+            eprintln!("FAIL {error}");
+        }
+        anyhow::bail!("dependency graph violates architecture policy");
+    }
+}
+
+fn expected_architecture_dependencies(package: &str) -> Option<&'static [&'static str]> {
+    Some(match package {
+        "frank-app" => &[
+            "frank-ledger",
+            "frank-pack",
+            "frank-safeio",
+            "frank-state",
+            "frank-target",
+        ],
+        "frank-cli" => &[
+            "frank-app",
+            "frank-compress",
+            "frank-ledger",
+            "frank-mcp",
+            "frank-pack",
+            "frank-safeio",
+            "frank-state",
+            "frank-target",
+        ],
+        "frank-compress" => &["frank-safeio"],
+        "frank-ledger" => &["frank-pack", "frank-safeio", "frank-state"],
+        "frank-mcp" => &["frank-compress"],
+        "frank-pack" => &["frank-safeio"],
+        "frank-safeio" => &[],
+        "frank-state" => &["frank-pack", "frank-safeio"],
+        "frank-target" => &["frank-pack", "frank-safeio"],
+        "frank-gui" => &["frank-app"],
+        "xtask" => &["frank-pack", "frank-target"],
+        _ => return None,
+    })
+}
+
+fn frank_dependencies(manifest: &toml::Value) -> BTreeSet<&str> {
+    let mut dependencies = BTreeSet::new();
+    let Some(table) = manifest.as_table() else {
+        return dependencies;
+    };
+    for (section, value) in table {
+        let is_dependency_section = matches!(
+            section.as_str(),
+            "dependencies" | "build-dependencies" | "dev-dependencies"
+        ) || (section.starts_with("target.")
+            && section.ends_with(".dependencies"));
+        if !is_dependency_section {
+            continue;
+        }
+        let Some(entries) = value.as_table() else {
+            continue;
+        };
+        for name in entries.keys().filter(|name| name.starts_with("frank-")) {
+            dependencies.insert(name.as_str());
+        }
+    }
+    dependencies
+}
+
 fn build_packs(root: &Path) -> Result<()> {
     let packs_dir = root.join("packs");
     let mut built = 0usize;
+    let mut changed = 0usize;
     for entry in
         std::fs::read_dir(&packs_dir).with_context(|| format!("reading {}", packs_dir.display()))?
     {
@@ -123,17 +230,19 @@ fn build_packs(root: &Path) -> Result<()> {
         if !pack_dir.join("pack.toml").is_file() {
             continue;
         }
-        build_one_pack(&pack_dir)?;
+        if build_one_pack(&pack_dir)? {
+            changed = changed.saturating_add(1);
+        }
         built += 1;
     }
     if built == 0 {
         anyhow::bail!("no packs found under {}", packs_dir.display());
     }
-    println!("xtask build-packs: compiled {built} pack(s)");
+    println!("xtask build-packs: compiled {built} pack(s), {changed} generated output(s) changed");
     Ok(())
 }
 
-fn build_one_pack(pack_dir: &Path) -> Result<()> {
+fn build_one_pack(pack_dir: &Path) -> Result<bool> {
     let source = frank_pack::PackSource::load(pack_dir)
         .with_context(|| format!("loading pack at {}", pack_dir.display()))?;
     let compiled = frank_pack::compile(&source)
@@ -141,7 +250,7 @@ fn build_one_pack(pack_dir: &Path) -> Result<()> {
 
     let rust_src = emit_rust(&compiled);
     let out_path = pack_dir.join("compiled.rs");
-    let changed = generated_changed(&out_path, &rust_src);
+    let changed = std::fs::read_to_string(&out_path).ok().as_deref() != Some(rust_src.as_str());
     std::fs::write(&out_path, &rust_src)
         .with_context(|| format!("writing {}", out_path.display()))?;
 
@@ -154,13 +263,9 @@ fn build_one_pack(pack_dir: &Path) -> Result<()> {
         );
     }
     if changed {
-        println!(
-            "  -> {} ({}changed)",
-            out_path.display(),
-            if changed { "" } else { "un" }
-        );
+        println!("  -> {} (changed)", out_path.display());
     }
-    Ok(())
+    Ok(changed)
 }
 
 /// Emit `compiled.rs`: plain Rust source with `&'static str` constants, so
@@ -359,11 +464,11 @@ fn check_path_scope(field: &str, raw: &str, errors: &mut Vec<String>) {
     ));
 }
 
-fn lint_targets(root: &Path) -> Result<()> {
+fn lint_targets(root: &Path) -> Result<usize> {
     let targets_dir = root.join("targets");
     if !targets_dir.is_dir() {
         println!("xtask lint-targets: no targets/ directory yet");
-        return Ok(());
+        return Ok(0);
     }
     let mut checked = 0usize;
     let mut had_error = false;
@@ -376,7 +481,7 @@ fn lint_targets(root: &Path) -> Result<()> {
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        let manifest: frank_target::manifest::TargetManifest = match toml::from_str(&raw) {
+        let manifest: frank_target::TargetManifest = match toml::from_str(&raw) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("FAIL {}: {e}", path.display());
@@ -395,18 +500,18 @@ fn lint_targets(root: &Path) -> Result<()> {
             }
         }
         match &manifest.install {
-            frank_target::manifest::InstallSpec::MarkdownBlock { markdown } => {
+            frank_target::InstallSpec::MarkdownBlock { markdown } => {
                 check_path_scope("install.markdown.path", &markdown.path, &mut errors);
             }
-            frank_target::manifest::InstallSpec::SettingsMerge { settings } => {
+            frank_target::InstallSpec::SettingsMerge { settings } => {
                 check_path_scope("install.settings.path", &settings.path, &mut errors);
             }
-            frank_target::manifest::InstallSpec::Files { file } => {
+            frank_target::InstallSpec::Files { file } => {
                 for f in file {
                     check_path_scope("install.file.path", &f.path, &mut errors);
                 }
             }
-            frank_target::manifest::InstallSpec::Spawn { .. } => {}
+            frank_target::InstallSpec::Spawn { .. } => {}
         }
         if manifest.detect.is_empty() && !matches!(manifest.target.kind.as_str(), "native") {
             errors.push("no [[detect]] clauses — target can never be auto-detected".to_string());
@@ -424,7 +529,7 @@ fn lint_targets(root: &Path) -> Result<()> {
                 },
                 if manifest.target.soft { ", soft" } else { "" }
             );
-            checked = increment_checked(checked);
+            checked += 1;
         } else {
             had_error = true;
             eprintln!("FAIL {} ({}):", manifest.target.id, path.display());
@@ -437,7 +542,7 @@ fn lint_targets(root: &Path) -> Result<()> {
     if had_error {
         anyhow::bail!("one or more target manifests failed linting");
     }
-    Ok(())
+    Ok(checked)
 }
 
 /// `rustc -vV`'s `host:` line — there's no `std` constant for "the triple
@@ -573,14 +678,6 @@ fn powershell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
 
-fn generated_changed(path: &Path, generated: &str) -> bool {
-    std::fs::read_to_string(path).ok().as_deref() != Some(generated)
-}
-
-fn increment_checked(checked: usize) -> usize {
-    checked + 1
-}
-
 fn checksums(root: &Path) -> Result<()> {
     use sha2::{Digest, Sha256};
 
@@ -634,14 +731,16 @@ fn checksums(root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
     use std::fs;
+    use std::io::Write as _;
     use std::path::Path;
     use std::process::Command as ProcessCommand;
 
     use super::{
-        archive_name, binary_name, build_packs, check_path_scope, checksums, dist,
-        generated_changed, increment_checked, lint_targets, opt_f64, opt_str, opt_u32,
-        powershell_quote, str_slice, version_check,
+        architecture_check, archive_name, binary_name, build_one_pack, build_packs,
+        check_path_scope, checksums, dist, frank_dependencies, lint_targets, opt_f64, opt_str,
+        opt_u32, package_zip, powershell_quote, str_slice, version_check,
     };
 
     fn minimal_pack(root: &Path, id: &str) {
@@ -680,17 +779,6 @@ off = []
     }
 
     #[test]
-    fn generated_output_change_and_lint_count_helpers_are_exact() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("compiled.rs");
-        assert!(generated_changed(&path, "generated"));
-        fs::write(&path, "generated").unwrap();
-        assert!(!generated_changed(&path, "generated"));
-        assert_eq!(increment_checked(0), 1);
-        assert_eq!(increment_checked(7), 8);
-    }
-
-    #[test]
     fn generated_literal_helpers_preserve_optional_values_and_slices() {
         assert_eq!(opt_str(Some("demo")), "Some(\"demo\")");
         assert_eq!(opt_str(None), "None");
@@ -711,6 +799,112 @@ off = []
             .find_map(|line| line.strip_prefix("host: "))
             .unwrap();
         assert_eq!(host, expected);
+    }
+
+    #[test]
+    fn architecture_policy_accepts_the_workspace_graph() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        architecture_check(root).unwrap();
+    }
+
+    #[test]
+    fn architecture_policy_rejects_a_forbidden_dependency_edge() {
+        let root = tempfile::tempdir().unwrap();
+        let packages = [
+            (
+                "frank-app",
+                "crates/frank-app/Cargo.toml",
+                &[
+                    "frank-ledger",
+                    "frank-pack",
+                    "frank-safeio",
+                    "frank-state",
+                    "frank-target",
+                ][..],
+            ),
+            (
+                "frank-cli",
+                "crates/frank-cli/Cargo.toml",
+                &[
+                    "frank-app",
+                    "frank-compress",
+                    "frank-ledger",
+                    "frank-mcp",
+                    "frank-pack",
+                    "frank-safeio",
+                    "frank-state",
+                    "frank-target",
+                ][..],
+            ),
+            (
+                "frank-compress",
+                "crates/frank-compress/Cargo.toml",
+                &["frank-safeio"][..],
+            ),
+            (
+                "frank-ledger",
+                "crates/frank-ledger/Cargo.toml",
+                &["frank-pack", "frank-safeio", "frank-state"][..],
+            ),
+            (
+                "frank-mcp",
+                "crates/frank-mcp/Cargo.toml",
+                &["frank-compress"][..],
+            ),
+            (
+                "frank-pack",
+                "crates/frank-pack/Cargo.toml",
+                &["frank-safeio"][..],
+            ),
+            ("frank-safeio", "crates/frank-safeio/Cargo.toml", &[][..]),
+            (
+                "frank-state",
+                "crates/frank-state/Cargo.toml",
+                &["frank-pack", "frank-safeio"][..],
+            ),
+            (
+                "frank-target",
+                "crates/frank-target/Cargo.toml",
+                &["frank-pack", "frank-safeio"][..],
+            ),
+            (
+                "frank-gui",
+                "apps/frank-gui/src-tauri/Cargo.toml",
+                &["frank-app"][..],
+            ),
+            (
+                "xtask",
+                "xtask/Cargo.toml",
+                &["frank-pack", "frank-target"][..],
+            ),
+        ];
+        for (_, relative, dependencies) in packages {
+            let path = root.path().join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut manifest = String::from("[dependencies]\n");
+            for dependency in dependencies {
+                writeln!(manifest, "{dependency} = \"0.1.0\"").unwrap();
+            }
+            fs::write(path, manifest).unwrap();
+        }
+        let forbidden = root.path().join("crates/frank-pack/Cargo.toml");
+        fs::OpenOptions::new()
+            .append(true)
+            .open(forbidden)
+            .unwrap()
+            .write_all(b"frank-app = \"0.1.0\"\n")
+            .unwrap();
+
+        assert!(architecture_check(root.path()).is_err());
+    }
+
+    #[test]
+    fn architecture_parser_ignores_non_target_dependency_sections() {
+        let manifest: toml::Value =
+            toml::from_str("[\"metadata.dependencies\"]\nfrank-app = \"0.1.0\"\n").unwrap();
+        let dependencies = frank_dependencies(&manifest);
+        assert!(dependencies.is_empty());
+        assert!(!dependencies.contains("frank-app"));
     }
 
     #[test]
@@ -751,6 +945,7 @@ off = []
                 .unwrap()
                 .contains("pub const PACK_ID: &str = \"demo\";")
         );
+        assert!(!build_one_pack(&root.path().join("packs/demo")).unwrap());
     }
 
     #[test]
@@ -781,7 +976,13 @@ create_if_missing = true
 "#,
         )
         .unwrap();
-        lint_targets(root.path()).unwrap();
+        assert_eq!(lint_targets(root.path()).unwrap(), 1);
+        fs::copy(
+            targets.join("valid.toml"),
+            targets.join("valid-second.toml"),
+        )
+        .unwrap();
+        assert_eq!(lint_targets(root.path()).unwrap(), 2);
 
         fs::write(
             targets.join("unsafe.toml"),
@@ -834,6 +1035,48 @@ create_if_missing = true
         let error = dist(root.path(), Some("x86_64-pc-windows-msvc")).unwrap_err();
         assert!(error.to_string().contains("release binary not found"));
         assert_eq!(powershell_quote(Path::new("a'b")), "'a''b'");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn package_zip_invokes_powershell_archiver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let marker = root.path().join("powershell-ran");
+        let powershell = bin.join("powershell");
+        fs::write(
+            &powershell,
+            "#!/bin/sh\ntouch \"$FRANK_TEST_ZIP_MARKER\"\nexit 0\n",
+        )
+        .unwrap();
+        fs::set_permissions(&powershell, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let previous_path = std::env::var_os("PATH");
+        let previous_marker = std::env::var_os("FRANK_TEST_ZIP_MARKER");
+        let path = match &previous_path {
+            Some(value) => format!("{}:{}", bin.display(), value.to_string_lossy()),
+            None => bin.display().to_string(),
+        };
+        unsafe {
+            std::env::set_var("PATH", path);
+            std::env::set_var("FRANK_TEST_ZIP_MARKER", &marker);
+        }
+        let status =
+            package_zip(&root.path().join("frank"), &root.path().join("frank.zip")).unwrap();
+        match previous_path {
+            Some(value) => unsafe { std::env::set_var("PATH", value) },
+            None => unsafe { std::env::remove_var("PATH") },
+        }
+        match previous_marker {
+            Some(value) => unsafe { std::env::set_var("FRANK_TEST_ZIP_MARKER", value) },
+            None => unsafe { std::env::remove_var("FRANK_TEST_ZIP_MARKER") },
+        }
+
+        assert!(status.success());
+        assert!(marker.is_file());
     }
 
     #[test]

@@ -7,20 +7,28 @@
 //! same `Action` list a hand-built target produces — see `plan.rs` for why
 //! plans are pure data instead of side-effecting functions.
 
-pub mod claude_code;
-pub mod detect;
-pub mod generic;
-pub mod manifest;
-pub mod markdown_block;
-pub mod plan;
-pub mod settings;
+mod claude_code;
+mod detect;
+mod generic;
+mod manifest;
+mod markdown_block;
+mod plan;
+mod settings;
 
 #[cfg(test)]
 mod manifest_tests;
 #[cfg(test)]
 mod settings_tests;
 
+pub use claude_code::ClaudeCodeTarget;
+pub use detect::detect;
+pub use generic::{build_install_plan, build_uninstall_plan};
+pub use manifest::{
+    CommandVersionProbe, DetectClause, FileSpec, InstallSpec, MarkdownBlockSpec, SettingsHookSpec,
+    SettingsMergeSpec, SpawnStep, TargetManifest, TargetMeta,
+};
 pub use plan::{
     Action, ApplyError, Detection, Diagnosis, InstallCtx, InstallPlan, ProbeEnv, ResolvedSpawnStep,
     apply,
 };
+pub use settings::read_settings;

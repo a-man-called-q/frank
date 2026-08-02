@@ -37,7 +37,13 @@ pub fn run(detected_only: bool, json: bool) -> i32 {
     }
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&rows).unwrap());
+        match serde_json::to_string_pretty(&rows) {
+            Ok(rendered) => println!("{rendered}"),
+            Err(error) => {
+                eprintln!("frank targets: could not render JSON: {error}");
+                return 1;
+            }
+        }
     } else {
         for row in &rows {
             let mark = if row.detected { "\u{2713}" } else { " " };

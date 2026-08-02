@@ -39,8 +39,6 @@ crates/frank-safeio/src/unix.rs:45:39: replace | with ^ in read_flags
 # <= loop boundary only permits one zero-byte read after the capped buffer is
 # full, which has the same result as <.
 crates/frank-safeio/src/unix.rs:122:19: replace match guard e == rustix::io::Errno::NOENT with true in open_append_create
-crates/frank-safeio/src/unix.rs:133:19: replace match guard e == rustix::io::Errno::EXIST with true in open_append_create
-crates/frank-safeio/src/unix.rs:133:19: replace match guard e == rustix::io::Errno::EXIST with false in open_append_create
 crates/frank-safeio/src/unix.rs:150:19: replace match guard e == rustix::io::Errno::NOENT with true in refuse_if_symlink
 crates/frank-safeio/src/unix.rs:231:17: replace < with <= in read_flag_raw
 crates/frank-safeio/src/unix.rs:352:37: replace || with && in read_lines
@@ -60,11 +58,6 @@ crates/frank-target/src/plan.rs:357:73: replace && with || in apply
 crates/frank-target/src/plan.rs:387:32: replace match guard error.kind() == std::io::ErrorKind::NotFound with true in apply
 crates/frank-target/src/plan.rs:408:62: replace || with && in apply
 
-# The loop watchdog catches these non-terminating arithmetic mutants; the
-# timeout is the intended regression signal for the index-advance invariant.
-crates/frank-target/src/markdown_block.rs:33:29: replace + with * in strip_all
-crates/frank-target/src/markdown_block.rs:33:29: replace + with - in strip_all
-
 # Protected patterns are ordered from broad constructs to narrower nested
 # constructs. A later range can only be contained by or equal to the current
 # span; extending on `>` versus `>=` is therefore the same assignment, and the
@@ -72,25 +65,14 @@ crates/frank-target/src/markdown_block.rs:33:29: replace + with - in strip_all
 crates/frank-compress/src/rules.rs:78:26: replace > with >= in protected_spans
 crates/frank-compress/src/rules.rs:78:26: replace > with == in protected_spans
 
-# In the fence scanner, `i += 1` is the loop watchdog. `*= 1` is equivalent
-# whenever i is positive; at the outer no-op path it can stall at zero, which
-# is recorded as the intended timeout rather than a silently accepted result.
-crates/frank-compress/src/validate.rs:103:15: replace += with *= in extract_code_blocks
-crates/frank-compress/src/validate.rs:126:15: replace += with *= in extract_code_blocks
-
 # When the bounded fingerprint has consumed MAX_CONFIG_BYTES, `>=` performs
 # one zero-length read; it breaks immediately and adds no digest bytes, so it
 # is behaviorally identical to `>`.
-crates/frank-app/src/lib.rs:1179:25: replace > with >= in fingerprint_file_contents
+crates/frank-app/src/lib.rs:724:25: replace > with >= in fingerprint_file_contents
 
 # `f64::EPSILON` is below one representable ULP at the percentage magnitudes
 # used by the policy, so adding or subtracting it rounds to the same value.
 xtask/src/coverage.rs:262:33: replace + with - in check_values
-
-# Windows packaging is executed only on Windows with PowerShell available; the
-# Unix test suite exercises the shared dist guards and tar path, while this
-# exact platform-specific helper mutation is intentionally reviewed here.
-xtask/src/main.rs:561:5: replace package_zip -> Result<std::process::ExitStatus> with Ok(Default::default())
 
 # Directory/file and filesystem-root guards both fail closed to `None`; the
 # alternate branch only avoids a repeated root lookup before the fixed 64-step

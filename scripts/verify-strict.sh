@@ -24,7 +24,7 @@ cargo test --workspace --doc --locked
 # cannot instrument as Rust. Keep the workspace report focused on Rust crates
 # and exclude standalone test source files so tests cannot inflate production
 # coverage. The xtask checker applies the per-crate floors and uncovered-count
-# ceilings from coverage.toml; keeping one report avoids dependency coverage
+# ceilings from .config/coverage.toml; keeping one report avoids dependency coverage
 # being counted repeatedly by separate package invocations.
 mkdir -p target/llvm-cov
 cargo llvm-cov nextest \
@@ -35,13 +35,13 @@ cargo llvm-cov nextest \
   --output-path target/llvm-cov/frank-summary.json
 cargo run --locked -p xtask -- coverage-check \
   --report target/llvm-cov/frank-summary.json \
-  --policy coverage.toml
+  --policy .config/coverage.toml
 
 # cargo-deny 0.18 is the Rust-1.85-compatible release. Its advisory parser
 # cannot read the CVSS-4 records currently in the RustSec database, so the
 # advisory job below remains the source of truth while deny still gates every
 # ban, license, and source policy.
-cargo deny -L error check bans licenses sources
+cargo deny -L error check -c .config/deny.toml bans licenses sources
 
 # These are explicit, reviewable exceptions for the pinned Rust 1.85/Tauri 2
 # graph. They are not a blanket allow-list: every identifier is tied to a
@@ -74,6 +74,7 @@ cargo run --locked -p xtask -- build-packs
 git diff --exit-code -- packs/
 cargo run --locked -p xtask -- lint-targets
 cargo run --locked -p xtask -- version-check
+cargo run --locked -p xtask -- architecture-check
 
 if [[ -f pnpm-lock.yaml ]]; then
   pnpm install --frozen-lockfile

@@ -51,7 +51,7 @@ The tray-first app exposes status/levels, persona packs, integrations,
 diagnostics, and settings. Release builds can produce `.dmg`, `.msi`, `.deb`,
 and `.rpm` packages with `moon run frank-release:bundle`. MVP packages are
 unsigned and are labelled as development builds; signing and notarization are
-tracked in [`TODO.md`](TODO.md).
+tracked in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Getting Started
 
@@ -148,8 +148,8 @@ frank install --dry-run
 Want to contribute? Check out:
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) - Development workflow and guidelines
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) - Technical architecture and design decisions
-- [`TODO.md`](TODO.md) - Upcoming features and testing checklist
+- [`docs/architecture.md`](docs/architecture.md) - Technical architecture and design decisions
+- [`docs/roadmap.md`](docs/roadmap.md) - Upcoming features and testing checklist
 - [`docs/pack-authoring.md`](docs/pack-authoring.md) - Create custom persona packs
 
 ### Building from Source
@@ -205,7 +205,7 @@ Frank is built with modular Rust crates:
 - `frank-app` - shared application service used by CLI, hooks, and GUI
 - `apps/frank-gui` - Tauri v2 + React desktop control plane
 
-Full architecture details in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Full architecture details in [`docs/architecture.md`](docs/architecture.md).
 
 
 ## History

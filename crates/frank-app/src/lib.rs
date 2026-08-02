@@ -5,313 +5,40 @@
 //! orchestration, serializable view models, and the prepare/apply boundary
 //! needed by a confirmation-based UI.
 
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
-use serde::de::Deserializer;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 mod builtin;
+mod ledger;
+mod models;
+mod plan_store;
+mod repository;
+mod settings;
 
 pub use builtin::builtin_pack;
 
+pub use models::{
+    AppError, Clock, DashboardSnapshot, DiagnosisView, DoctorReport, FrankPaths, GuiSettings,
+    LevelSummary, OperationResult, PackOperation, PackOperationKind, PackOperationResult,
+    PackPlanPreview, PackSummary, PlanPreview, SystemClock, TargetDiscovery, TargetOperation,
+    TargetSummary, UserSettings, UserSettingsPatch,
+};
+use plan_store::PreparedStore;
+use repository::{load_manifests, pack_summary, valid_values};
+use settings::{read_settings, write_settings};
+
 const PLAN_TTL: Duration = Duration::from_secs(5 * 60);
-
-/// Monotonic time used by the prepare/apply boundary. Production uses
-/// `Instant::now`; tests can inject a deterministic clock to exercise expiry
-/// without sleeping or weakening the one-shot-plan contract.
-pub trait Clock: Send + Sync {
-    fn now(&self) -> Instant;
-}
-
-#[derive(Debug, Default)]
-pub struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> Instant {
-        Instant::now()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FrankPaths {
-    pub config_dir: PathBuf,
-    pub data_root: PathBuf,
-    pub user_config_dir: PathBuf,
-    pub cwd: PathBuf,
-    pub frank_bin: PathBuf,
-}
-
-impl FrankPaths {
-    pub fn from_process() -> Self {
-        let home = frank_safeio::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let config_dir = std::env::var_os("CLAUDE_CONFIG_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".claude"));
-        let data_root = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".local").join("share"))
-            .join("frank");
-        let user_config_dir = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-            PathBuf::from(xdg).join("frank")
-        } else {
-            #[cfg(windows)]
-            if let Some(appdata) = std::env::var_os("APPDATA") {
-                PathBuf::from(appdata).join("frank")
-            } else {
-                home.join(".config").join("frank")
-            }
-            #[cfg(not(windows))]
-            {
-                home.join(".config").join("frank")
-            }
-        };
-        Self {
-            config_dir,
-            data_root,
-            user_config_dir,
-            cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-            frank_bin: std::env::current_exe().unwrap_or_else(|_| PathBuf::from("frank")),
-        }
-    }
-
-    pub fn user_config_dir(&self) -> PathBuf {
-        self.user_config_dir.clone()
-    }
-
-    pub fn user_config_path(&self) -> PathBuf {
-        self.user_config_dir().join("config.toml")
-    }
-
-    pub fn active_flag_path(&self) -> PathBuf {
-        self.config_dir.join(".frank-active")
-    }
-
-    /// Override the executable used in generated target hook commands. The
-    /// CLI uses `current_exe`; the desktop adapter points this at the bundled
-    /// sidecar so installing from the GUI still leaves a hook that can run
-    /// without the GUI process.
-    pub fn with_frank_bin(mut self, frank_bin: PathBuf) -> Self {
-        self.frank_bin = frank_bin;
-        self
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AppError {
-    #[error("pack operation failed: {0}")]
-    Pack(#[from] frank_pack::PackStoreError),
-    #[error("target operation failed: {0}")]
-    Target(#[from] frank_target::ApplyError),
-    #[error("safe IO failed: {0}")]
-    SafeIo(#[from] frank_safeio::SafeIoError),
-    #[error("configuration at {path} is invalid: {reason}")]
-    Config { path: PathBuf, reason: String },
-    #[error("target '{0}' was not found")]
-    UnknownTarget(String),
-    #[error("level '{0}' is not valid for the active pack")]
-    UnknownLevel(String),
-    #[error("pack source must be a local directory")]
-    InvalidPackSource,
-    #[error("prepared plan is unknown, expired, already used, or stale")]
-    StalePlan,
-    #[error("prepared plan could not be applied: {0}")]
-    Apply(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct GuiSettings {
-    pub launch_at_login: bool,
-    pub close_to_tray: bool,
-}
-
-impl Default for GuiSettings {
-    fn default() -> Self {
-        Self {
-            launch_at_login: false,
-            close_to_tray: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct UserSettings {
-    pub default_level: Option<String>,
-    pub gui: GuiSettings,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default)]
-pub struct UserSettingsPatch {
-    /// `None` means the caller did not send this field; `Some(None)` means
-    /// explicitly remove the user override; `Some(Some(level))` sets it.
-    /// Serde's normal `Option<Option<T>>` handling collapses the first two
-    /// cases for JSON/Tauri `null`, so keep the tri-state contract explicit.
-    #[serde(deserialize_with = "deserialize_double_option")]
-    pub default_level: Option<Option<String>>,
-    pub launch_at_login: Option<bool>,
-    pub close_to_tray: Option<bool>,
-}
-
-fn deserialize_double_option<'de, D>(deserializer: D) -> Result<Option<Option<String>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Ok(Some(Option::<String>::deserialize(deserializer)?))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LevelSummary {
-    pub id: String,
-    pub title: Option<String>,
-    pub aliases: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PackSummary {
-    pub id: String,
-    pub version: String,
-    pub active: bool,
-    pub builtin: bool,
-    pub levels: Vec<LevelSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TargetSummary {
-    pub id: String,
-    pub label: String,
-    pub kind: String,
-    pub verified: bool,
-    pub soft: bool,
-    pub detected: bool,
-    pub source: String,
-}
-
-/// Target discovery result shared by CLI and desktop adapters. Parse errors
-/// remain visible to the CLI while the GUI can still render valid targets.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TargetDiscovery {
-    pub targets: Vec<TargetSummary>,
-    pub errors: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DiagnosisView {
-    pub ok: bool,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DoctorReport {
-    pub ok: bool,
-    pub checks: Vec<DiagnosisView>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct DashboardSnapshot {
-    pub active_level: Option<String>,
-    pub active_pack: String,
-    pub active_pack_version: String,
-    pub default_level: String,
-    pub settings: UserSettings,
-    pub packs: Vec<PackSummary>,
-    pub targets: Vec<TargetSummary>,
-    /// Target manifests that could not be parsed. Valid targets remain
-    /// visible, but the GUI/CLI must not silently hide a broken integration
-    /// declaration.
-    pub target_errors: Vec<String>,
-    pub diagnoses: Vec<DiagnosisView>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum TargetOperation {
-    Install,
-    Uninstall,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum PackOperationKind {
-    Add,
-    Use,
-    Remove,
-}
-
-/// A pack mutation is prepared before it is applied. The source and selector
-/// stay inside the typed backend operation; the GUI only receives the opaque
-/// preview id and cannot manufacture a different operation at apply time.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum PackOperation {
-    Add {
-        source: PathBuf,
-        expected_sha256: Option<String>,
-    },
-    Use {
-        selector: String,
-    },
-    Remove {
-        selector: String,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PlanPreview {
-    pub plan_id: String,
-    pub target_id: String,
-    pub operation: TargetOperation,
-    pub actions: Vec<String>,
-    pub expires_in_seconds: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PackPlanPreview {
-    pub plan_id: String,
-    pub operation: PackOperationKind,
-    pub selector: String,
-    pub actions: Vec<String>,
-    pub expires_in_seconds: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct OperationResult {
-    pub target_id: String,
-    pub log: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PackOperationResult {
-    pub operation: PackOperationKind,
-    pub selector: String,
-    pub pack: Option<PackSummary>,
-}
-
-struct PreparedPlan {
-    plan: frank_target::InstallPlan,
-    state_fingerprint: String,
-    created: Instant,
-    operation: TargetOperation,
-}
-
-struct PreparedPackPlan {
-    operation: PackOperation,
-    state_fingerprint: String,
-    created: Instant,
-}
 
 #[derive(Clone)]
 pub struct FrankService {
     paths: FrankPaths,
-    prepared: Arc<Mutex<HashMap<String, PreparedPlan>>>,
-    prepared_packs: Arc<Mutex<HashMap<String, PreparedPackPlan>>>,
+    prepared: Arc<PreparedStore<frank_target::InstallPlan>>,
+    prepared_packs: Arc<PreparedStore<PackOperation>>,
     clock: Arc<dyn Clock>,
     plan_nonce: Arc<AtomicU64>,
 }
@@ -324,15 +51,11 @@ impl FrankService {
     pub fn with_clock(paths: FrankPaths, clock: Arc<dyn Clock>) -> Self {
         Self {
             paths,
-            prepared: Arc::new(Mutex::new(HashMap::new())),
-            prepared_packs: Arc::new(Mutex::new(HashMap::new())),
+            prepared: Arc::new(PreparedStore::new()),
+            prepared_packs: Arc::new(PreparedStore::new()),
             clock,
             plan_nonce: Arc::new(AtomicU64::new(0)),
         }
-    }
-
-    pub fn paths(&self) -> &FrankPaths {
-        &self.paths
     }
 
     pub fn settings(&self) -> Result<UserSettings, AppError> {
@@ -351,76 +74,6 @@ impl FrankService {
             "FRANK_DEFAULT_LEVEL",
             Some(&self.paths.user_config_dir),
         ))
-    }
-
-    /// Build and record the ledger report used by both the CLI stats command
-    /// and the UserPromptSubmit hook. Keeping session discovery, mode-log
-    /// joining, and history writes here prevents the desktop adapter from
-    /// drifting away from hook/CLI accounting.
-    pub fn build_and_record_stats(
-        &self,
-        session_override: Option<&Path>,
-    ) -> frank_ledger::SessionReport {
-        let compiled = self.current_pack().unwrap_or_else(|_| builtin_pack());
-        let session_path = session_override
-            .map(PathBuf::from)
-            .or_else(|| frank_ledger::find_recent_session(&self.paths.config_dir));
-
-        let Some(session_path) = session_path else {
-            return frank_ledger::SessionReport {
-                session_path: None,
-                session_id: None,
-                turns: 0,
-                model: None,
-                attribution: frank_ledger::attribute_by_mode(&[], &[], None, None),
-                injection_activate_bytes: 0,
-                injection_reinforce_bytes: 0,
-            };
-        };
-
-        let mode_log_path = self.paths.config_dir.join(".frank-mode-log.jsonl");
-        let ledger_path = self.paths.config_dir.join(".frank-ledger.jsonl");
-        let valid = valid_values(&compiled);
-        let current_mode = frank_safeio::read_flag(&self.paths.active_flag_path(), &valid);
-        let flag_mtime_ms = std::fs::metadata(self.paths.active_flag_path())
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64);
-
-        let report = frank_ledger::build_session_report(
-            &session_path,
-            &mode_log_path,
-            &ledger_path,
-            &compiled,
-            current_mode.as_deref(),
-            flag_mtime_ms,
-        );
-
-        if report.turns > 0 {
-            if let Some(session_id) = &report.session_id {
-                frank_ledger::stats::append_history(
-                    &self.paths.config_dir.join(".frank-history.jsonl"),
-                    &frank_ledger::HistoryRow {
-                        ts: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|d| d.as_millis() as i64)
-                            .unwrap_or(0),
-                        session_id: session_id.clone(),
-                        model: report.model.clone(),
-                        output_tokens: frank_ledger::stats::measured_output_total(
-                            &report.attribution,
-                        ),
-                        input_tokens: frank_ledger::stats::measured_input_total(
-                            &report.attribution,
-                        ),
-                        turns: report.turns,
-                    },
-                );
-            }
-        }
-
-        report
     }
 
     pub fn update_settings(&self, patch: UserSettingsPatch) -> Result<UserSettings, AppError> {
@@ -446,10 +99,32 @@ impl FrankService {
     }
 
     pub fn current_pack(&self) -> Result<frank_pack::CompiledPack, AppError> {
+        self.pack_for_selector(None)
+    }
+
+    /// Load a specific installed pack for presentation adapters. Built-in
+    /// selection remains explicit and never falls back from a corrupt user
+    /// pack, so CLI and GUI share the same resolution rules.
+    pub fn pack_for_selector(
+        &self,
+        selector: Option<&str>,
+    ) -> Result<frank_pack::CompiledPack, AppError> {
         let store = frank_pack::PackStore::new(self.paths.data_root.clone());
-        match store.active()? {
-            Some((_, pack)) => Ok(pack),
-            None => Ok(builtin_pack()),
+        match selector {
+            None => match store.active()? {
+                Some((_, pack)) => Ok(pack),
+                None => Ok(builtin_pack()),
+            },
+            Some(selector)
+                if selector == builtin::PACK_ID
+                    || selector == format!("{}@{}", builtin::PACK_ID, builtin::PACK_VERSION) =>
+            {
+                Ok(builtin_pack())
+            }
+            Some(selector) => {
+                let installed = store.find(selector)?;
+                store.compile_installed(&installed).map_err(AppError::from)
+            }
         }
     }
 
@@ -658,19 +333,8 @@ impl FrankService {
         let state_fingerprint = self.pack_state_fingerprint(source.as_deref())?;
         let nonce = self.plan_nonce.fetch_add(1, Ordering::Relaxed);
         let plan_id = new_pack_plan_id(&operation, &state_fingerprint, now, nonce);
-        let mut prepared = self
-            .prepared_packs
-            .lock()
-            .map_err(|_| AppError::StalePlan)?;
-        prepared.retain(|_, p| now.saturating_duration_since(p.created) <= PLAN_TTL);
-        prepared.insert(
-            plan_id.clone(),
-            PreparedPackPlan {
-                operation,
-                state_fingerprint,
-                created: now,
-            },
-        );
+        self.prepared_packs
+            .insert(plan_id.clone(), operation, state_fingerprint, now)?;
         Ok(PackPlanPreview {
             plan_id,
             operation: kind,
@@ -681,13 +345,8 @@ impl FrankService {
     }
 
     pub fn apply_prepared_pack(&self, plan_id: &str) -> Result<PackOperationResult, AppError> {
-        let prepared = self
-            .prepared_packs
-            .lock()
-            .map_err(|_| AppError::StalePlan)?
-            .remove(plan_id)
-            .ok_or(AppError::StalePlan)?;
-        let source = match &prepared.operation {
+        let prepared = self.prepared_packs.take(plan_id)?;
+        let source = match &prepared.payload {
             PackOperation::Add { source, .. } => Some(source.as_path()),
             PackOperation::Use { .. } | PackOperation::Remove { .. } => None,
         };
@@ -697,7 +356,7 @@ impl FrankService {
         {
             return Err(AppError::StalePlan);
         }
-        let (kind, selector, summary) = match prepared.operation {
+        let (kind, selector, summary) = match prepared.payload {
             PackOperation::Add {
                 source,
                 expected_sha256,
@@ -726,10 +385,6 @@ impl FrankService {
         })
     }
 
-    pub fn list_targets(&self) -> Vec<TargetSummary> {
-        self.discover_targets().targets
-    }
-
     pub fn discover_targets(&self) -> TargetDiscovery {
         let env = frank_target::ProbeEnv::from_process();
         let mut rows = vec![TargetSummary {
@@ -738,7 +393,7 @@ impl FrankService {
             kind: "native".to_string(),
             verified: true,
             soft: false,
-            detected: frank_target::claude_code::ClaudeCodeTarget::detect(&env)
+            detected: frank_target::ClaudeCodeTarget::detect(&env)
                 == frank_target::Detection::Detected,
             source: "built-in".to_string(),
         }];
@@ -746,8 +401,8 @@ impl FrankService {
         for (path, parsed) in load_manifests(&self.paths) {
             match parsed {
                 Ok(manifest) => {
-                    let detected = frank_target::detect::detect(&manifest, &env)
-                        == frank_target::Detection::Detected;
+                    let detected =
+                        frank_target::detect(&manifest, &env) == frank_target::Detection::Detected;
                     rows.push(TargetSummary {
                         id: manifest.target.id.clone(),
                         label: manifest.target.label.clone(),
@@ -768,26 +423,31 @@ impl FrankService {
     }
 
     pub fn doctor(&self) -> DoctorReport {
+        let pack = self.current_pack().ok();
+        self.doctor_with(pack.as_ref(), self.settings())
+    }
+
+    fn doctor_with(
+        &self,
+        pack: Option<&frank_pack::CompiledPack>,
+        settings: Result<UserSettings, AppError>,
+    ) -> DoctorReport {
         let ctx = self.install_ctx();
-        let mut checks = frank_target::claude_code::ClaudeCodeTarget::doctor(&ctx)
+        let mut checks = frank_target::ClaudeCodeTarget::doctor(&ctx)
             .into_iter()
             .map(|d| DiagnosisView {
                 ok: d.ok,
                 message: d.message,
             })
             .collect::<Vec<_>>();
-        let settings_check = match self.settings() {
+        let settings_check = match settings {
             Err(error) => DiagnosisView {
                 ok: false,
                 message: format!("Frank user config is invalid: {error}"),
             },
             Ok(settings) => {
                 let valid = settings.default_level.as_deref().is_none_or(|level| {
-                    level == "off"
-                        || self
-                            .current_pack()
-                            .ok()
-                            .is_some_and(|pack| pack.resolve_level(level).is_some())
+                    level == "off" || pack.is_some_and(|pack| pack.resolve_level(level).is_some())
                 });
                 DiagnosisView {
                     ok: valid,
@@ -820,17 +480,8 @@ impl FrankService {
         let now = self.clock.now();
         let nonce = self.plan_nonce.fetch_add(1, Ordering::Relaxed);
         let plan_id = new_plan_id(&plan, &state_fingerprint, now, nonce);
-        let mut prepared = self.prepared.lock().map_err(|_| AppError::StalePlan)?;
-        prepared.retain(|_, p| now.saturating_duration_since(p.created) <= PLAN_TTL);
-        prepared.insert(
-            plan_id.clone(),
-            PreparedPlan {
-                plan,
-                state_fingerprint,
-                created: now,
-                operation,
-            },
-        );
+        self.prepared
+            .insert(plan_id.clone(), plan, state_fingerprint, now)?;
         Ok(PlanPreview {
             plan_id,
             target_id: target_id.to_string(),
@@ -841,21 +492,15 @@ impl FrankService {
     }
 
     pub fn apply_prepared_plan(&self, plan_id: &str) -> Result<OperationResult, AppError> {
-        let prepared = self
-            .prepared
-            .lock()
-            .map_err(|_| AppError::StalePlan)?
-            .remove(plan_id)
-            .ok_or(AppError::StalePlan)?;
+        let prepared = self.prepared.take(plan_id)?;
         if self.clock.now().saturating_duration_since(prepared.created) > PLAN_TTL
-            || self.state_fingerprint(&prepared.plan) != prepared.state_fingerprint
+            || self.state_fingerprint(&prepared.payload) != prepared.state_fingerprint
         {
             return Err(AppError::StalePlan);
         }
-        let target_id = prepared.plan.target_id.clone();
+        let target_id = prepared.payload.target_id.clone();
         let log =
-            frank_target::apply(&prepared.plan).map_err(|e| AppError::Apply(e.to_string()))?;
-        let _ = prepared.operation;
+            frank_target::apply(&prepared.payload).map_err(|e| AppError::Apply(e.to_string()))?;
         Ok(OperationResult { target_id, log })
     }
 
@@ -866,7 +511,11 @@ impl FrankService {
         // diagnostics panel report the precise parse error. The strict
         // `settings()` API remains fallible for callers that need to refuse a
         // write, while a status snapshot is deliberately read-only/fail-soft.
-        let settings = self.settings().unwrap_or_default();
+        let settings_result = self.settings();
+        let settings = match &settings_result {
+            Ok(settings) => settings.clone(),
+            Err(_) => UserSettings::default(),
+        };
         let default_level = frank_state::resolve_default_level_with_user_dir(
             &pack,
             &self.paths.cwd,
@@ -876,22 +525,24 @@ impl FrankService {
         let active_level =
             frank_safeio::read_flag(&self.paths.active_flag_path(), &valid_values(&pack))
                 .filter(|v| v != "off");
-        let active_pack = self
-            .list_packs()?
-            .into_iter()
+        let packs = self.list_packs()?;
+        let active_pack = packs
+            .iter()
             .find(|p| p.active)
+            .cloned()
             .unwrap_or_else(|| pack_summary(&pack, true, true));
         let discovery = self.discover_targets();
+        let diagnoses = self.doctor_with(Some(&pack), settings_result).checks;
         Ok(DashboardSnapshot {
             active_level,
             active_pack: active_pack.id,
             active_pack_version: active_pack.version,
             default_level,
             settings,
-            packs: self.list_packs()?,
+            packs,
             targets: discovery.targets,
             target_errors: discovery.errors,
-            diagnoses: self.doctor().checks,
+            diagnoses,
         })
     }
 
@@ -964,12 +615,8 @@ impl FrankService {
         let ctx = self.install_ctx();
         if target_id == "claude-code" {
             let plan = match operation {
-                TargetOperation::Install => {
-                    frank_target::claude_code::ClaudeCodeTarget::plan_install(&ctx)
-                }
-                TargetOperation::Uninstall => {
-                    frank_target::claude_code::ClaudeCodeTarget::plan_uninstall(&ctx)
-                }
+                TargetOperation::Install => frank_target::ClaudeCodeTarget::plan_install(&ctx),
+                TargetOperation::Uninstall => frank_target::ClaudeCodeTarget::plan_uninstall(&ctx),
             };
             plan.validate_scope()?;
             return Ok(plan);
@@ -984,41 +631,14 @@ impl FrankService {
         let pack = self.current_pack()?;
         let plan = match operation {
             TargetOperation::Install => {
-                frank_target::generic::build_install_plan(&manifest, &ctx, |reference| {
+                frank_target::build_install_plan(&manifest, &ctx, |reference| {
                     resolve_body_ref(reference, &pack)
                 })
             }
-            TargetOperation::Uninstall => {
-                frank_target::generic::build_uninstall_plan(&manifest, &ctx)
-            }
+            TargetOperation::Uninstall => frank_target::build_uninstall_plan(&manifest, &ctx),
         };
         plan.validate_scope()?;
         Ok(plan)
-    }
-}
-
-fn valid_values(pack: &frank_pack::CompiledPack) -> Vec<&str> {
-    let mut values = pack.levels.keys().map(String::as_str).collect::<Vec<_>>();
-    values.extend(pack.oneshots.keys().map(String::as_str));
-    values.push("off");
-    values
-}
-
-fn pack_summary(pack: &frank_pack::CompiledPack, active: bool, builtin: bool) -> PackSummary {
-    PackSummary {
-        id: pack.id.clone(),
-        version: pack.version.clone(),
-        active,
-        builtin,
-        levels: pack
-            .levels
-            .values()
-            .map(|l| LevelSummary {
-                id: l.id.clone(),
-                title: l.title.clone(),
-                aliases: l.aliases.clone(),
-            })
-            .collect(),
     }
 }
 
@@ -1029,81 +649,6 @@ fn resolve_body_ref(reference: &str, pack: &frank_pack::CompiledPack) -> Option<
                 .map(|l| l.activation_prompt.clone())
         })
         .flatten()
-}
-
-fn load_manifests(
-    paths: &FrankPaths,
-) -> Vec<(
-    PathBuf,
-    Result<frank_target::manifest::TargetManifest, String>,
-)> {
-    let mut dirs = vec![paths.user_config_dir().join("targets")];
-    dirs.push(paths.cwd.join("targets"));
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("toml") {
-                continue;
-            }
-            let parsed = frank_safeio::read_text_capped(&path, frank_safeio::MAX_CONFIG_BYTES)
-                .map_err(|e| e.to_string())
-                .and_then(|raw| {
-                    toml::from_str::<frank_target::manifest::TargetManifest>(&raw)
-                        .map_err(|e| e.to_string())
-                });
-            if let Ok(m) = &parsed {
-                if !seen.insert(m.target.id.clone()) {
-                    continue;
-                }
-            }
-            out.push((path, parsed));
-        }
-    }
-    out
-}
-
-fn read_settings(path: &Path) -> Result<UserSettings, AppError> {
-    let raw = match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
-        Ok(raw) => raw,
-        Err(frank_safeio::SafeIoError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(UserSettings::default());
-        }
-        Err(e) => return Err(AppError::SafeIo(e)),
-    };
-    toml::from_str(&raw).map_err(|e| AppError::Config {
-        path: path.to_path_buf(),
-        reason: e.to_string(),
-    })
-}
-
-fn write_settings(path: &Path, settings: &UserSettings) -> Result<(), AppError> {
-    let mut doc = match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
-        Ok(raw) => raw
-            .parse::<toml_edit::DocumentMut>()
-            .map_err(|e| AppError::Config {
-                path: path.to_path_buf(),
-                reason: e.to_string(),
-            })?,
-        Err(frank_safeio::SafeIoError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            toml_edit::DocumentMut::new()
-        }
-        Err(e) => return Err(AppError::SafeIo(e)),
-    };
-    match &settings.default_level {
-        Some(level) => doc["default_level"] = toml_edit::value(level.clone()),
-        None => {
-            doc.remove("default_level");
-        }
-    }
-    doc["gui"]["launch_at_login"] = toml_edit::value(settings.gui.launch_at_login);
-    doc["gui"]["close_to_tray"] = toml_edit::value(settings.gui.close_to_tray);
-    frank_safeio::write_text_atomic(path, &doc.to_string(), frank_safeio::MAX_CONFIG_BYTES)?;
-    Ok(())
 }
 
 fn action_paths(plan: &frank_target::InstallPlan) -> Vec<PathBuf> {
@@ -1244,7 +789,7 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
     use std::fs;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use tempfile::tempdir;
 
@@ -1412,7 +957,7 @@ mod tests {
         let report = FrankService::new(p.clone()).build_and_record_stats(Some(&session));
         assert_eq!(report.turns, 1);
         assert_eq!(report.session_id.as_deref(), Some("session"));
-        let history = frank_ledger::stats::read_history(&p.config_dir.join(".frank-history.jsonl"));
+        let history = frank_ledger::read_history(&p.config_dir.join(".frank-history.jsonl"));
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].output_tokens, 12);
     }
@@ -1650,6 +1195,35 @@ rules = "levels/full.md"
     }
 
     #[test]
+    fn pack_selector_service_resolves_builtin_forms_and_rejects_unknowns() {
+        let tmp = tempdir().unwrap();
+        let service = FrankService::new(paths(tmp.path()));
+
+        assert_eq!(
+            service
+                .pack_for_selector(Some(builtin::PACK_ID))
+                .unwrap()
+                .id,
+            builtin::PACK_ID
+        );
+        assert_eq!(
+            service
+                .pack_for_selector(Some(&format!(
+                    "{}@{}",
+                    builtin::PACK_ID,
+                    builtin::PACK_VERSION
+                )))
+                .unwrap()
+                .version,
+            builtin::PACK_VERSION
+        );
+        assert!(matches!(
+            service.pack_for_selector(Some("missing-pack")),
+            Err(AppError::Pack(_))
+        ));
+    }
+
+    #[test]
     fn snapshot_exposes_doctor_and_malformed_target_manifests() {
         let tmp = tempdir().unwrap();
         let p = paths(tmp.path());
@@ -1834,12 +1408,6 @@ create_if_missing = true
             .find(|target| target.id == "generic")
             .unwrap();
         assert!(generic.detected);
-        assert!(
-            service
-                .list_targets()
-                .iter()
-                .any(|target| target.id == "generic")
-        );
         assert!(matches!(
             service.prepare_target_change("missing", TargetOperation::Install),
             Err(AppError::UnknownTarget(target)) if target == "missing"

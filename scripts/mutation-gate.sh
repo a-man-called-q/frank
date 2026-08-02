@@ -7,11 +7,11 @@ cd "$root"
 # cargo-mutants' --output argument is a parent directory; the tool creates
 # its canonical results in <parent>/mutants.out. Keep the parent and result
 # paths separate so the gate reads the files produced by the current run.
-output_parent="${FRANK_MUTANTS_OUTPUT:-$root}"
+output_parent="${FRANK_MUTANTS_OUTPUT:-$root/target/mutation}"
 out="$output_parent/mutants.out"
 timeout="${FRANK_MUTATION_TIMEOUT:-120}"
 minimum="${FRANK_MUTATION_MIN_SCORE:-85}"
-allowlist="$root/mutants-equivalent.allowlist"
+allowlist="$root/.config/mutants-equivalent.allowlist"
 jobs="${FRANK_MUTATION_JOBS:-}"
 
 command -v cargo-mutants >/dev/null 2>&1 || {
@@ -41,13 +41,14 @@ esac
 # gate remains responsible for that contract.
 mutation_scope+=(--exclude 'apps/frank-gui/src-tauri/**')
 
-mutation_options=()
+mutation_command=(cargo mutants --workspace)
+mutation_command+=("${mutation_scope[@]}")
 if [[ -n "$jobs" ]]; then
-  mutation_options+=(--jobs "$jobs")
+  mutation_command+=(--jobs "$jobs")
 fi
 
 set +e
-cargo mutants --workspace "${mutation_scope[@]}" "${mutation_options[@]}" \
+"${mutation_command[@]}" \
   --timeout "$timeout" --output "$output_parent"
 mutants_status=$?
 set -e

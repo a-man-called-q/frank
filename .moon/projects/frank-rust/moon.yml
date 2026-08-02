@@ -72,9 +72,15 @@ tasks:
       runFromWorkspaceRoot: true
       cache: false
 
+  architecture-check:
+    command: 'cargo run --locked -p xtask -- architecture-check'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
   verify:
     command: 'cargo test --workspace --locked'
-    deps: ['~:format', '~:clippy', '~:doctest', '~:check-packs', '~:lint-targets']
+    deps: ['~:format', '~:clippy', '~:doctest', '~:check-packs', '~:lint-targets', '~:architecture-check']
     options:
       runFromWorkspaceRoot: true
       cache: false

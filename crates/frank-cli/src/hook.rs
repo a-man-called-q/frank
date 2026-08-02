@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use frank_app::{FrankPaths, FrankService};
-use frank_ledger::injection_ledger::{self, InjectionEntry};
+use frank_ledger::{InjectionEntry, append_injection};
 use frank_state::{AppliedState, FlagPaths};
 
 use crate::{flag, pack, stats};
@@ -58,7 +58,7 @@ fn session_start() -> i32 {
                 // toward any session's report — a safe degradation.
                 let session_id = frank_ledger::find_recent_session(&flag::config_dir())
                     .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()));
-                injection_ledger::append(
+                append_injection(
                     &flag::config_dir().join(".frank-ledger.jsonl"),
                     &InjectionEntry {
                         ts: stats::now_ms(),
@@ -128,7 +128,7 @@ fn user_prompt_submit() -> i32 {
                 // never cached, unlike the activation block. Recorded on
                 // every turn it fires so `frank stats` can show it as its
                 // own line, not folded into the activation cost.
-                injection_ledger::append(
+                append_injection(
                     &flag::config_dir().join(".frank-ledger.jsonl"),
                     &InjectionEntry {
                         ts: stats::now_ms(),

@@ -4,7 +4,7 @@
 //! writes real files to a `tempdir()` and reads them back; nothing is
 //! mocked.
 
-use frank_target::{InstallCtx, claude_code::ClaudeCodeTarget, plan};
+use frank_target::{ClaudeCodeTarget, InstallCtx, apply, read_settings};
 use serde_json::{Value, json};
 use tempfile::tempdir;
 
@@ -17,7 +17,7 @@ fn ctx(config_dir: &std::path::Path) -> InstallCtx {
 }
 
 fn settings(config_dir: &std::path::Path) -> Value {
-    frank_target::settings::read_settings(&config_dir.join("settings.json")).unwrap()
+    read_settings(&config_dir.join("settings.json")).unwrap()
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn fresh_install_writes_both_hooks() {
     let c = ctx(tmp.path());
 
     let install_plan = ClaudeCodeTarget::plan_install(&c);
-    let log = plan::apply(&install_plan).unwrap();
+    let log = apply(&install_plan).unwrap();
     assert!(log.iter().any(|l| l.contains("SessionStart")));
     assert!(log.iter().any(|l| l.contains("UserPromptSubmit")));
 
@@ -52,7 +52,7 @@ fn native_target_id_and_hook_commands_keep_the_target_identity_and_path() {
     let tmp = tempdir().unwrap();
     let config_dir = tmp.path().join("config with spaces");
     let c = ctx(&config_dir);
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let command = settings(&config_dir)["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap()
@@ -65,9 +65,9 @@ fn install_is_idempotent_no_duplicate_entries() {
     let tmp = tempdir().unwrap();
     let c = ctx(tmp.path());
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let before = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let after = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
 
     assert_eq!(
@@ -97,7 +97,7 @@ fn uninstall_removes_only_frank_hooks_and_preserves_user_hooks() {
     )
     .unwrap();
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     assert_eq!(
         settings(tmp.path())["hooks"]["SessionStart"]
             .as_array()
@@ -106,7 +106,7 @@ fn uninstall_removes_only_frank_hooks_and_preserves_user_hooks() {
         2
     );
 
-    plan::apply(&ClaudeCodeTarget::plan_uninstall(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_uninstall(&c)).unwrap();
     let s = settings(tmp.path());
     let remaining = s["hooks"]["SessionStart"].as_array().unwrap();
     assert_eq!(remaining.len(), 1);
@@ -123,7 +123,7 @@ fn uninstall_on_a_machine_that_was_never_installed_is_a_harmless_noop() {
     let tmp = tempdir().unwrap();
     let c = ctx(tmp.path());
     // No settings.json exists at all.
-    let log = plan::apply(&ClaudeCodeTarget::plan_uninstall(&c)).unwrap();
+    let log = apply(&ClaudeCodeTarget::plan_uninstall(&c)).unwrap();
     assert!(!tmp.path().join("settings.json").exists());
     assert!(log.is_empty() || log.iter().all(|l| !l.contains("removed")));
 }
@@ -149,7 +149,7 @@ fn install_tolerates_jsonc_with_a_malformed_hook_already_present() {
     )
     .unwrap();
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let s = settings(tmp.path());
     // The malformed entry is gone (validated away), Frank's hook is there,
     // and the unrelated statusLine key survived the round trip.
@@ -174,14 +174,14 @@ fn install_backs_up_settings_exactly_once() {
     )
     .unwrap();
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let backup_path = tmp.path().join("settings.json.frank-backup");
     assert!(backup_path.exists());
     let first_backup = std::fs::read_to_string(&backup_path).unwrap();
     assert_eq!(first_backup, json!({"a": 1}).to_string());
 
     // A second install must not clobber the backup with the now-merged file.
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let second_backup = std::fs::read_to_string(&backup_path).unwrap();
     assert_eq!(first_backup, second_backup);
 }
@@ -197,7 +197,7 @@ fn install_refuses_a_settings_symlink_without_touching_the_target() {
     std::fs::write(&outside, "{\"untouched\":true}\n").unwrap();
     symlink(&outside, tmp.path().join("settings.json")).unwrap();
 
-    let result = plan::apply(&ClaudeCodeTarget::plan_install(&c));
+    let result = apply(&ClaudeCodeTarget::plan_install(&c));
     assert!(result.is_err());
     assert_eq!(
         std::fs::read_to_string(outside).unwrap(),
@@ -218,7 +218,7 @@ fn install_refuses_an_oversized_settings_document() {
     )
     .unwrap();
 
-    assert!(plan::apply(&ClaudeCodeTarget::plan_install(&c)).is_err());
+    assert!(apply(&ClaudeCodeTarget::plan_install(&c)).is_err());
 }
 
 /// Regression test: a fresh machine has no settings.json at all before the
@@ -232,7 +232,7 @@ fn backup_marker_survives_when_no_settings_json_existed_before_first_install() {
     let c = ctx(tmp.path());
     assert!(!tmp.path().join("settings.json").exists());
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let backup_path = tmp.path().join("settings.json.frank-backup");
     assert!(backup_path.exists());
     let first_backup = std::fs::read_to_string(&backup_path).unwrap();
@@ -242,7 +242,7 @@ fn backup_marker_survives_when_no_settings_json_existed_before_first_install() {
     );
 
     // Second install must not overwrite the marker with the now-merged file.
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let second_backup = std::fs::read_to_string(&backup_path).unwrap();
     assert_eq!(first_backup, second_backup);
     assert!(!second_backup.contains("hook session-start"));
@@ -257,7 +257,7 @@ fn doctor_reports_missing_then_present_hooks() {
     assert_eq!(before.len(), 2);
     assert!(before.iter().all(|d| !d.ok));
 
-    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let after = ClaudeCodeTarget::doctor(&c);
     assert_eq!(after.len(), 2);
     assert!(
@@ -280,7 +280,7 @@ fn dry_run_plan_description_matches_what_apply_actually_does() {
     assert!(description.iter().any(|l| l.contains("UserPromptSubmit")));
 
     // Actually applying leaves the described hooks in place.
-    plan::apply(&install_plan).unwrap();
+    apply(&install_plan).unwrap();
     let s = settings(tmp.path());
     assert!(
         s["hooks"]["SessionStart"][0]["hooks"][0]["command"]

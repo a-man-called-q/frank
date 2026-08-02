@@ -1,6 +1,4 @@
-use frank_target::generic::{build_install_plan, build_uninstall_plan};
-use frank_target::manifest::TargetManifest;
-use frank_target::{Action, InstallCtx};
+use frank_target::{Action, InstallCtx, TargetManifest, build_install_plan, build_uninstall_plan};
 use std::path::PathBuf;
 use tempfile::tempdir;
 

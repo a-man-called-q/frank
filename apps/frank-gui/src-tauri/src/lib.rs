@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use frank_app::{
-    DashboardSnapshot, DoctorReport, FrankPaths, FrankService, OperationResult, PackOperation,
+    DashboardSnapshot, FrankPaths, FrankService, OperationResult, PackOperation,
     PackOperationResult, PackPlanPreview, PlanPreview, TargetOperation, UserSettings,
     UserSettingsPatch,
 };
@@ -24,16 +24,6 @@ fn service<'a>(
 #[tauri::command]
 fn snapshot(state: State<'_, AppState>) -> Result<DashboardSnapshot, String> {
     service(&state)?.snapshot().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn doctor(state: State<'_, AppState>) -> Result<DoctorReport, String> {
-    Ok(service(&state)?.doctor())
-}
-
-#[tauri::command]
-fn settings(state: State<'_, AppState>) -> Result<UserSettings, String> {
-    service(&state)?.settings().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -93,28 +83,6 @@ fn apply_prepared_plan(
 }
 
 #[tauri::command]
-fn add_local_pack(source: String, state: State<'_, AppState>) -> Result<(), String> {
-    service(&state)?
-        .add_local_pack(std::path::Path::new(&source), None)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn use_pack(selector: String, state: State<'_, AppState>) -> Result<(), String> {
-    service(&state)?
-        .use_pack(&selector)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn remove_pack(selector: String, state: State<'_, AppState>) -> Result<(), String> {
-    service(&state)?
-        .remove_pack(&selector)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn prepare_pack_change(
     operation: PackOperation,
     state: State<'_, AppState>,
@@ -158,15 +126,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             snapshot,
-            doctor,
-            settings,
             set_active_level,
             update_settings,
             prepare_target_change,
             apply_prepared_plan,
-            add_local_pack,
-            use_pack,
-            remove_pack,
             prepare_pack_change,
             apply_prepared_pack
         ])

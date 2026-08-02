@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use crate::validate::*;
 
     #[test]
@@ -130,8 +132,14 @@ mod tests {
 
     #[test]
     fn bullet_ratio_uses_subtraction_not_division() {
-        let original = (0..10).map(|i| format!("- {i}\n")).collect::<String>();
-        let compressed = (0..8).map(|i| format!("- {i}\n")).collect::<String>();
+        let mut original = String::new();
+        let mut compressed = String::new();
+        for i in 0..10 {
+            writeln!(&mut original, "- {i}").unwrap();
+        }
+        for i in 0..8 {
+            writeln!(&mut compressed, "- {i}").unwrap();
+        }
         let result = validate(&original, &compressed);
         assert!(
             result
@@ -143,8 +151,14 @@ mod tests {
 
     #[test]
     fn exactly_fifteen_percent_bullet_loss_is_within_tolerance() {
-        let original = (0..20).map(|i| format!("- {i}\n")).collect::<String>();
-        let compressed = (0..17).map(|i| format!("- {i}\n")).collect::<String>();
+        let mut original = String::new();
+        let mut compressed = String::new();
+        for i in 0..20 {
+            writeln!(&mut original, "- {i}").unwrap();
+        }
+        for i in 0..17 {
+            writeln!(&mut compressed, "- {i}").unwrap();
+        }
         let result = validate(&original, &compressed);
         assert!(
             !result

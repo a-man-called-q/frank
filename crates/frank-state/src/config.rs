@@ -180,6 +180,10 @@ mod tests {
         std::fs::create_dir(&directory).unwrap();
         assert_eq!(read_mode_from_file(&pack, &directory), None);
 
+        let missing_default = tmp.path().join("missing-default.toml");
+        std::fs::write(&missing_default, "other = true\n").unwrap();
+        assert_eq!(read_mode_from_file(&pack, &missing_default), None);
+
         let oversized = tmp.path().join("oversized.toml");
         std::fs::write(
             &oversized,
@@ -248,23 +252,36 @@ mod tests {
     }
 
     #[test]
-    fn user_config_dir_matches_the_process_configuration_root() {
-        let expected = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-            Some(PathBuf::from(xdg).join("frank"))
-        } else {
-            #[cfg(windows)]
-            {
-                std::env::var_os("APPDATA")
-                    .map(PathBuf::from)
-                    .map(|path| path.join("frank"))
-                    .or_else(|| frank_safeio::home_dir().map(|h| h.join(".config").join("frank")))
-            }
-            #[cfg(not(windows))]
-            {
-                frank_safeio::home_dir().map(|h| h.join(".config").join("frank"))
-            }
-        };
-        assert_eq!(user_config_dir(), expected);
+    fn repo_search_stops_at_the_walk_limit() {
+        let tmp = tempdir().unwrap();
+        let mut nested = tmp.path().to_path_buf();
+        for segment in 0..=MAX_WALK_LEVELS {
+            nested.push(format!("level-{segment}"));
+        }
+        std::fs::create_dir_all(&nested).unwrap();
+
+        assert_eq!(find_repo_config_path(&nested), None);
+    }
+
+    #[test]
+    fn xdg_config_home_is_used_when_present() {
+        let tmp = tempdir().unwrap();
+        let previous = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", tmp.path()) };
+        let actual = user_config_dir();
+        restore_xdg_config_home(previous.clone());
+        restore_xdg_config_home(Some(tmp.path().join("branch").into_os_string()));
+        restore_xdg_config_home(None);
+        restore_xdg_config_home(previous);
+
+        assert_eq!(actual, Some(tmp.path().join("frank")));
+    }
+
+    fn restore_xdg_config_home(value: Option<std::ffi::OsString>) {
+        match value {
+            Some(value) => unsafe { std::env::set_var("XDG_CONFIG_HOME", value) },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
+        }
     }
 
     #[test]
@@ -295,5 +312,19 @@ mod tests {
             Some(&user),
         );
         assert_eq!(fallback, "full");
+    }
+
+    #[test]
+    fn missing_user_config_dir_falls_back_to_pack_default() {
+        let tmp = tempdir().unwrap();
+        assert_eq!(
+            resolve_default_level_with_user_dir(
+                &fixture_pack(),
+                tmp.path(),
+                "FRANK_TEST_DEFAULT_LEVEL_UNSET_NO_USER_DIR",
+                None,
+            ),
+            "full"
+        );
     }
 }

@@ -30,7 +30,7 @@ pub fn strip_all(text: &str, block: &Block) -> String {
         let b = i + rel_b;
         out.push_str(&text[i..b]);
 
-        let after_begin = b + block.begin.len();
+        let after_begin = b.saturating_add(block.begin.len());
         let next_b = text[after_begin..]
             .find(&block.begin)
             .map(|p| after_begin + p);

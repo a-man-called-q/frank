@@ -6,12 +6,12 @@
 //! have. See each module's docs for what was ported from the archive
 //! verbatim versus deliberately redesigned.
 
-pub mod backup;
-pub mod classify;
-pub mod frontmatter;
-pub mod rules;
-pub mod sensitive;
-pub mod validate;
+mod backup;
+mod classify;
+mod frontmatter;
+mod rules;
+mod sensitive;
+mod validate;
 
 pub use backup::{backup_dir_for, backup_path_for};
 pub use classify::{FileClass, detect_file_type, should_compress};

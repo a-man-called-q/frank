@@ -212,7 +212,7 @@ refactor(compress): simplify markdown parser
 
 1. Create under `crates/`
 2. Update `Cargo.toml` workspace members
-3. Update dependency graph in `ARCHITECTURE.md`
+3. Update dependency graph in `docs/architecture.md`
 4. Add README explaining purpose
 5. Add tests
 
@@ -246,7 +246,7 @@ If touching file I/O, path handling, or anything security-related:
 
 ## Architecture Overview
 
-For deep technical details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
+For deep technical details, see [`docs/architecture.md`](docs/architecture.md).
 
 Key principles:
 
@@ -298,14 +298,14 @@ FRANK_GUI_BINARY=/path/to/Frank moon run frank-release:native-smoke
 
 - Update README.md for user-facing changes
 - Update pack authoring guide for pack system changes
-- Update ARCHITECTURE.md for internal architecture changes
+- Update docs/architecture.md for internal architecture changes
 
 ## Getting Help
 
 - **Questions**: Open a discussion on GitHub
 - **Bugs**: Open an issue
 - **Chat**: Join our community (link TBD)
-- **Architecture questions**: Read `ARCHITECTURE.md` first
+- **Architecture questions**: Read `docs/architecture.md` first
 
 ## Code of Conduct
 

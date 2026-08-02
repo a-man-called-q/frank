@@ -100,14 +100,14 @@ pub fn extract_code_blocks(text: &str) -> Vec<String> {
     let mut i = 0;
     while i < lines.len() {
         let Some(open_caps) = open_re.captures(lines[i]) else {
-            i += 1;
+            i = i.saturating_add(1);
             continue;
         };
         let fence_str = &open_caps[2];
         let fence_char = fence_str.chars().next().unwrap();
         let fence_len = fence_str.len();
         let mut block_lines = vec![lines[i]];
-        i += 1;
+        i = i.saturating_add(1);
         let mut closed = false;
         while i < lines.len() {
             if let Some(close_caps) = open_re.captures(lines[i]) {
@@ -118,12 +118,12 @@ pub fn extract_code_blocks(text: &str) -> Vec<String> {
                 {
                     block_lines.push(lines[i]);
                     closed = true;
-                    i += 1;
+                    i = i.saturating_add(1);
                     break;
                 }
             }
             block_lines.push(lines[i]);
-            i += 1;
+            i = i.saturating_add(1);
         }
         if closed {
             blocks.push(block_lines.join("\n"));

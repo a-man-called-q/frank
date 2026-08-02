@@ -256,7 +256,7 @@ Release:
 moon run frank-release:bundle  # → .dmg / .msi / .deb / .rpm
 ```
 
-MVP packages unsigned. Signing tracked in `TODO.md`.
+MVP packages unsigned. Signing tracked in `roadmap.md`.
 
 ### Native Smoke Tests
 
@@ -316,4 +316,4 @@ Each milestone has demo criteria in `buat-plan-untuk-bangun-soft-marshmallow.md`
 - **Original Caveman**: https://github.com/JuliusBrussee/caveman
 - **Design plan**: `buat-plan-untuk-bangun-soft-marshmallow.md`
 - **Pack authoring**: `docs/pack-authoring.md`
-- **Roadmap**: `TODO.md`
+- **Roadmap**: `roadmap.md`

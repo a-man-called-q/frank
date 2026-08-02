@@ -20,10 +20,6 @@ pub fn builtin() -> frank_pack::CompiledPack {
     frank_app::builtin_pack()
 }
 
-pub fn store() -> frank_pack::PackStore {
-    frank_pack::PackStore::new(service().paths().data_root.clone())
-}
-
 /// Return the selected pack, or the embedded pack when no user pack is active.
 /// A corrupt selected pack remains an error: falling back would silently change
 /// a user's explicit persona selection.
@@ -188,19 +184,12 @@ pub fn remove(selector: &str) -> i32 {
 }
 
 pub fn show(selector: Option<&str>) -> i32 {
-    let store = store();
-    let pack = match selector {
-        None | Some("caveman") => builtin(),
-        Some(selector) => match store
-            .find(selector)
-            .and_then(|p| store.compile_installed(&p))
-        {
-            Ok(pack) => pack,
-            Err(e) => {
-                eprintln!("frank pack show: {e}");
-                return 1;
-            }
-        },
+    let pack = match service().pack_for_selector(selector) {
+        Ok(pack) => pack,
+        Err(e) => {
+            eprintln!("frank pack show: {e}");
+            return 1;
+        }
     };
     println!("{} v{}", pack.id, pack.version);
     println!("default: {}", pack.default_level);

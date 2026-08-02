@@ -6,8 +6,11 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use frank_app::{FrankPaths, FrankService};
-use frank_ledger::pricing;
-use frank_ledger::stats::{aggregate_history, read_history};
+use frank_ledger::{
+    MIN_SESSIONS_FOR_LIFETIME_VERDICT, MIN_TURNS_FOR_LIFETIME_VERDICT, aggregate_history,
+    format_usd, lifetime_verdict_has_enough_data, measured_output_total, price_for_model,
+    read_history, read_injections, savings_estimate,
+};
 
 use crate::{flag, pack};
 
@@ -58,7 +61,7 @@ pub fn report_text(args: &StatsArgs) -> String {
 }
 
 fn share_line(report: &frank_ledger::SessionReport) -> String {
-    let output_total = frank_ledger::stats::measured_output_total(&report.attribution);
+    let output_total = measured_output_total(&report.attribution);
     if report.turns == 0 || output_total == 0 {
         return "\u{1FAA8} frank armed but no turns yet\n".to_string();
     }
@@ -66,20 +69,16 @@ fn share_line(report: &frank_ledger::SessionReport) -> String {
     let mut saved = 0u64;
     for (mode, bucket) in &report.attribution.by_mode {
         if let Some(stat) = compiled.benchmark.get(mode) {
-            let est = frank_ledger::stats::savings_estimate(
-                bucket.output_tokens,
-                stat,
-                report.model.as_deref(),
-            );
+            let est = savings_estimate(bucket.output_tokens, stat, report.model.as_deref());
             saved += est.mean_tokens;
         }
     }
-    let usd = pricing::price_for_model(report.model.as_deref())
+    let usd = price_for_model(report.model.as_deref())
         .map(|p| (saved as f64 / 1_000_000.0) * p)
         .unwrap_or(0.0);
     format!(
         "\u{1FAA8} Saved ~{saved} output tokens (~{}) across {} turns this session\n",
-        pricing::format_usd(usd),
+        format_usd(usd),
         report.turns
     )
 }
@@ -99,20 +98,19 @@ fn lifetime_text() -> String {
     let sessions = rows.len();
     let turns: usize = rows.iter().map(|row| row.turns).sum();
 
-    if !frank_ledger::stats::lifetime_verdict_has_enough_data(&rows) {
+    if !lifetime_verdict_has_enough_data(&rows) {
         return format!(
             "Frank ledger — lifetime\n  Not enough data yet ({sessions} session(s), {turns} turn(s) recorded; need {} sessions and {} turns). \
             Keep using Frank; `frank stats --all` will report a verdict once there's enough history \
             to be honest about.\n",
-            frank_ledger::stats::MIN_SESSIONS_FOR_LIFETIME_VERDICT,
-            frank_ledger::stats::MIN_TURNS_FOR_LIFETIME_VERDICT
+            MIN_SESSIONS_FOR_LIFETIME_VERDICT, MIN_TURNS_FOR_LIFETIME_VERDICT
         );
     }
 
     let output_total: u64 = rows.iter().map(|r| r.output_tokens).sum();
     let input_total: u64 = rows.iter().map(|r| r.input_tokens).sum();
     let ledger_path = config_dir.join(".frank-ledger.jsonl");
-    let injections = frank_ledger::injection_ledger::read_all(&ledger_path);
+    let injections = read_injections(&ledger_path);
     let frank_bytes: usize = injections.iter().map(|e| e.inject_bytes).sum();
 
     format!(
