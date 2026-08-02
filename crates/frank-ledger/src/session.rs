@@ -220,7 +220,9 @@ pub fn find_recent_session(config_dir: &Path) -> Option<PathBuf> {
             let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
             if best
                 .as_ref()
-                .map(|(_, best_mtime)| mtime > *best_mtime)
+                .map(|(best_path, best_mtime)| {
+                    should_replace_session_candidate(&p, mtime, best_path, *best_mtime)
+                })
                 .unwrap_or(true)
             {
                 best = Some((p, mtime));
@@ -228,4 +230,15 @@ pub fn find_recent_session(config_dir: &Path) -> Option<PathBuf> {
         }
     }
     best.map(|(p, _)| p)
+}
+
+/// Prefer newer transcripts, with a stable path tie-breaker for files whose
+/// filesystem timestamps have the same resolution.
+pub(crate) fn should_replace_session_candidate(
+    candidate_path: &Path,
+    candidate_mtime: std::time::SystemTime,
+    best_path: &Path,
+    best_mtime: std::time::SystemTime,
+) -> bool {
+    candidate_mtime > best_mtime || (candidate_mtime == best_mtime && candidate_path > best_path)
 }

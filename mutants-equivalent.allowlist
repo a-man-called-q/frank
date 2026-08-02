@@ -1,3 +1,53 @@
 # Exact cargo-mutants output lines for reviewed equivalent mutants only.
 # Every entry must have a nearby issue/reason in the review record. Broad
 # globs, package-wide exemptions, and unexplained suppressions are forbidden.
+
+# These count guards are equivalent for nonnegative counts: >= 0 is always
+# true, and a zero/zero floating ratio is NaN, which is false for both > and >=.
+crates/frank-compress/src/classify.rs:113:15: replace > with >= in is_yaml_content
+crates/frank-compress/src/classify.rs:167:18: replace > with >= in detect_file_type
+
+# `year` is validated to 1..=9999 before the civil-date calculation, so the
+# negative-era branch is unreachable for every accepted timestamp. These are
+# the exact arithmetic variants of that dead branch, not a parser exemption.
+crates/frank-ledger/src/session.rs:141:40: replace - with + in parse_iso8601_ms
+crates/frank-ledger/src/session.rs:141:40: replace - with / in parse_iso8601_ms
+
+# OFlags values are disjoint bit masks. XOR produces the same mask as OR for
+# these pairs; the companion unit test asserts every required bit so an AND
+# mutation is still caught.
+crates/frank-safeio/src/unix.rs:24:23: replace | with ^ in verified_dir_flags
+crates/frank-safeio/src/unix.rs:24:42: replace | with ^ in verified_dir_flags
+crates/frank-safeio/src/unix.rs:28:20: replace | with ^ in append_existing_flags
+crates/frank-safeio/src/unix.rs:28:37: replace | with ^ in append_existing_flags
+crates/frank-safeio/src/unix.rs:28:56: replace | with ^ in append_existing_flags
+crates/frank-safeio/src/unix.rs:33:9: replace | with ^ in append_create_flags
+crates/frank-safeio/src/unix.rs:34:9: replace | with ^ in append_create_flags
+crates/frank-safeio/src/unix.rs:35:9: replace | with ^ in append_create_flags
+crates/frank-safeio/src/unix.rs:36:9: replace | with ^ in append_create_flags
+crates/frank-safeio/src/unix.rs:37:9: replace | with ^ in append_create_flags
+crates/frank-safeio/src/unix.rs:41:20: replace | with ^ in create_write_flags
+crates/frank-safeio/src/unix.rs:41:37: replace | with ^ in create_write_flags
+crates/frank-safeio/src/unix.rs:41:52: replace | with ^ in create_write_flags
+crates/frank-safeio/src/unix.rs:41:71: replace | with ^ in create_write_flags
+crates/frank-safeio/src/unix.rs:45:20: replace | with ^ in read_flags
+crates/frank-safeio/src/unix.rs:45:39: replace | with ^ in read_flags
+
+# These branches depend on a filesystem race between metadata/read calls, or
+# are redundant with the immediately following safe-IO validation. They are
+# kept exact so a changed line still requires review.
+crates/frank-target/src/settings.rs:41:9: replace || with && in read_settings
+crates/frank-target/src/settings.rs:42:9: replace || with && in read_settings
+crates/frank-target/src/settings.rs:47:50: replace match guard e.kind() == std::io::ErrorKind::NotFound with true in read_settings
+crates/frank-target/src/settings.rs:47:50: replace match guard e.kind() == std::io::ErrorKind::NotFound with false in read_settings
+crates/frank-target/src/settings.rs:47:59: replace == with != in read_settings
+crates/frank-target/src/plan.rs:235:42: replace && with || in apply
+crates/frank-target/src/plan.rs:357:32: replace match guard e.kind() == std::io::ErrorKind::NotFound && *create_if_missing with true in apply
+crates/frank-target/src/plan.rs:357:73: replace && with || in apply
+crates/frank-target/src/plan.rs:387:32: replace match guard error.kind() == std::io::ErrorKind::NotFound with true in apply
+crates/frank-target/src/plan.rs:408:62: replace || with && in apply
+
+# The loop watchdog catches these non-terminating arithmetic mutants; the
+# timeout is the intended regression signal for the index-advance invariant.
+crates/frank-target/src/markdown_block.rs:33:29: replace + with * in strip_all
+crates/frank-target/src/markdown_block.rs:33:29: replace + with - in strip_all

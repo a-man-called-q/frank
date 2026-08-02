@@ -141,6 +141,62 @@ command_prefix = "caveman"
     }
 
     #[test]
+    fn budget_boundary_is_inclusive() {
+        let tmp = tempdir().unwrap();
+        write(
+            tmp.path(),
+            "pack.toml",
+            r#"
+schema = 1
+[pack]
+id = "boundary"
+version = "0.1.0"
+default_level = "full"
+[pack.budget]
+max_activation_bytes = 1000
+max_reinforce_bytes = 1000
+[fragments]
+core = { file = "core.md" }
+[[level]]
+id = "full"
+compose = ["core"]
+reinforce = "keep"
+"#,
+        );
+        write(tmp.path(), "core.md", "exact boundary");
+
+        let source = PackSource::load(tmp.path()).unwrap();
+        let prompt_len = compile(&source)
+            .unwrap()
+            .resolve_level("full")
+            .unwrap()
+            .activation_prompt
+            .len();
+        let reinforce_len = compile(&source)
+            .unwrap()
+            .resolve_level("full")
+            .unwrap()
+            .reinforce
+            .len();
+        let manifest = std::fs::read_to_string(tmp.path().join("pack.toml")).unwrap();
+        write(
+            tmp.path(),
+            "pack.toml",
+            &manifest
+                .replace(
+                    "max_activation_bytes = 1000",
+                    &format!("max_activation_bytes = {prompt_len}"),
+                )
+                .replace(
+                    "max_reinforce_bytes = 1000",
+                    &format!("max_reinforce_bytes = {reinforce_len}"),
+                ),
+        );
+
+        assert!(compile(&PackSource::load(tmp.path()).unwrap()).is_ok());
+    }
+
+    #[test]
     fn unknown_fragment_token_is_an_error() {
         let tmp = tempdir().unwrap();
         minimal_pack(tmp.path());
@@ -252,6 +308,34 @@ inherits = "full""#,
 
         let err = compile(&PackSource::load(tmp.path()).unwrap()).unwrap_err();
         assert!(matches!(err, PackError::UnsafePath(_)), "{err:?}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn loading_a_symlinked_pack_root_is_rejected() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().unwrap();
+        let real = tmp.path().join("real");
+        minimal_pack(&real);
+        let link = tmp.path().join("link");
+        symlink(&real, &link).unwrap();
+
+        assert!(matches!(
+            PackSource::load(&link),
+            Err(PackError::UnsafePath(_))
+        ));
+    }
+
+    #[test]
+    fn loading_a_regular_file_as_a_pack_root_is_rejected() {
+        let tmp = tempdir().unwrap();
+        let file = tmp.path().join("not-a-pack");
+        fs::write(&file, "pack.toml").unwrap();
+        assert!(matches!(
+            PackSource::load(&file),
+            Err(PackError::UnsafePath(_))
+        ));
     }
 
     proptest! {

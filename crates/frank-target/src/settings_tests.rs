@@ -85,6 +85,24 @@ mod tests {
     }
 
     #[test]
+    fn read_settings_returns_none_for_an_unreadable_parent_error() {
+        let tmp = tempdir().unwrap();
+        let parent = tmp.path().join("parent-file");
+        write(&parent, "not a directory");
+        assert_eq!(read_settings(&parent.join("settings.json")), None);
+    }
+
+    #[test]
+    fn read_settings_accepts_a_valid_document_at_the_exact_size_cap() {
+        let tmp = tempdir().unwrap();
+        let path = tmp.path().join("settings.json");
+        let mut raw = "{}".to_string();
+        raw.push_str(&" ".repeat(frank_safeio::MAX_CONFIG_BYTES - raw.len()));
+        write(&path, &raw);
+        assert_eq!(read_settings(&path), Some(json!({})));
+    }
+
+    #[test]
     fn write_settings_round_trips() {
         let tmp = tempdir().unwrap();
         let path = tmp.path().join("settings.json");

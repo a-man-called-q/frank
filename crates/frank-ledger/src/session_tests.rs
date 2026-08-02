@@ -14,8 +14,11 @@ mod tests {
             ("1970-01-01T00:00:00.000Z", 0),
             ("2026-08-01T03:13:39.489Z", 1785554019489),
             ("2000-03-01T00:00:00.000Z", 951868800000), // leap-year boundary
+            ("2000-02-29T00:00:00.000Z", 951782400000), // divisible by 400
             ("1999-12-31T23:59:59.999Z", 946684799999),
             ("2024-02-29T12:00:00.000Z", 1709208000000), // leap day
+            ("1970-01-01T00:00:00.1Z", 100),
+            ("1970-01-01T00:00:00.01Z", 10),
         ];
         for (input, expected) in cases {
             let raw = format!(
@@ -33,10 +36,13 @@ mod tests {
     fn invalid_iso8601_timestamps_are_left_unattributed() {
         for timestamp in [
             "2026-02-30T00:00:00.000Z",
+            "1900-02-29T00:00:00.000Z",
+            "2026-04-31T00:00:00.000Z",
             "2026-13-01T00:00:00.000Z",
             "2026-01-01T24:00:00.000Z",
             "2026-01-01T00:60:00.000Z",
             "2026-01-01T00:00:00.0000Z",
+            "2026-01-01-fooT00:00:00.000Z",
             "not-a-timestamp",
         ] {
             let raw = format!(
@@ -164,6 +170,31 @@ mod tests {
     fn find_recent_session_returns_none_when_projects_dir_missing() {
         let tmp = tempdir().unwrap();
         assert_eq!(find_recent_session(tmp.path()), None);
+    }
+
+    #[test]
+    fn find_recent_session_prefers_the_newer_of_two_candidates() {
+        let tmp = tempdir().unwrap();
+        let projects = tmp.path().join("projects");
+        std::fs::create_dir_all(&projects).unwrap();
+        let first = projects.join("a.jsonl");
+        let second = projects.join("b.jsonl");
+        std::fs::write(&first, "{}").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&second, "{}").unwrap();
+
+        assert_eq!(find_recent_session(tmp.path()), Some(second));
+    }
+
+    #[test]
+    fn equal_session_mtimes_use_a_stable_path_tiebreaker() {
+        let timestamp = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let a = std::path::Path::new("a.jsonl");
+        let b = std::path::Path::new("b.jsonl");
+        assert!(should_replace_session_candidate(b, timestamp, a, timestamp));
+        assert!(!should_replace_session_candidate(
+            a, timestamp, b, timestamp
+        ));
     }
 
     #[cfg(unix)]

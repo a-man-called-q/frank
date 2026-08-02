@@ -131,6 +131,28 @@ mod tests {
     }
 
     #[test]
+    fn append_classifies_clean_and_repaired_marker_states() {
+        assert!(matches!(
+            append("plain user text", &block(), "hello"),
+            AppendOutcome::Appended(_)
+        ));
+        let AppendOutcome::Repaired(text) =
+            append("plain user text\n<!-- frank:end -->", &block(), "hello")
+        else {
+            panic!()
+        };
+        assert_eq!(text.matches("frank:end").count(), 1);
+
+        let AppendOutcome::Repaired(text) =
+            append("<!-- frank:begin -->\nuser text", &block(), "hello")
+        else {
+            panic!()
+        };
+        assert_eq!(text.matches("frank:begin").count(), 1);
+        assert!(text.contains("user text"));
+    }
+
+    #[test]
     fn append_preserves_existing_user_content() {
         let existing = "# My AGENTS.md\n\nSome rules I wrote.\n";
         let out = append(existing, &block(), "frank rules");
@@ -138,6 +160,17 @@ mod tests {
             panic!()
         };
         assert!(text.starts_with("# My AGENTS.md\n\nSome rules I wrote."));
+        assert!(text.contains("frank rules"));
+    }
+
+    #[test]
+    fn append_reports_repair_for_orphan_markers() {
+        let existing = "user text\n<!-- frank:begin -->\nuser content\n";
+        let out = append(existing, &block(), "frank rules");
+        let AppendOutcome::Repaired(text) = out else {
+            panic!("orphan markers must be repaired, not reported as a fresh append");
+        };
+        assert!(text.contains("user content"));
         assert!(text.contains("frank rules"));
     }
 
@@ -209,6 +242,21 @@ mod tests {
         let stripped = strip_all(text, &block());
         assert!(stripped.contains("hello") && stripped.contains("world"));
         assert!(!stripped.contains("frank:end"));
+    }
+
+    #[test]
+    fn equal_marker_positions_are_not_a_clean_pair() {
+        let same = Block {
+            begin: "X".into(),
+            end: "X".into(),
+        };
+        assert!(!matches!(
+            append("X", &same, "body"),
+            AppendOutcome::AlreadyPresent
+        ));
+
+        let stripped = strip_all("X user text X", &same);
+        assert!(stripped.contains("user text"), "{stripped:?}");
     }
 
     // ---------- property: strip(append(text)) round-trips to text (mod whitespace) ----------

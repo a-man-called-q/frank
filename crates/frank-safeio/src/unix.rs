@@ -20,6 +20,31 @@ use rustix::fs::{self, AtFlags, CWD, FileType, Mode, OFlags};
 
 use crate::error::{Result, SafeIoError};
 
+fn verified_dir_flags() -> OFlags {
+    OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+fn append_existing_flags() -> OFlags {
+    OFlags::WRONLY | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+fn append_create_flags() -> OFlags {
+    OFlags::WRONLY
+        | OFlags::CREATE
+        | OFlags::EXCL
+        | OFlags::APPEND
+        | OFlags::NOFOLLOW
+        | OFlags::CLOEXEC
+}
+
+fn create_write_flags() -> OFlags {
+    OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+fn read_flags() -> OFlags {
+    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
 /// Verify `dir` and open it as an fd every following operation anchors to.
 ///
 /// `dir` may itself be a symlink — the legitimate "`~/.claude` symlinked to a
@@ -42,13 +67,8 @@ fn open_verified_dir_inner(dir: &Path, create: bool) -> Result<OwnedFd> {
     // canonicalize above and this open: if something swapped the resolved
     // path back into a symlink in between, this call fails closed (ELOOP)
     // instead of silently following it.
-    let dirfd = fs::openat(
-        CWD,
-        &real_dir,
-        OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )
-    .map_err(|_| SafeIoError::SymlinkTargetNotDir)?;
+    let dirfd = fs::openat(CWD, &real_dir, verified_dir_flags(), Mode::empty())
+        .map_err(|_| SafeIoError::SymlinkTargetNotDir)?;
 
     let st = fs::fstat(&dirfd)?;
     if FileType::from_raw_mode(st.st_mode) != FileType::Directory {
@@ -95,14 +115,7 @@ pub fn ensure_dir(path: &Path) -> Result<()> {
 /// that race (`EEXIST`, someone else just created it), fall back to
 /// opening it as already-existing. Every branch keeps `O_NOFOLLOW`.
 fn open_append_create(dirfd: &OwnedFd, name: &OsStr) -> Result<rustix::fd::OwnedFd> {
-    let open_existing = || {
-        fs::openat(
-            dirfd,
-            name,
-            OFlags::WRONLY | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::empty(),
-        )
-    };
+    let open_existing = || fs::openat(dirfd, name, append_existing_flags(), Mode::empty());
 
     match open_existing() {
         Ok(fd) => return Ok(fd),
@@ -113,12 +126,7 @@ fn open_append_create(dirfd: &OwnedFd, name: &OsStr) -> Result<rustix::fd::Owned
     match fs::openat(
         dirfd,
         name,
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::EXCL
-            | OFlags::APPEND
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC,
+        append_create_flags(),
         Mode::from_raw_mode(0o600),
     ) {
         Ok(fd) => Ok(fd),
@@ -166,7 +174,7 @@ pub fn write_flag_atomic(flag_path: &Path, content: &str) -> Result<()> {
     let tmp_fd = fs::openat(
         &dirfd,
         tmp_name.as_str(),
-        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        create_write_flags(),
         Mode::from_raw_mode(0o600),
     )?;
 
@@ -216,12 +224,7 @@ pub fn read_flag_raw(flag_path: &Path, max_bytes: usize) -> Result<String> {
         return Err(SafeIoError::TooLarge(max_bytes));
     }
 
-    let fd = fs::openat(
-        &dirfd,
-        name,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
+    let fd = fs::openat(&dirfd, name, read_flags(), Mode::empty())?;
     let capacity = max_bytes.saturating_add(1);
     let mut buf = vec![0u8; capacity];
     let mut total = 0;
@@ -296,12 +299,7 @@ pub fn remove_file_if_contains(path: &Path, marker: &str) -> Result<bool> {
     if stat.st_size as u64 > crate::MAX_CONFIG_BYTES as u64 {
         return Err(SafeIoError::TooLarge(crate::MAX_CONFIG_BYTES));
     }
-    let fd = fs::openat(
-        &dirfd,
-        name,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    )?;
+    let fd = fs::openat(&dirfd, name, read_flags(), Mode::empty())?;
     let mut content = Vec::with_capacity(stat.st_size as usize);
     let mut chunk = [0u8; 8192];
     loop {
@@ -374,12 +372,7 @@ pub fn read_lines(path: &Path) -> Vec<String> {
     if ft == FileType::Symlink || ft != FileType::RegularFile {
         return Vec::new();
     }
-    let Ok(fd) = fs::openat(
-        &dirfd,
-        name,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::empty(),
-    ) else {
+    let Ok(fd) = fs::openat(&dirfd, name, read_flags(), Mode::empty()) else {
         return Vec::new();
     };
 
@@ -397,4 +390,43 @@ pub fn read_lines(path: &Path) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_open_mask_retains_its_required_security_and_access_bits() {
+        let dir = verified_dir_flags();
+        assert!(dir.contains(OFlags::DIRECTORY));
+        assert!(dir.contains(OFlags::NOFOLLOW));
+        assert!(dir.contains(OFlags::CLOEXEC));
+
+        let existing = append_existing_flags();
+        assert!(existing.contains(OFlags::WRONLY));
+        assert!(existing.contains(OFlags::APPEND));
+        assert!(existing.contains(OFlags::NOFOLLOW));
+        assert!(existing.contains(OFlags::CLOEXEC));
+
+        let create = append_create_flags();
+        assert!(create.contains(OFlags::WRONLY));
+        assert!(create.contains(OFlags::CREATE));
+        assert!(create.contains(OFlags::EXCL));
+        assert!(create.contains(OFlags::APPEND));
+        assert!(create.contains(OFlags::NOFOLLOW));
+        assert!(create.contains(OFlags::CLOEXEC));
+
+        let write = create_write_flags();
+        assert!(write.contains(OFlags::WRONLY));
+        assert!(write.contains(OFlags::CREATE));
+        assert!(write.contains(OFlags::EXCL));
+        assert!(write.contains(OFlags::NOFOLLOW));
+        assert!(write.contains(OFlags::CLOEXEC));
+
+        let read = read_flags();
+        assert!(read.contains(OFlags::RDONLY));
+        assert!(read.contains(OFlags::NOFOLLOW));
+        assert!(read.contains(OFlags::CLOEXEC));
+    }
 }

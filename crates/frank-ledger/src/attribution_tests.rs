@@ -53,6 +53,19 @@ mod tests {
     }
 
     #[test]
+    fn flag_mtime_at_first_turn_is_not_treated_as_a_mid_session_change() {
+        let turns = vec![SessionTurn {
+            ts: Some(100),
+            output_tokens: 5,
+            ..SessionTurn::default()
+        }];
+        let attribution = attribute_by_mode(&turns, &[], Some("full"), Some(100));
+
+        assert_eq!(attribution.basis, AttributionBasis::WholeSession);
+        assert_eq!(attribution.by_mode["full"].output_tokens, 5);
+    }
+
+    #[test]
     fn log_basis_attributes_each_span_to_the_mode_active_at_that_time() {
         let turns = vec![
             turn(Some(50), 10),  // before first log row -> prefix mode

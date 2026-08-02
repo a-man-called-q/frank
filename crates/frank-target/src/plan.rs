@@ -656,6 +656,31 @@ mod tests {
     }
 
     #[test]
+    fn set_scope_updates_an_existing_plan() {
+        let root = PathBuf::from("/tmp/frank-scope-setter");
+        let mut plan = InstallPlan::new("test");
+        plan.set_scope(vec![root.clone()]);
+        plan.push(Action::EnsureDir(root.join("inside")));
+        assert!(plan.validate_scope().is_ok());
+        plan.push(Action::EnsureDir(PathBuf::from("/tmp/outside")));
+        assert!(matches!(
+            plan.validate_scope(),
+            Err(ApplyError::OutOfScope(_))
+        ));
+    }
+
+    #[test]
+    fn resolve_path_expands_home_without_a_suffix() {
+        let ctx = InstallCtx {
+            config_dir: PathBuf::from("/tmp/config"),
+            frank_bin: PathBuf::from("frank"),
+            cwd: PathBuf::from("/tmp/project"),
+        };
+        let expected = frank_safeio::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        assert_eq!(ctx.resolve_path("$HOME"), expected);
+    }
+
+    #[test]
     fn apply_backup_is_exactly_once_and_records_missing_source() {
         let tmp = tempdir().unwrap();
         let source = tmp.path().join("settings.json");
@@ -848,15 +873,24 @@ mod tests {
                         vec![]
                     },
                 },
+                ResolvedSpawnStep {
+                    program: if cfg!(windows) { "cmd" } else { "true" }.into(),
+                    args: if cfg!(windows) {
+                        vec!["/C".into(), "exit 0".into()]
+                    } else {
+                        vec![]
+                    },
+                },
             ],
         });
         plan.push(Action::Noop {
             reason: "manual".into(),
         });
         let log = apply(&plan).unwrap();
-        assert_eq!(log.len(), 3);
+        assert_eq!(log.len(), 4);
         assert!(log[0].contains("failed to run"));
         assert!(log[1].contains("exited") || log[1].contains("failed"));
-        assert!(log[2].contains("manual"));
+        assert!(log[2].contains("ran: true") || log[2].contains("ran: cmd"));
+        assert!(log[3].contains("manual"));
     }
 }

@@ -360,4 +360,81 @@ mod tests {
         }]);
         assert_eq!(detect(&manifest, &env(None)), Detection::NotDetected);
     }
+
+    #[test]
+    fn macapp_requires_macos_and_checks_the_user_applications_root() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("Applications/Frank.app")).unwrap();
+        let manifest = manifest(vec![DetectClause {
+            macapp: Some("Frank".into()),
+            ..Default::default()
+        }]);
+        let mut probe_env = env(Some(tmp.path().into()));
+        assert_eq!(detect(&manifest, &probe_env), Detection::NotDetected);
+        probe_env.is_macos = true;
+        assert_eq!(detect(&manifest, &probe_env), Detection::Detected);
+    }
+
+    #[test]
+    fn every_extension_probe_preserves_and_semantics_with_an_unrelated_false_field() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join(".cursor/extensions")).unwrap();
+        fs::write(tmp.path().join(".cursor/extensions/acme-cursor"), "").unwrap();
+        fs::create_dir_all(tmp.path().join(".config/JetBrains/frank-plugin")).unwrap();
+
+        let home = Some(tmp.path().into());
+        let cases = [
+            DetectClause {
+                command: Some("definitely-missing".into()),
+                cursor_ext: Some("acme-cursor".into()),
+                ..Default::default()
+            },
+            DetectClause {
+                command: Some("definitely-missing".into()),
+                jetbrains_config: Some(true),
+                ..Default::default()
+            },
+            DetectClause {
+                command: Some("definitely-missing".into()),
+                jetbrains_plugin: Some("frank-plugin".into()),
+                ..Default::default()
+            },
+        ];
+        for clause in cases {
+            assert_eq!(
+                detect(&manifest(vec![clause]), &env(home.clone())),
+                Detection::NotDetected
+            );
+        }
+    }
+
+    #[test]
+    fn extension_probe_with_no_matching_basename_does_not_detect() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join(".vscode/extensions")).unwrap();
+        fs::write(tmp.path().join(".vscode/extensions/other-extension"), "").unwrap();
+        let manifest = manifest(vec![DetectClause {
+            vscode_ext: Some("not-present".into()),
+            ..Default::default()
+        }]);
+        assert_eq!(
+            detect(&manifest, &env(Some(tmp.path().into()))),
+            Detection::NotDetected
+        );
+    }
+
+    #[test]
+    fn jetbrains_plugin_scan_is_depth_capped() {
+        let tmp = tempdir().unwrap();
+        let deep = tmp.path().join(".config/JetBrains/a/b/c/d/target-plugin");
+        fs::create_dir_all(&deep).unwrap();
+        let manifest = manifest(vec![DetectClause {
+            jetbrains_plugin: Some("target-plugin".into()),
+            ..Default::default()
+        }]);
+        assert_eq!(
+            detect(&manifest, &env(Some(tmp.path().into()))),
+            Detection::NotDetected
+        );
+    }
 }

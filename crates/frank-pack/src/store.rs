@@ -743,4 +743,47 @@ mod tests {
         assert!(matches!(error, PackStoreError::SafeIo(_)));
         assert_eq!(fs::read_to_string(decoy).unwrap(), "schema = 1\n");
     }
+
+    #[test]
+    fn pack_selectors_and_components_are_exact_and_safe() {
+        let pack = InstalledPack {
+            id: "demo".into(),
+            version: "1.0.0".into(),
+            path: "packs/demo@1.0.0".into(),
+            sha256: "0".repeat(64),
+            source: "local".into(),
+        };
+        assert!(matches_selector(&pack, "demo"));
+        assert!(matches_selector(&pack, "demo@1.0.0"));
+        assert!(!matches_selector(&pack, "demo@2.0.0"));
+        assert!(!matches_selector(&pack, "dem"));
+
+        for invalid in ["", ".", "..", "bad/name"] {
+            assert!(matches!(
+                validate_component(invalid),
+                Err(PackStoreError::InvalidIdentifier(value)) if value == invalid
+            ));
+        }
+        validate_component("safe-name_1.0").unwrap();
+    }
+
+    #[test]
+    fn compile_installed_rejects_a_locked_file_instead_of_treating_it_as_a_pack() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("data");
+        fs::create_dir_all(root.join("packs")).unwrap();
+        fs::write(root.join("packs/demo@1.0.0"), "not a directory").unwrap();
+        let installed = InstalledPack {
+            id: "demo".into(),
+            version: "1.0.0".into(),
+            path: "packs/demo@1.0.0".into(),
+            sha256: "0".repeat(64),
+            source: "local".into(),
+        };
+
+        assert!(matches!(
+            PackStore::new(root).compile_installed(&installed),
+            Err(PackStoreError::MissingLockedPath(_, _))
+        ));
+    }
 }

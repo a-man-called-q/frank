@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod tests {
+    use crate::attribution::{Attribution, AttributionBasis, TokenBucket};
+    use crate::injection_ledger;
     use crate::pricing::*;
     use crate::stats::*;
     use frank_pack::ReductionStat;
@@ -70,6 +72,44 @@ mod tests {
     }
 
     #[test]
+    fn savings_estimate_rejects_invalid_reduction_ratios() {
+        let stat = ReductionStat {
+            mean: 1.0,
+            p25: Some(-0.1),
+            p75: Some(1.2),
+            n: None,
+            model: None,
+        };
+        let est = savings_estimate(100, &stat, None);
+        assert_eq!(est.low_tokens, 0);
+        assert_eq!(est.mean_tokens, 0);
+        assert_eq!(est.high_tokens, 0);
+    }
+
+    #[test]
+    fn savings_estimate_accepts_model_prefixes_in_either_direction() {
+        let stat = ReductionStat {
+            mean: 0.5,
+            p25: None,
+            p75: None,
+            n: None,
+            model: Some("claude-sonnet-4".into()),
+        };
+        assert!(savings_estimate(10, &stat, Some("claude-sonnet-4-20250514")).model_matches);
+        assert!(
+            savings_estimate(
+                10,
+                &ReductionStat {
+                    model: Some("claude-sonnet-4-20250514".into()),
+                    ..stat
+                },
+                Some("claude-sonnet-4")
+            )
+            .model_matches
+        );
+    }
+
+    #[test]
     fn aggregate_history_keeps_only_the_latest_row_per_session() {
         let rows = vec![
             HistoryRow {
@@ -104,6 +144,33 @@ mod tests {
             s1.output_tokens, 90,
             "must keep the row with the later ts, not the first or last in file order"
         );
+    }
+
+    #[test]
+    fn aggregate_history_keeps_the_first_row_when_timestamps_tie() {
+        let rows = vec![
+            HistoryRow {
+                ts: 100,
+                session_id: "same".into(),
+                model: Some("first".into()),
+                output_tokens: 1,
+                input_tokens: 2,
+                turns: 1,
+            },
+            HistoryRow {
+                ts: 100,
+                session_id: "same".into(),
+                model: Some("second".into()),
+                output_tokens: 9,
+                input_tokens: 8,
+                turns: 2,
+            },
+        ];
+
+        let agg = aggregate_history(&rows);
+        assert_eq!(agg.len(), 1);
+        assert_eq!(agg[0].model.as_deref(), Some("first"));
+        assert_eq!(agg[0].output_tokens, 1);
     }
 
     #[test]
@@ -223,6 +290,8 @@ full = { mean = 0.65, n = 10 }
         assert!(text.contains("measured"));
         assert!(text.contains("est. saved"));
         assert!(text.contains("650")); // 350/(1-0.65) - 350
+        assert!(text.contains("Input tokens (measured):    1200"));
+        assert!(text.contains("Reading time (est., ~200 wpm): ~1.3 min"));
 
         let json = render_json(&report, &pack);
         assert_eq!(json["by_mode"]["full"]["measured"]["output_tokens"], 350);
@@ -243,7 +312,7 @@ full = { mean = 0.65, n = 10 }
         let session_path = tmp.path().join("s.jsonl");
         std::fs::write(
             &session_path,
-            "{\"type\":\"assistant\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"message\":{\"model\":\"m\",\"usage\":{\"output_tokens\":480,\"input_tokens\":2050}}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"message\":{\"model\":\"m\",\"usage\":{\"output_tokens\":480,\"input_tokens\":2050,\"cache_creation_input_tokens\":75}}}\n",
         )
         .unwrap();
 
@@ -270,7 +339,108 @@ full = { mean = 0.65, n = 10 }
 
         let text = render_text(&report, &pack);
         assert!(text.contains("Output tokens (measured):   480"), "{text}");
+        assert!(text.contains("Input tokens (measured):    2125"), "{text}");
+        assert!(text.contains("unattributed: 480 tok"), "{text}");
         assert!(!text.contains("Output tokens (measured):   0"), "{text}");
+    }
+
+    #[test]
+    fn render_text_labels_off_mode_sidechains_and_injection_cost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pack = minimal_pack(tmp.path());
+        let session_path = tmp.path().join("s.jsonl");
+        std::fs::write(
+            &session_path,
+            concat!(
+                "{\"type\":\"assistant\",\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"output_tokens\":100}}}\n",
+                "{\"type\":\"assistant\",\"isSidechain\":true,\"message\":{\"model\":\"claude-sonnet-4\",\"usage\":{\"output_tokens\":7}}}\n"
+            ),
+        )
+        .unwrap();
+        let ledger_path = tmp.path().join("ledger.jsonl");
+        injection_ledger::append(
+            &ledger_path,
+            &injection_ledger::InjectionEntry {
+                ts: 1,
+                kind: "activate".into(),
+                session: Some("s".into()),
+                level: Some("full".into()),
+                inject_bytes: 400,
+            },
+        );
+        injection_ledger::append(
+            &ledger_path,
+            &injection_ledger::InjectionEntry {
+                ts: 2,
+                kind: "reinforce".into(),
+                session: Some("s".into()),
+                level: Some("full".into()),
+                inject_bytes: 100,
+            },
+        );
+
+        let report = build_session_report(
+            &session_path,
+            &tmp.path().join("mode-log.jsonl"),
+            &ledger_path,
+            &pack,
+            None,
+            None,
+        );
+        let text = render_text(&report, &pack);
+        assert!(text.contains("frank off"), "{text}");
+        assert!(text.contains("subagent (sidechain): 7 tok"), "{text}");
+        assert!(!text.contains("unattributed:"), "{text}");
+        assert!(text.contains("~$0.0019"), "{text}");
+    }
+
+    #[test]
+    fn render_text_shortens_long_session_paths() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pack = minimal_pack(tmp.path());
+        let report = SessionReport {
+            session_path: Some(std::path::PathBuf::from("x".repeat(60))),
+            session_id: Some("s".into()),
+            turns: 1,
+            model: None,
+            attribution: Attribution {
+                by_mode: std::collections::BTreeMap::new(),
+                unknown: TokenBucket::default(),
+                sidechain: TokenBucket::default(),
+                basis: AttributionBasis::WholeSession,
+            },
+            injection_activate_bytes: 0,
+            injection_reinforce_bytes: 0,
+        };
+        let text = render_text(&report, &pack);
+        let full_path_line = "Session:  ".to_string() + &"x".repeat(60);
+        assert!(text.contains("Session:  ..."), "{text}");
+        assert!(!text.contains(&full_path_line), "{text}");
+        assert!(!text.contains("subagent (sidechain)"), "{text}");
+    }
+
+    #[test]
+    fn render_text_does_not_shorten_a_path_at_exactly_45_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pack = minimal_pack(tmp.path());
+        let path = "x".repeat(45);
+        let report = SessionReport {
+            session_path: Some(std::path::PathBuf::from(&path)),
+            session_id: Some("s".into()),
+            turns: 1,
+            model: None,
+            attribution: Attribution {
+                by_mode: std::collections::BTreeMap::new(),
+                unknown: TokenBucket::default(),
+                sidechain: TokenBucket::default(),
+                basis: AttributionBasis::WholeSession,
+            },
+            injection_activate_bytes: 0,
+            injection_reinforce_bytes: 0,
+        };
+        let text = render_text(&report, &pack);
+        assert!(text.contains(&format!("Session:  {path}")), "{text}");
+        assert!(!text.contains("Session:  ..."), "{text}");
     }
 
     #[test]

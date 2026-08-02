@@ -171,7 +171,6 @@ strategy = "spawn"
 [[install.step]]
 program = "npx"
 args = ["-y", "skills", "add", "repo", "-a", "x"]
-success = "status_zero"
 "#,
         );
         let crate::manifest::InstallSpec::Spawn { steps, uninstall } = &m.install else {
@@ -179,7 +178,29 @@ success = "status_zero"
         };
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0].program, "npx");
+        assert_eq!(steps[0].success, "status_zero");
         assert!(uninstall.is_none());
+    }
+
+    #[test]
+    fn settings_merge_defaults_to_json_format() {
+        let m = parse(
+            r#"
+schema = 1
+[target]
+id = "x"
+label = "X"
+kind = "generic"
+[install]
+strategy = "settings-merge"
+[install.settings]
+path = "./settings.json"
+"#,
+        );
+        let crate::manifest::InstallSpec::SettingsMerge { settings } = &m.install else {
+            panic!()
+        };
+        assert_eq!(settings.format, "json");
     }
 
     #[test]

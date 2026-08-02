@@ -84,6 +84,26 @@ mod tests {
     }
 
     #[test]
+    fn yaml_detection_requires_more_than_sixty_percent_indicators() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("mostly-prose");
+        std::fs::write(&p, "name: test\nplain prose\nmore prose\nlast prose\n").unwrap();
+        assert_eq!(detect_file_type(&p), FileClass::NaturalLanguage);
+    }
+
+    #[test]
+    fn yaml_detection_uses_division_and_rejects_the_exact_sixty_percent_boundary() {
+        let tmp = tempdir().unwrap();
+        let boundary = tmp.path().join("yaml-boundary");
+        std::fs::write(&boundary, "a: 1\nb: 2\nc: 3\nplain prose\nmore prose\n").unwrap();
+        assert_eq!(detect_file_type(&boundary), FileClass::NaturalLanguage);
+
+        let mostly_yaml = tmp.path().join("yaml-mostly");
+        std::fs::write(&mostly_yaml, "a: 1\nb: 2\nc: 3\nd: 4\nplain prose\n").unwrap();
+        assert_eq!(detect_file_type(&mostly_yaml), FileClass::Config);
+    }
+
+    #[test]
     fn extensionless_code_heavy_content_is_code() {
         let tmp = tempdir().unwrap();
         let p = tmp.path().join("dotfile");
@@ -93,6 +113,22 @@ mod tests {
         )
         .unwrap();
         assert_eq!(detect_file_type(&p), FileClass::Code);
+    }
+
+    #[test]
+    fn code_detection_uses_a_strict_ratio_boundary_and_division() {
+        let tmp = tempdir().unwrap();
+        let boundary = tmp.path().join("code-boundary");
+        std::fs::write(&boundary, "import os\nconst x = 1\nplain\nmore\nwords\n").unwrap();
+        assert_eq!(detect_file_type(&boundary), FileClass::NaturalLanguage);
+
+        let mostly_code = tmp.path().join("code-mostly");
+        std::fs::write(
+            &mostly_code,
+            "import os\nconst x = 1\nfunction f() {\nif (x) {\nplain prose\n",
+        )
+        .unwrap();
+        assert_eq!(detect_file_type(&mostly_code), FileClass::Code);
     }
 
     #[test]

@@ -46,6 +46,21 @@ fn fresh_install_writes_both_hooks() {
 }
 
 #[test]
+fn native_target_id_and_hook_commands_keep_the_target_identity_and_path() {
+    assert_eq!(ClaudeCodeTarget::id(), "claude-code");
+
+    let tmp = tempdir().unwrap();
+    let config_dir = tmp.path().join("config with spaces");
+    let c = ctx(&config_dir);
+    plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
+    let command = settings(&config_dir)["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(command.contains("\"/usr/local/bin/frank\" hook session-start"));
+}
+
+#[test]
 fn install_is_idempotent_no_duplicate_entries() {
     let tmp = tempdir().unwrap();
     let c = ctx(tmp.path());
@@ -239,10 +254,12 @@ fn doctor_reports_missing_then_present_hooks() {
     let c = ctx(tmp.path());
 
     let before = ClaudeCodeTarget::doctor(&c);
+    assert_eq!(before.len(), 2);
     assert!(before.iter().all(|d| !d.ok));
 
     plan::apply(&ClaudeCodeTarget::plan_install(&c)).unwrap();
     let after = ClaudeCodeTarget::doctor(&c);
+    assert_eq!(after.len(), 2);
     assert!(
         after.iter().all(|d| d.ok),
         "{:?}",

@@ -4,7 +4,11 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-out="${FRANK_MUTANTS_OUTPUT:-$root/mutants.out}"
+# cargo-mutants' --output argument is a parent directory; the tool creates
+# its canonical results in <parent>/mutants.out. Keep the parent and result
+# paths separate so the gate reads the files produced by the current run.
+output_parent="${FRANK_MUTANTS_OUTPUT:-$root}"
+out="$output_parent/mutants.out"
 timeout="${FRANK_MUTATION_TIMEOUT:-120}"
 minimum="${FRANK_MUTATION_MIN_SCORE:-85}"
 allowlist="$root/mutants-equivalent.allowlist"
@@ -18,8 +22,26 @@ command -v cargo-mutants >/dev/null 2>&1 || {
 # previous run as mutants.out.old), so the gate never deletes a caller-owned
 # path. Keep the output in a generated, ignored directory and let the tool
 # write its canonical caught/missed/timeout/unviable files there.
+mutation_scope=()
+case "$(uname -s)" in
+  Darwin|Linux)
+    # The Windows backend is deliberately a placeholder until Windows CI
+    # exists; mutating cfg(windows) source on Unix produces survivors that no
+    # Unix test can execute.
+    mutation_scope+=(--exclude '**/windows.rs')
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    mutation_scope+=(--exclude '**/unix.rs')
+    ;;
+esac
+
+# The Tauri command bridge is exercised by the GUI's Playwright/E2E jobs, not
+# by Rust unit tests. Keep it out of this Rust-only mutation run; the frontend
+# gate remains responsible for that contract.
+mutation_scope+=(--exclude 'apps/frank-gui/src-tauri/**')
+
 set +e
-cargo mutants --workspace --timeout "$timeout" --output "$out"
+cargo mutants --workspace "${mutation_scope[@]}" --timeout "$timeout" --output "$output_parent"
 mutants_status=$?
 set -e
 
