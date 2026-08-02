@@ -121,3 +121,151 @@ pub fn resolve_default_level_with_user_dir(
     }
     pack.default_level.clone()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frank_pack::{CompiledActivation, CompiledLevel, CompiledOneshot};
+    use std::collections::BTreeMap;
+    use tempfile::tempdir;
+
+    fn fixture_pack() -> CompiledPack {
+        let mut levels = BTreeMap::new();
+        levels.insert(
+            "full".to_string(),
+            CompiledLevel {
+                id: "full".to_string(),
+                title: None,
+                aliases: vec!["classic".to_string()],
+                activation_prompt: "full prompt".to_string(),
+                reinforce: "full reinforcement".to_string(),
+            },
+        );
+        levels.insert(
+            "ultra".to_string(),
+            CompiledLevel {
+                id: "ultra".to_string(),
+                title: None,
+                aliases: Vec::new(),
+                activation_prompt: "ultra prompt".to_string(),
+                reinforce: "ultra reinforcement".to_string(),
+            },
+        );
+
+        let mut aliases = BTreeMap::new();
+        aliases.insert("classic".to_string(), "full".to_string());
+
+        CompiledPack {
+            id: "fixture".to_string(),
+            version: "0.0.0".to_string(),
+            default_level: "full".to_string(),
+            levels,
+            aliases,
+            oneshots: BTreeMap::<String, CompiledOneshot>::new(),
+            activation: CompiledActivation::default(),
+            benchmark: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn malformed_or_unsafe_config_files_are_ignored() {
+        let tmp = tempdir().unwrap();
+        let pack = fixture_pack();
+
+        let malformed = tmp.path().join("malformed.toml");
+        std::fs::write(&malformed, "default_level = [").unwrap();
+        assert_eq!(read_mode_from_file(&pack, &malformed), None);
+
+        let directory = tmp.path().join("directory.toml");
+        std::fs::create_dir(&directory).unwrap();
+        assert_eq!(read_mode_from_file(&pack, &directory), None);
+
+        let oversized = tmp.path().join("oversized.toml");
+        std::fs::write(
+            &oversized,
+            format!(
+                "default_level = \"{}\"\n",
+                "x".repeat(frank_safeio::MAX_CONFIG_BYTES)
+            ),
+        )
+        .unwrap();
+        assert_eq!(read_mode_from_file(&pack, &oversized), None);
+
+        #[cfg(unix)]
+        {
+            let target = tmp.path().join("target.toml");
+            std::fs::write(&target, "default_level = \"ultra\"\n").unwrap();
+            let link = tmp.path().join("link.toml");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            assert_eq!(read_mode_from_file(&pack, &link), None);
+        }
+    }
+
+    #[test]
+    fn valid_alias_and_off_values_are_accepted() {
+        let tmp = tempdir().unwrap();
+        let pack = fixture_pack();
+
+        let alias = tmp.path().join("alias.toml");
+        std::fs::write(&alias, "default_level = \"CLASSIC\"\n").unwrap();
+        assert_eq!(
+            read_mode_from_file(&pack, &alias).as_deref(),
+            Some("classic")
+        );
+
+        let off = tmp.path().join("off.toml");
+        std::fs::write(&off, "default_level = \" off \"\n").unwrap();
+        assert_eq!(read_mode_from_file(&pack, &off).as_deref(), Some("off"));
+    }
+
+    #[test]
+    fn repo_search_finds_nested_config_and_refuses_symlink_candidates() {
+        let tmp = tempdir().unwrap();
+        let nested = tmp.path().join("one/two");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(find_repo_config_path(&nested), None);
+
+        let repo_dir = tmp.path().join(".frank");
+        std::fs::create_dir(&repo_dir).unwrap();
+        let config = repo_dir.join("config.toml");
+        std::fs::write(&config, "default_level = \"ultra\"\n").unwrap();
+        assert_eq!(find_repo_config_path(&nested), Some(config.clone()));
+
+        std::fs::remove_file(repo_dir.join("config.toml")).unwrap();
+        let target = tmp.path().join("secret.toml");
+        std::fs::write(&target, "default_level = \"ultra\"\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target, &config).unwrap();
+        assert_eq!(find_repo_config_path(&nested), None);
+    }
+
+    #[test]
+    fn invalid_repo_config_falls_through_to_user_config() {
+        let tmp = tempdir().unwrap();
+        let user = tmp.path().join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(
+            tmp.path().join(".frank.toml"),
+            "default_level = \"bogus\"\n",
+        )
+        .unwrap();
+        std::fs::write(user.join("config.toml"), "default_level = \"ultra\"\n").unwrap();
+
+        let resolved = resolve_default_level_with_user_dir(
+            &fixture_pack(),
+            tmp.path(),
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_CONFIG",
+            Some(&user),
+        );
+        assert_eq!(resolved, "ultra");
+
+        std::fs::write(user.join("config.toml"), "default_level = \"bogus\"\n").unwrap();
+        let fallback = resolve_default_level_with_user_dir(
+            &fixture_pack(),
+            tmp.path(),
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_CONFIG",
+            Some(&user),
+        );
+        assert_eq!(fallback, "full");
+    }
+}

@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-required=(cargo-nextest cargo-llvm-cov cargo-deny cargo-audit cargo-fuzz cargo-mutants)
+required=(cargo-nextest cargo-llvm-cov cargo-deny cargo-audit cargo-mutants)
 missing=()
 for tool in "${required[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
@@ -21,15 +21,21 @@ cargo nextest run --workspace --locked --profile ci
 cargo test --workspace --doc --locked
 # The native Tauri crate is covered by its platform smoke jobs; its build script
 # places a sidecar shell/executable in Cargo's target directory, which LLVM
-# cannot instrument as Rust. Keep the workspace gate honest for Rust crates and
-# cover the frontend/native adapter in their dedicated jobs below.
-cargo llvm-cov nextest --workspace --exclude frank-gui --all-features --locked --profile ci --fail-under-lines 90 --fail-under-functions 90 --fail-under-regions 85
-# Critical orchestration/security crates have a higher, explicit floor. Keep
-# these invocations separate from the aggregate gate so a large low-risk CLI
-# adapter cannot mask a regression in the plan/apply or accounting kernel.
-for package in frank-safeio frank-state frank-target frank-ledger frank-app; do
-  cargo llvm-cov nextest --package "$package" --all-features --locked --profile ci --fail-under-lines 95 --fail-under-regions 90
-done
+# cannot instrument as Rust. Keep the workspace report focused on Rust crates
+# and exclude standalone test source files so tests cannot inflate production
+# coverage. The xtask checker applies the per-crate floors and uncovered-count
+# ceilings from coverage.toml; keeping one report avoids dependency coverage
+# being counted repeatedly by separate package invocations.
+mkdir -p target/llvm-cov
+cargo llvm-cov nextest \
+  --workspace --exclude frank-gui --all-features --locked --profile ci \
+  --no-cfg-coverage \
+  --json --summary-only \
+  --ignore-filename-regex '(^|/)(tests/|[^/]*_tests\.rs$)' \
+  --output-path target/llvm-cov/frank-summary.json
+cargo run --locked -p xtask -- coverage-check \
+  --report target/llvm-cov/frank-summary.json \
+  --policy coverage.toml
 
 # cargo-deny 0.18 is the Rust-1.85-compatible release. Its advisory parser
 # cannot read the CVSS-4 records currently in the RustSec database, so the
@@ -81,10 +87,10 @@ if [[ -f apps/frank-gui/package.json ]]; then
   pnpm audit --prod --audit-level high
 fi
 
-fuzz_seconds="${FRANK_FUZZ_SECONDS:-15}"
-for target in pack_manifest intent_parser session_jsonl ledger_attribution compressor jsonc_settings marker_fences tauri_payloads; do
-  cargo fuzz run "$target" -- -max_total_time="$fuzz_seconds"
-done
+# cargo-fuzz enables AddressSanitizer and -Zbuild-std by default. Those flags
+# require nightly Rust, while this mandatory gate is intentionally pinned to
+# the stable toolchain in rust-toolchain.toml. The nightly scrutiny task owns
+# the fuzz suite and runs it with an explicit nightly toolchain.
 
 ./scripts/mutation-gate.sh
 

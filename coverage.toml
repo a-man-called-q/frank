@@ -1,0 +1,116 @@
+version = 1
+
+# Floors are intentionally the measured production-only baseline.  The
+# uncovered ceilings ratchet down as tests are added; neither value may be
+# loosened to make a regression pass. Targets are displayed by xtask and are
+# enforced only after the baseline reaches them.
+
+[packages.frank-app]
+min_regions = 80
+min_functions = 81
+min_lines = 89
+max_uncovered_regions = 127
+max_uncovered_functions = 25
+max_uncovered_lines = 151
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-cli]
+min_regions = 56
+min_functions = 56
+min_lines = 55
+max_uncovered_regions = 224
+max_uncovered_functions = 39
+max_uncovered_lines = 411
+target_regions = 75
+target_functions = 80
+target_lines = 80
+
+[packages.frank-compress]
+min_regions = 98
+min_functions = 98
+min_lines = 99
+max_uncovered_regions = 5
+max_uncovered_functions = 1
+max_uncovered_lines = 5
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-ledger]
+min_regions = 90
+min_functions = 96
+min_lines = 96
+max_uncovered_regions = 40
+max_uncovered_functions = 2
+max_uncovered_lines = 21
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-mcp]
+min_regions = 92
+min_functions = 96
+min_lines = 96
+max_uncovered_regions = 9
+max_uncovered_functions = 1
+max_uncovered_lines = 8
+target_regions = 75
+target_functions = 80
+target_lines = 80
+
+[packages.frank-pack]
+min_regions = 75
+min_functions = 73
+min_lines = 88
+max_uncovered_regions = 181
+max_uncovered_functions = 29
+max_uncovered_lines = 120
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-safeio]
+min_regions = 84
+min_functions = 99
+min_lines = 94
+max_uncovered_regions = 60
+max_uncovered_functions = 0
+max_uncovered_lines = 33
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-state]
+min_regions = 96
+min_functions = 99
+min_lines = 99
+max_uncovered_regions = 9
+max_uncovered_functions = 0
+max_uncovered_lines = 3
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.frank-target]
+min_regions = 86
+min_functions = 92
+min_lines = 91
+max_uncovered_regions = 111
+max_uncovered_functions = 12
+max_uncovered_lines = 145
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+[packages.xtask]
+min_regions = 68
+min_functions = 67
+min_lines = 81
+max_uncovered_regions = 175
+max_uncovered_functions = 29
+max_uncovered_lines = 186
+target_regions = 75
+target_functions = 80
+target_lines = 80

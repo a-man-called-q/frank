@@ -366,6 +366,15 @@ command_prefix = "caveman"
         assert_eq!(resolved, pack.default_level);
     }
 
+    #[test]
+    fn reinforce_text_returns_the_compiled_level_reinforcement() {
+        let tmp = tempdir().unwrap();
+        let pack = fixture_pack(tmp.path());
+
+        let level = pack.resolve_level("ultra").unwrap();
+        assert_eq!(reinforce_text(level), "ACTIVE (ultra).");
+    }
+
     proptest! {
         #[test]
         fn arbitrary_prompt_text_is_total(prompt in any::<String>()) {

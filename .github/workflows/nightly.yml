@@ -34,6 +34,10 @@ jobs:
           cargo install cargo-audit --version 0.22.0 --locked
           cargo install cargo-fuzz --version 0.12.0 --locked
           cargo install cargo-mutants --version 25.3.1 --locked
+      - name: Install nightly Rust for fuzzing
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
       - name: Run full nightly suite
         run: moon run :nightly
 

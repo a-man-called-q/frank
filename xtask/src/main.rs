@@ -14,6 +14,8 @@ use std::process::Command as ProcessCommand;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
+mod coverage;
+
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -30,6 +32,15 @@ enum Command {
     Checksums,
     /// Ensure CLI, GUI, and package metadata use one workspace version.
     VersionCheck,
+    /// Validate a cargo-llvm-cov JSON report against the repository policy.
+    CoverageCheck {
+        /// JSON report produced by cargo-llvm-cov.
+        #[arg(long)]
+        report: PathBuf,
+        /// TOML policy containing per-package floors and uncovered ceilings.
+        #[arg(long)]
+        policy: PathBuf,
+    },
     /// Package a release binary into dist/. Without --target this uses the
     /// host triple; CI passes an explicit target after cross-compiling it.
     Dist {
@@ -46,6 +57,7 @@ fn main() -> Result<()> {
         Command::LintTargets => lint_targets(&root),
         Command::Checksums => checksums(&root),
         Command::VersionCheck => version_check(&root),
+        Command::CoverageCheck { report, policy } => coverage::check(&report, &policy),
         Command::Dist { target } => dist(&root, target.as_deref()),
     }
 }
@@ -614,7 +626,39 @@ fn checksums(root: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_name, binary_name, check_path_scope};
+    use std::fs;
+    use std::path::Path;
+
+    use super::{
+        archive_name, binary_name, build_packs, check_path_scope, checksums, dist, lint_targets,
+        powershell_quote, version_check,
+    };
+
+    fn minimal_pack(root: &Path, id: &str) {
+        let pack = root.join("packs").join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("pack.toml"),
+            r#"
+schema = 1
+[pack]
+id = "demo"
+version = "1.0.0"
+default_level = "full"
+[fragments]
+core = { file = "core.md" }
+[[level]]
+id = "full"
+compose = ["core"]
+reinforce = "demo active"
+[activation]
+on = []
+off = []
+"#,
+        )
+        .unwrap();
+        fs::write(pack.join("core.md"), "Keep output concise.").unwrap();
+    }
 
     #[test]
     fn unix_artifacts_use_tar_gzip_and_unix_binary_name() {
@@ -649,5 +693,95 @@ mod tests {
             check_path_scope("path", raw, &mut errors);
             assert!(errors.is_empty(), "safe path unexpectedly rejected: {raw}");
         }
+    }
+
+    #[test]
+    fn build_packs_compiles_only_pack_directories() {
+        let root = tempfile::tempdir().unwrap();
+        minimal_pack(root.path(), "demo");
+        build_packs(root.path()).unwrap();
+        let generated = root.path().join("packs/demo/compiled.rs");
+        assert!(generated.is_file());
+        assert!(
+            fs::read_to_string(generated)
+                .unwrap()
+                .contains("pub const PACK_ID: &str = \"demo\";")
+        );
+    }
+
+    #[test]
+    fn lint_targets_accepts_valid_manifest_and_rejects_unsafe_path() {
+        let root = tempfile::tempdir().unwrap();
+        let targets = root.path().join("targets");
+        fs::create_dir_all(&targets).unwrap();
+        fs::write(
+            targets.join("valid.toml"),
+            r#"
+schema = 1
+[target]
+id = "demo"
+label = "Demo"
+kind = "generic"
+verified = false
+soft = true
+[[detect]]
+dir = "$HOME/.demo"
+[install]
+strategy = "markdown-block"
+[install.markdown]
+path = "./AGENTS.md"
+begin = "<!-- frank:begin demo -->"
+end = "<!-- frank:end demo -->"
+body = "demo"
+create_if_missing = true
+"#,
+        )
+        .unwrap();
+        lint_targets(root.path()).unwrap();
+
+        fs::write(
+            targets.join("unsafe.toml"),
+            fs::read_to_string(targets.join("valid.toml"))
+                .unwrap()
+                .replace("./AGENTS.md", "$HOME/../outside"),
+        )
+        .unwrap();
+        assert!(lint_targets(root.path()).is_err());
+    }
+
+    #[test]
+    fn version_check_and_checksum_generation_are_fail_closed() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("apps/frank-gui/src-tauri")).unwrap();
+        fs::write(
+            root.path().join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.2.3\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("apps/frank-gui/package.json"),
+            r#"{"version":"1.2.3"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("apps/frank-gui/src-tauri/tauri.conf.json"),
+            r#"{"version":"1.2.3"}"#,
+        )
+        .unwrap();
+        version_check(root.path()).unwrap();
+
+        let dist_dir = root.path().join("dist");
+        fs::create_dir_all(&dist_dir).unwrap();
+        fs::write(dist_dir.join("frank-demo.tar.gz"), b"artifact").unwrap();
+        checksums(root.path()).unwrap();
+        let checksums = fs::read_to_string(dist_dir.join("SHA256SUMS")).unwrap();
+        assert!(checksums.contains("frank-demo.tar.gz"));
+    }
+
+    #[test]
+    fn dist_reports_missing_release_binary_and_quotes_powershell_paths() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(dist(root.path(), Some("x86_64-pc-windows-msvc")).is_err());
+        assert_eq!(powershell_quote(Path::new("a'b")), "'a''b'");
     }
 }
