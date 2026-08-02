@@ -109,6 +109,11 @@ mod tests {
         vec!["description".to_string()]
     }
 
+    #[test]
+    fn default_fields_are_the_protocol_description_field() {
+        assert_eq!(ProxyConfig::default_fields(), fields());
+    }
+
     #[derive(Default)]
     struct FailingWriter;
 

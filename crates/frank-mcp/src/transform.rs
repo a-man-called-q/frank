@@ -184,4 +184,18 @@ mod tests {
                 .contains("please")
         );
     }
+
+    #[test]
+    fn recursive_fallback_walks_arrays_inside_objects() {
+        let mut value = json!({
+            "container": [
+                { "description": "Please just inspect this useful item." }
+            ]
+        });
+        compress_descriptions_in_place(&mut value, &fields());
+        assert_eq!(
+            value["container"][0]["description"],
+            "inspect this useful item."
+        );
+    }
 }

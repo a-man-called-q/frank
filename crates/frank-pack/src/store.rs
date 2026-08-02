@@ -438,6 +438,14 @@ fn validate_lock(lock: &PackLock) -> StoreResult<()> {
 }
 
 fn create_staging_dir(destination: &Path) -> StoreResult<PathBuf> {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    create_staging_dir_with_stamp(destination, stamp)
+}
+
+fn create_staging_dir_with_stamp(destination: &Path, stamp: u128) -> StoreResult<PathBuf> {
     let parent = destination
         .parent()
         .expect("a pack destination always has a parent");
@@ -445,10 +453,6 @@ fn create_staging_dir(destination: &Path) -> StoreResult<PathBuf> {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("pack");
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
 
     for attempt in 0..16 {
         let candidate = parent.join(format!(
@@ -784,6 +788,202 @@ mod tests {
         assert!(matches!(
             PackStore::new(root).compile_installed(&installed),
             Err(PackStoreError::MissingLockedPath(_, _))
+        ));
+    }
+
+    #[test]
+    fn digest_mismatch_and_duplicate_destinations_are_rejected() {
+        let tmp = tempdir().unwrap();
+        let source = tmp.path().join("source");
+        write_pack(&source, "demo", "1.0.0");
+        let store = PackStore::new(tmp.path().join("data"));
+
+        assert!(matches!(
+            store.add_local(&source, Some(&"0".repeat(64))),
+            Err(PackStoreError::DigestMismatch { .. })
+        ));
+
+        store.add_local(&source, None).unwrap();
+        assert!(matches!(
+            store.add_local(&source, None),
+            Err(PackStoreError::AlreadyInstalled(name)) if name == "demo@1.0.0"
+        ));
+
+        let empty_store = PackStore::new(tmp.path().join("other-data"));
+        fs::create_dir_all(empty_store.root().join("packs/demo@1.0.0")).unwrap();
+        assert!(matches!(
+            empty_store.add_local(&source, None),
+            Err(PackStoreError::AlreadyInstalled(name)) if name == "demo@1.0.0"
+        ));
+
+        let locked_store = PackStore::new(tmp.path().join("locked-data"));
+        locked_store
+            .save_lock(&PackLock {
+                schema: 1,
+                active: None,
+                packs: vec![InstalledPack {
+                    id: "demo".into(),
+                    version: "1.0.0".into(),
+                    path: "packs/demo@1.0.0".into(),
+                    sha256: directory_sha256(&source).unwrap(),
+                    source: "local".into(),
+                }],
+            })
+            .unwrap();
+        assert!(matches!(
+            locked_store.add_local(&source, None),
+            Err(PackStoreError::AlreadyInstalled(name)) if name == "demo@1.0.0"
+        ));
+    }
+
+    #[test]
+    fn locked_missing_and_non_directory_paths_fail_closed() {
+        let tmp = tempdir().unwrap();
+        let installed = InstalledPack {
+            id: "demo".into(),
+            version: "1.0.0".into(),
+            path: "packs/demo@1.0.0".into(),
+            sha256: "0".repeat(64),
+            source: "local".into(),
+        };
+
+        let missing_root = tmp.path().join("missing");
+        fs::create_dir_all(missing_root.join("packs")).unwrap();
+        assert!(matches!(
+            PackStore::new(missing_root).compile_installed(&installed),
+            Err(PackStoreError::MissingLockedPath(_, _))
+        ));
+
+        let blocked_root = tmp.path().join("blocked");
+        fs::create_dir_all(&blocked_root).unwrap();
+        fs::write(blocked_root.join("packs"), "not a directory").unwrap();
+        assert!(matches!(
+            PackStore::new(blocked_root).compile_installed(&installed),
+            Err(PackStoreError::Io(_, _))
+        ));
+    }
+
+    #[test]
+    fn remove_handles_missing_directory_and_rejects_a_locked_file() {
+        let tmp = tempdir().unwrap();
+        let store = PackStore::new(tmp.path().join("data"));
+        let missing = InstalledPack {
+            id: "missing".into(),
+            version: "1.0.0".into(),
+            path: "packs/missing@1.0.0".into(),
+            sha256: "0".repeat(64),
+            source: "local".into(),
+        };
+        store
+            .save_lock(&PackLock {
+                schema: 1,
+                active: None,
+                packs: vec![missing],
+            })
+            .unwrap();
+        assert!(store.remove("missing").is_ok());
+        assert!(store.load_lock().unwrap().packs.is_empty());
+
+        let file_store = PackStore::new(tmp.path().join("file-data"));
+        let locked = InstalledPack {
+            id: "file".into(),
+            version: "1.0.0".into(),
+            path: "packs/file@1.0.0".into(),
+            sha256: "0".repeat(64),
+            source: "local".into(),
+        };
+        fs::create_dir_all(file_store.root().join("packs")).unwrap();
+        fs::write(file_store.root().join(&locked.path), "not a directory").unwrap();
+        file_store
+            .save_lock(&PackLock {
+                schema: 1,
+                active: None,
+                packs: vec![locked],
+            })
+            .unwrap();
+        assert!(matches!(
+            file_store.remove("file"),
+            Err(PackStoreError::MissingLockedPath(_, _))
+        ));
+    }
+
+    #[test]
+    fn a_directory_lockfile_is_not_treated_as_missing() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("data");
+        fs::create_dir_all(root.join("packs.lock")).unwrap();
+        assert!(matches!(
+            PackStore::new(root).load_lock(),
+            Err(PackStoreError::SafeIo(_))
+        ));
+    }
+
+    #[test]
+    fn invalid_utf8_lockfiles_are_not_treated_as_missing() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("data");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("packs.lock"), [0xff, 0xfe]).unwrap();
+        assert!(matches!(
+            PackStore::new(root).load_lock(),
+            Err(PackStoreError::SafeIo(_))
+        ));
+    }
+
+    #[test]
+    fn staging_directory_retries_only_existing_candidates() {
+        let tmp = tempdir().unwrap();
+        let destination = tmp.path().join("packs/demo@1.0.0");
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        let stamp = 42_u128;
+        let candidate = destination
+            .parent()
+            .unwrap()
+            .join(format!(".demo@1.0.0.tmp-{}-{stamp}-0", std::process::id()));
+        fs::create_dir(&candidate).unwrap();
+        let created = create_staging_dir_with_stamp(&destination, stamp).unwrap();
+        assert!(
+            created
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("-1")
+        );
+        fs::remove_dir_all(created).unwrap();
+
+        let blocked_destination = tmp.path().join("missing-parent/demo@1.0.0");
+        let error = create_staging_dir_with_stamp(&blocked_destination, stamp).unwrap_err();
+        match error {
+            PackStoreError::Io(path, _) => {
+                assert!(path.file_name().unwrap().to_string_lossy().ends_with("-0"))
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn remove_does_not_swallow_non_not_found_errors() {
+        let tmp = tempdir().unwrap();
+        let root = tmp.path().join("blocked-data");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("packs"), "not a directory").unwrap();
+        let store = PackStore::new(root);
+        store
+            .save_lock(&PackLock {
+                schema: 1,
+                active: None,
+                packs: vec![InstalledPack {
+                    id: "blocked".into(),
+                    version: "1.0.0".into(),
+                    path: "packs/blocked@1.0.0".into(),
+                    sha256: "0".repeat(64),
+                    source: "local".into(),
+                }],
+            })
+            .unwrap();
+        assert!(matches!(
+            store.remove("blocked"),
+            Err(PackStoreError::Io(_, _))
         ));
     }
 }

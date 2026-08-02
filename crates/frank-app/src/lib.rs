@@ -711,15 +711,7 @@ impl FrankService {
             }
             PackOperation::Use { selector } => {
                 self.use_pack(&selector)?;
-                let summary = self
-                    .list_packs()?
-                    .into_iter()
-                    .find(|p| p.active && format!("{}@{}", p.id, p.version) == selector)
-                    .or_else(|| {
-                        self.list_packs()
-                            .ok()
-                            .and_then(|packs| packs.into_iter().find(|p| p.active))
-                    });
+                let summary = self.list_packs()?.into_iter().find(|p| p.active);
                 (PackOperationKind::Use, selector, summary)
             }
             PackOperation::Remove { selector } => {
@@ -1171,36 +1163,40 @@ fn fingerprint_path(path: &Path) -> String {
                 // preserve size and, on coarse filesystems, timestamps.
                 // Hash bounded file contents as part of the stale-plan
                 // guard, while avoiding an unbounded read of a hostile path.
-                let mut file_digest = Sha256::new();
-                if let Ok(mut file) = std::fs::File::open(path) {
-                    let mut buf = [0_u8; 8192];
-                    let mut remaining = frank_safeio::MAX_CONFIG_BYTES;
-                    while remaining > 0 {
-                        let want = remaining.min(buf.len());
-                        match file.read(&mut buf[..want]) {
-                            Ok(0) => break,
-                            Ok(n) => {
-                                file_digest.update(&buf[..n]);
-                                remaining -= n;
-                            }
-                            Err(_) => {
-                                file_digest.update([0xff]);
-                                break;
-                            }
-                        }
-                    }
-                    if remaining == 0 {
-                        file_digest.update([0xfe]);
-                    }
-                } else {
-                    file_digest.update([0xfd]);
-                }
-                h.update(file_digest.finalize());
+                h.update(fingerprint_file_contents(path).as_bytes());
             }
         }
         Err(_) => h.update([0]),
     }
     format!("{:x}", h.finalize())
+}
+
+fn fingerprint_file_contents(path: &Path) -> String {
+    let mut file_digest = Sha256::new();
+    if let Ok(mut file) = std::fs::File::open(path) {
+        let mut buf = [0_u8; 8192];
+        let mut remaining = frank_safeio::MAX_CONFIG_BYTES;
+        while remaining > 0 {
+            let want = remaining.min(buf.len());
+            match file.read(&mut buf[..want]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    file_digest.update(&buf[..n]);
+                    remaining -= n;
+                }
+                Err(_) => {
+                    file_digest.update([0xff]);
+                    break;
+                }
+            }
+        }
+        if remaining == 0 {
+            file_digest.update([0xfe]);
+        }
+    } else {
+        file_digest.update([0xfd]);
+    }
+    format!("{:x}", file_digest.finalize())
 }
 
 fn plan_fingerprint(plan: &frank_target::InstallPlan) -> String {
@@ -1359,6 +1355,17 @@ mod tests {
     }
 
     #[test]
+    fn active_level_reports_the_validated_flag_and_filters_off() {
+        let tmp = tempdir().unwrap();
+        let service = FrankService::new(paths(tmp.path()));
+        assert_eq!(service.active_level().unwrap(), None);
+        service.set_active_level(Some("lite")).unwrap();
+        assert_eq!(service.active_level().unwrap().as_deref(), Some("lite"));
+        service.set_active_level(None).unwrap();
+        assert_eq!(service.active_level().unwrap(), None);
+    }
+
+    #[test]
     fn default_level_patch_accepts_valid_levels_and_rejects_unknown_levels() {
         let tmp = tempdir().unwrap();
         let service = FrankService::new(paths(tmp.path()));
@@ -1408,6 +1415,19 @@ mod tests {
         let history = frank_ledger::stats::read_history(&p.config_dir.join(".frank-history.jsonl"));
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].output_tokens, 12);
+    }
+
+    #[test]
+    fn stats_does_not_record_a_history_row_for_a_zero_turn_session() {
+        let tmp = tempdir().unwrap();
+        let p = paths(tmp.path());
+        fs::create_dir_all(&p.config_dir).unwrap();
+        let session = tmp.path().join("empty.jsonl");
+        fs::write(&session, "{\"type\":\"user\"}\n").unwrap();
+
+        let report = FrankService::new(p.clone()).build_and_record_stats(Some(&session));
+        assert_eq!(report.turns, 0);
+        assert!(!p.config_dir.join(".frank-history.jsonl").exists());
     }
 
     #[test]
@@ -1461,6 +1481,40 @@ mod tests {
     }
 
     #[test]
+    fn prepared_target_plan_is_valid_at_the_exact_ttl_boundary() {
+        let tmp = tempdir().unwrap();
+        let clock = Arc::new(TestClock {
+            now: Mutex::new(Instant::now()),
+        });
+        let service =
+            FrankService::with_clock(paths(tmp.path()), Arc::clone(&clock) as Arc<dyn Clock>);
+        let preview = service
+            .prepare_target_change("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        assert_eq!(preview.expires_in_seconds, 300);
+        clock.advance(PLAN_TTL);
+        assert!(service.apply_prepared_plan(&preview.plan_id).is_ok());
+    }
+
+    #[test]
+    fn target_plan_at_the_ttl_boundary_is_not_dropped_when_a_new_plan_is_prepared() {
+        let tmp = tempdir().unwrap();
+        let clock = Arc::new(TestClock {
+            now: Mutex::new(Instant::now()),
+        });
+        let service =
+            FrankService::with_clock(paths(tmp.path()), Arc::clone(&clock) as Arc<dyn Clock>);
+        let first = service
+            .prepare_target_change("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        clock.advance(PLAN_TTL);
+        let _second = service
+            .prepare_target_change("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        assert!(service.apply_prepared_plan(&first.plan_id).is_ok());
+    }
+
+    #[test]
     fn concurrent_apply_has_exactly_one_winner() {
         let tmp = tempdir().unwrap();
         let service = Arc::new(FrankService::new(paths(tmp.path())));
@@ -1502,6 +1556,28 @@ mod tests {
     }
 
     #[test]
+    fn pack_plan_at_the_ttl_boundary_is_not_dropped_when_a_new_plan_is_prepared() {
+        let tmp = tempdir().unwrap();
+        let clock = Arc::new(TestClock {
+            now: Mutex::new(Instant::now()),
+        });
+        let service =
+            FrankService::with_clock(paths(tmp.path()), Arc::clone(&clock) as Arc<dyn Clock>);
+        let first = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: "caveman".to_string(),
+            })
+            .unwrap();
+        clock.advance(PLAN_TTL);
+        let _second = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: "caveman".to_string(),
+            })
+            .unwrap();
+        assert!(service.apply_prepared_pack(&first.plan_id).is_ok());
+    }
+
+    #[test]
     fn pack_add_preview_rejects_digest_mismatch_without_installing() {
         let tmp = tempdir().unwrap();
         let p = paths(tmp.path());
@@ -1535,6 +1611,42 @@ rules = "levels/full.md"
             .unwrap_err();
         assert!(matches!(error, AppError::Pack(_)));
         assert!(!p.data_root.join("packs.lock").exists());
+
+        let invalid_hex = service
+            .prepare_pack_change(PackOperation::Add {
+                source,
+                expected_sha256: Some("g".repeat(64)),
+            })
+            .unwrap_err();
+        assert!(matches!(invalid_hex, AppError::Config { .. }));
+    }
+
+    #[test]
+    fn built_in_pack_versions_and_selectors_keep_their_fail_closed_contract() {
+        let tmp = tempdir().unwrap();
+        let service = FrankService::new(paths(tmp.path()));
+        let versioned = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: format!("caveman@{}", builtin::PACK_VERSION),
+            })
+            .unwrap();
+        assert_eq!(versioned.operation, PackOperationKind::Use);
+        assert!(matches!(
+            service.remove_pack("caveman@9.9.9"),
+            Err(AppError::Config { .. })
+        ));
+        assert!(matches!(
+            service.prepare_pack_change(PackOperation::Remove {
+                selector: "caveman".to_string(),
+            }),
+            Err(AppError::Config { .. })
+        ));
+        assert!(matches!(
+            service.prepare_pack_change(PackOperation::Remove {
+                selector: "caveman@9.9.9".to_string(),
+            }),
+            Err(AppError::Config { .. })
+        ));
     }
 
     #[test]
@@ -1609,6 +1721,30 @@ rules = "levels/full.md"
         );
         service.use_pack("local").unwrap();
         assert_eq!(service.current_pack().unwrap().id, "local");
+        assert!(
+            service
+                .list_packs()
+                .unwrap()
+                .into_iter()
+                .any(|pack| pack.id == "local" && pack.active)
+        );
+
+        let use_preview = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: "local@1.0.0".to_string(),
+            })
+            .unwrap();
+        let use_result = service.apply_prepared_pack(&use_preview.plan_id).unwrap();
+        assert_eq!(use_result.selector, "local@1.0.0");
+        assert_eq!(
+            use_result.pack.as_ref().map(|pack| pack.id.as_str()),
+            Some("local")
+        );
+
+        service.set_active_level(Some("full")).unwrap();
+        let snapshot = service.snapshot().unwrap();
+        assert_eq!(snapshot.active_pack, "local");
+        assert_eq!(snapshot.active_level.as_deref(), Some("full"));
         service.remove_pack("local").unwrap();
         assert!(
             service
@@ -1676,6 +1812,8 @@ id = "generic"
 label = "Generic"
 kind = "generic"
 verified = true
+[[detect]]
+command = "sh"
 [install]
 strategy = "markdown-block"
 [install.markdown]
@@ -1687,7 +1825,25 @@ create_if_missing = true
 "#,
         )
         .unwrap();
+        fs::write(tmp.path().join("AGENTS.md"), "user content\n").unwrap();
         let service = FrankService::new(p.clone());
+        let discovery = service.discover_targets();
+        let generic = discovery
+            .targets
+            .iter()
+            .find(|target| target.id == "generic")
+            .unwrap();
+        assert!(generic.detected);
+        assert!(
+            service
+                .list_targets()
+                .iter()
+                .any(|target| target.id == "generic")
+        );
+        assert!(matches!(
+            service.prepare_target_change("missing", TargetOperation::Install),
+            Err(AppError::UnknownTarget(target)) if target == "missing"
+        ));
         let preview = service
             .prepare_target_change("generic", TargetOperation::Install)
             .unwrap();
@@ -1702,7 +1858,10 @@ create_if_missing = true
             .unwrap();
         assert_eq!(uninstall.actions.len(), 1);
         service.apply_prepared_plan(&uninstall.plan_id).unwrap();
-        assert!(!tmp.path().join("AGENTS.md").exists());
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap(),
+            "user content\n"
+        );
     }
 
     #[test]
@@ -1723,6 +1882,132 @@ create_if_missing = true
             service.apply_prepared_plan(&preview.plan_id),
             Err(AppError::StalePlan)
         ));
+    }
+
+    #[test]
+    fn valid_default_level_is_reported_as_healthy_by_doctor() {
+        let tmp = tempdir().unwrap();
+        let p = paths(tmp.path());
+        fs::create_dir_all(p.user_config_dir()).unwrap();
+        fs::write(p.user_config_path(), "default_level = \"full\"\n").unwrap();
+        let report = FrankService::new(p).doctor();
+        assert!(
+            report
+                .checks
+                .iter()
+                .any(|check| check.ok && check.message.contains("user config is valid"))
+        );
+    }
+
+    #[test]
+    fn invalid_utf8_settings_are_not_treated_as_missing() {
+        let tmp = tempdir().unwrap();
+        let p = paths(tmp.path());
+        fs::create_dir_all(p.user_config_dir()).unwrap();
+        fs::write(p.user_config_path(), [0xff, 0xfe]).unwrap();
+        let service = FrankService::new(p.clone());
+        assert!(matches!(service.settings(), Err(AppError::SafeIo(_))));
+        assert!(matches!(
+            service.update_settings(UserSettingsPatch {
+                close_to_tray: Some(false),
+                ..Default::default()
+            }),
+            Err(AppError::SafeIo(_))
+        ));
+        assert!(matches!(
+            write_settings(&p.user_config_path(), &UserSettings::default()),
+            Err(AppError::SafeIo(_))
+        ));
+        assert_eq!(fs::read(p.user_config_path()).unwrap(), [0xff, 0xfe]);
+    }
+
+    #[test]
+    fn bounded_file_fingerprints_include_content_and_error_sentinels() {
+        let tmp = tempdir().unwrap();
+        let first = tmp.path().join("first");
+        let second = tmp.path().join("second");
+        fs::write(&first, "same-size-a").unwrap();
+        fs::write(&second, "same-size-b").unwrap();
+        assert_ne!(
+            fingerprint_file_contents(&first),
+            fingerprint_file_contents(&second)
+        );
+        assert_ne!(
+            fingerprint_file_contents(&first),
+            fingerprint_file_contents(&tmp.path().join("missing"))
+        );
+
+        let exact = tmp.path().join("exact");
+        let content = vec![b'x'; frank_safeio::MAX_CONFIG_BYTES];
+        fs::write(&exact, &content).unwrap();
+        let mut expected = Sha256::new();
+        expected.update(&content);
+        expected.update([0xfe]);
+        assert_eq!(
+            fingerprint_file_contents(&exact),
+            format!("{:x}", expected.finalize())
+        );
+    }
+
+    #[test]
+    fn helper_values_are_nonempty_and_only_resolve_known_body_references() {
+        let pack = builtin_pack();
+        let values = valid_values(&pack);
+        assert!(values.contains(&"full"));
+        assert!(values.contains(&"commit"));
+        assert!(values.contains(&"off"));
+        assert!(!values.contains(&"xyzzy"));
+
+        let expected = pack
+            .resolve_level(&pack.default_level)
+            .unwrap()
+            .activation_prompt
+            .clone();
+        assert_eq!(
+            resolve_body_ref("pack:static_digest", &pack),
+            Some(expected)
+        );
+        assert_eq!(resolve_body_ref("pack:unknown", &pack), None);
+    }
+
+    #[test]
+    fn plan_ids_are_stablely_prefixed_and_unique_per_preparation() {
+        let tmp = tempdir().unwrap();
+        let service = FrankService::new(paths(tmp.path()));
+        let first = service
+            .prepare_target_change("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        let second = service
+            .prepare_target_change("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        assert!(first.plan_id.starts_with("frank-plan-"));
+        assert_ne!(first.plan_id, second.plan_id);
+
+        let first_pack = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: "caveman".to_string(),
+            })
+            .unwrap();
+        let second_pack = service
+            .prepare_pack_change(PackOperation::Use {
+                selector: "caveman".to_string(),
+            })
+            .unwrap();
+        assert!(first_pack.plan_id.starts_with("frank-pack-plan-"));
+        assert_ne!(first_pack.plan_id, second_pack.plan_id);
+
+        let install = service
+            .build_plan("claude-code", TargetOperation::Install)
+            .unwrap();
+        let uninstall = service
+            .build_plan("claude-code", TargetOperation::Uninstall)
+            .unwrap();
+        assert_ne!(plan_fingerprint(&install), plan_fingerprint(&uninstall));
+        let now = Instant::now();
+        assert_ne!(
+            new_plan_id(&install, "state", now, 0),
+            new_plan_id(&uninstall, "state", now, 0)
+        );
     }
 
     proptest! {

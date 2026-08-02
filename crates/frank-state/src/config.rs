@@ -240,6 +240,34 @@ mod tests {
     }
 
     #[test]
+    fn repo_search_ignores_directory_candidates() {
+        let tmp = tempdir().unwrap();
+        let nested = tmp.path().join("one/two");
+        std::fs::create_dir_all(nested.join(".frank/config.toml")).unwrap();
+        assert_eq!(find_repo_config_path(&nested), None);
+    }
+
+    #[test]
+    fn user_config_dir_matches_the_process_configuration_root() {
+        let expected = if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+            Some(PathBuf::from(xdg).join("frank"))
+        } else {
+            #[cfg(windows)]
+            {
+                std::env::var_os("APPDATA")
+                    .map(PathBuf::from)
+                    .map(|path| path.join("frank"))
+                    .or_else(|| frank_safeio::home_dir().map(|h| h.join(".config").join("frank")))
+            }
+            #[cfg(not(windows))]
+            {
+                frank_safeio::home_dir().map(|h| h.join(".config").join("frank"))
+            }
+        };
+        assert_eq!(user_config_dir(), expected);
+    }
+
+    #[test]
     fn invalid_repo_config_falls_through_to_user_config() {
         let tmp = tempdir().unwrap();
         let user = tmp.path().join("user");

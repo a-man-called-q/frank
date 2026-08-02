@@ -43,7 +43,7 @@ mod tests {
     /// the *ordering behavior* under test is what those exact patterns
     /// produce — see the module docs on why `classify` is pure and
     /// separately tested from `engine::apply`.
-    fn fixture_pack(dir: &Path) -> frank_pack::CompiledPack {
+    pub(crate) fn fixture_pack(dir: &Path) -> frank_pack::CompiledPack {
         fs::write(
             dir.join("pack.toml"),
             r#"

@@ -187,6 +187,29 @@ mod tests {
     }
 
     #[test]
+    fn equal_session_mtimes_use_the_path_as_a_stable_tie_breaker() {
+        let ts = std::time::UNIX_EPOCH + std::time::Duration::from_secs(10);
+        assert!(should_replace_session_candidate(
+            std::path::Path::new("/sessions/z.jsonl"),
+            ts,
+            std::path::Path::new("/sessions/a.jsonl"),
+            ts,
+        ));
+        assert!(!should_replace_session_candidate(
+            std::path::Path::new("/sessions/a.jsonl"),
+            ts,
+            std::path::Path::new("/sessions/z.jsonl"),
+            ts,
+        ));
+        assert!(!should_replace_session_candidate(
+            std::path::Path::new("/sessions/a.jsonl"),
+            ts,
+            std::path::Path::new("/sessions/a.jsonl"),
+            ts,
+        ));
+    }
+
+    #[test]
     fn equal_session_mtimes_use_a_stable_path_tiebreaker() {
         let timestamp = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
         let a = std::path::Path::new("a.jsonl");
@@ -194,6 +217,18 @@ mod tests {
         assert!(should_replace_session_candidate(b, timestamp, a, timestamp));
         assert!(!should_replace_session_candidate(
             a, timestamp, b, timestamp
+        ));
+    }
+
+    #[test]
+    fn an_older_candidate_never_replaces_a_newer_session() {
+        let newer = std::time::UNIX_EPOCH + std::time::Duration::from_secs(2);
+        let older = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        assert!(!should_replace_session_candidate(
+            std::path::Path::new("z.jsonl"),
+            older,
+            std::path::Path::new("a.jsonl"),
+            newer,
         ));
     }
 

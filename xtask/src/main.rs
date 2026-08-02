@@ -141,7 +141,7 @@ fn build_one_pack(pack_dir: &Path) -> Result<()> {
 
     let rust_src = emit_rust(&compiled);
     let out_path = pack_dir.join("compiled.rs");
-    let changed = std::fs::read_to_string(&out_path).ok().as_deref() != Some(rust_src.as_str());
+    let changed = generated_changed(&out_path, &rust_src);
     std::fs::write(&out_path, &rust_src)
         .with_context(|| format!("writing {}", out_path.display()))?;
 
@@ -424,7 +424,7 @@ fn lint_targets(root: &Path) -> Result<()> {
                 },
                 if manifest.target.soft { ", soft" } else { "" }
             );
-            checked += 1;
+            checked = increment_checked(checked);
         } else {
             had_error = true;
             eprintln!("FAIL {} ({}):", manifest.target.id, path.display());
@@ -573,6 +573,14 @@ fn powershell_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
 
+fn generated_changed(path: &Path, generated: &str) -> bool {
+    std::fs::read_to_string(path).ok().as_deref() != Some(generated)
+}
+
+fn increment_checked(checked: usize) -> usize {
+    checked + 1
+}
+
 fn checksums(root: &Path) -> Result<()> {
     use sha2::{Digest, Sha256};
 
@@ -628,10 +636,12 @@ fn checksums(root: &Path) -> Result<()> {
 mod tests {
     use std::fs;
     use std::path::Path;
+    use std::process::Command as ProcessCommand;
 
     use super::{
-        archive_name, binary_name, build_packs, check_path_scope, checksums, dist, lint_targets,
-        powershell_quote, version_check,
+        archive_name, binary_name, build_packs, check_path_scope, checksums, dist,
+        generated_changed, increment_checked, lint_targets, opt_f64, opt_str, opt_u32,
+        powershell_quote, str_slice, version_check,
     };
 
     fn minimal_pack(root: &Path, id: &str) {
@@ -667,6 +677,40 @@ off = []
             archive_name("aarch64-apple-darwin"),
             "frank-aarch64-apple-darwin.tar.gz"
         );
+    }
+
+    #[test]
+    fn generated_output_change_and_lint_count_helpers_are_exact() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("compiled.rs");
+        assert!(generated_changed(&path, "generated"));
+        fs::write(&path, "generated").unwrap();
+        assert!(!generated_changed(&path, "generated"));
+        assert_eq!(increment_checked(0), 1);
+        assert_eq!(increment_checked(7), 8);
+    }
+
+    #[test]
+    fn generated_literal_helpers_preserve_optional_values_and_slices() {
+        assert_eq!(opt_str(Some("demo")), "Some(\"demo\")");
+        assert_eq!(opt_str(None), "None");
+        assert_eq!(opt_f64(Some(0.65)), "Some(0.65)");
+        assert_eq!(opt_f64(None), "None");
+        assert_eq!(opt_u32(Some(3)), "Some(3)");
+        assert_eq!(opt_u32(None), "None");
+        assert_eq!(str_slice(&["a".into(), "b\"c".into()]), "\"a\", \"b\\\"c\"");
+    }
+
+    #[test]
+    fn host_triple_is_reported_by_rustc() {
+        let host = super::host_triple().unwrap();
+        let raw = ProcessCommand::new("rustc").args(["-vV"]).output().unwrap();
+        let raw_stdout = String::from_utf8_lossy(&raw.stdout);
+        let expected = raw_stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("host: "))
+            .unwrap();
+        assert_eq!(host, expected);
     }
 
     #[test]
@@ -769,6 +813,12 @@ create_if_missing = true
         )
         .unwrap();
         version_check(root.path()).unwrap();
+        fs::write(
+            root.path().join("apps/frank-gui/package.json"),
+            r#"{"version":"9.9.9"}"#,
+        )
+        .unwrap();
+        assert!(version_check(root.path()).is_err());
 
         let dist_dir = root.path().join("dist");
         fs::create_dir_all(&dist_dir).unwrap();
@@ -781,7 +831,48 @@ create_if_missing = true
     #[test]
     fn dist_reports_missing_release_binary_and_quotes_powershell_paths() {
         let root = tempfile::tempdir().unwrap();
-        assert!(dist(root.path(), Some("x86_64-pc-windows-msvc")).is_err());
+        let error = dist(root.path(), Some("x86_64-pc-windows-msvc")).unwrap_err();
+        assert!(error.to_string().contains("release binary not found"));
         assert_eq!(powershell_quote(Path::new("a'b")), "'a''b'");
+    }
+
+    #[test]
+    fn dist_packages_an_existing_unix_release_binary() {
+        let root = tempfile::tempdir().unwrap();
+        let release = root.path().join("target/aarch64-apple-darwin/release");
+        fs::create_dir_all(&release).unwrap();
+        fs::write(release.join("frank"), b"fake binary").unwrap();
+        dist(root.path(), Some("aarch64-apple-darwin")).unwrap();
+        assert!(
+            root.path()
+                .join("dist/frank-aarch64-apple-darwin.tar.gz")
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn lint_requires_detection_for_non_native_targets() {
+        let root = tempfile::tempdir().unwrap();
+        let targets = root.path().join("targets");
+        fs::create_dir_all(&targets).unwrap();
+        fs::write(
+            targets.join("missing-detect.toml"),
+            r#"
+schema = 1
+[target]
+id = "demo"
+label = "Demo"
+kind = "generic"
+verified = false
+soft = true
+[install]
+strategy = "spawn"
+[install.spawn]
+command = "echo"
+args = ["demo"]
+"#,
+        )
+        .unwrap();
+        assert!(lint_targets(root.path()).is_err());
     }
 }

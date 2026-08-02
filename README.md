@@ -147,7 +147,8 @@ frank install --dry-run
 
 Want to contribute? Check out:
 
-- [`AGENTS.md`](AGENTS.md) - Technical architecture and design decisions
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) - Development workflow and guidelines
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) - Technical architecture and design decisions
 - [`TODO.md`](TODO.md) - Upcoming features and testing checklist
 - [`docs/pack-authoring.md`](docs/pack-authoring.md) - Create custom persona packs
 
@@ -204,7 +205,7 @@ Frank is built with modular Rust crates:
 - `frank-app` - shared application service used by CLI, hooks, and GUI
 - `apps/frank-gui` - Tauri v2 + React desktop control plane
 
-Full architecture details in [`AGENTS.md`](AGENTS.md).
+Full architecture details in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 
 ## History
@@ -219,7 +220,7 @@ The original Caveman remains the reference for what this kind of tool should do.
 
 ## License
 
-See [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE.md](LICENSE.md) for details.
 
 ## Acknowledgments
 

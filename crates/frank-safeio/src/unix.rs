@@ -429,4 +429,20 @@ mod tests {
         assert!(read.contains(OFlags::NOFOLLOW));
         assert!(read.contains(OFlags::CLOEXEC));
     }
+
+    #[test]
+    fn append_line_propagates_non_race_creation_errors() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let blocked = tmp.path().join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let error = append_line(&blocked.join("new.log"), "line").unwrap_err();
+        let SafeIoError::Io(error) = error else {
+            panic!("expected the underlying creation error, got {error:?}");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    }
 }

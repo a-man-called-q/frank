@@ -104,6 +104,22 @@ mod tests {
     }
 
     #[test]
+    fn yaml_requires_nonempty_samples_before_applying_the_ratio() {
+        let tmp = tempdir().unwrap();
+        let empty = tmp.path().join("empty");
+        std::fs::write(&empty, "\n\n").unwrap();
+        assert_eq!(detect_file_type(&empty), FileClass::NaturalLanguage);
+    }
+
+    #[test]
+    fn yaml_list_indicators_require_a_colon_after_the_dash() {
+        let tmp = tempdir().unwrap();
+        let prose_list = tmp.path().join("prose-list");
+        std::fs::write(&prose_list, "items:\n- one\n- two\n").unwrap();
+        assert_eq!(detect_file_type(&prose_list), FileClass::NaturalLanguage);
+    }
+
+    #[test]
     fn extensionless_code_heavy_content_is_code() {
         let tmp = tempdir().unwrap();
         let p = tmp.path().join("dotfile");

@@ -22,3 +22,15 @@ pub fn config_dir() -> PathBuf {
 pub fn path() -> PathBuf {
     config_dir().join(".frank-active")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn flag_paths_are_derived_from_the_same_process_configuration() {
+        let paths = FrankPaths::from_process();
+        assert_eq!(config_dir(), paths.config_dir);
+        assert_eq!(path(), paths.config_dir.join(".frank-active"));
+    }
+}

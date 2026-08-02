@@ -246,4 +246,11 @@ mod tests {
         }
         assert!(!is_remote_source("./local-pack"));
     }
+
+    #[test]
+    fn level_by_id_only_returns_an_exact_level_match() {
+        let pack = builtin();
+        assert!(level_by_id(&pack, "full").is_some());
+        assert!(level_by_id(&pack, "full-extra").is_none());
+    }
 }

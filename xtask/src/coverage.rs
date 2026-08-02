@@ -323,7 +323,7 @@ pub fn check(report_path: &Path, policy_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, check_values};
+    use super::{check, check_values, nonnegative_integer, package_for_filename};
     use serde_json::json;
     use std::fs;
     use tempfile::tempdir;
@@ -362,7 +362,55 @@ mod tests {
 
     #[test]
     fn accepts_report_and_prints_no_error() {
-        assert!(check_values(&report(9, 10), &policy(80, 1)).is_ok());
+        let summary = check_values(&report(9, 10), &policy(80, 1)).unwrap();
+        assert!(summary.contains("target 95.00% (gap 5.00pp)"));
+        assert!(summary.contains("\n  demo functions:"));
+    }
+
+    #[test]
+    fn coverage_epsilon_and_nonnegative_integer_boundaries_are_enforced() {
+        let exact_policy: toml::Value = toml::from_str(
+            r#"
+version = 1
+[packages.demo]
+min_regions = 0
+min_functions = 0
+min_lines = 100
+max_uncovered_regions = 10
+max_uncovered_functions = 10
+max_uncovered_lines = 0
+target_regions = 90
+target_functions = 90
+target_lines = 100
+"#,
+        )
+        .unwrap();
+        assert!(check_values(&report(10, 10), &exact_policy).is_ok());
+        assert!(
+            nonnegative_integer(
+                exact_policy["packages"]["demo"].as_table().unwrap(),
+                "max_uncovered_lines"
+            )
+            .is_ok()
+        );
+
+        let negative_policy: toml::Value = toml::from_str(
+            r#"
+version = 1
+[packages.demo]
+min_regions = 0
+min_functions = 0
+min_lines = 0
+max_uncovered_regions = 10
+max_uncovered_functions = 10
+max_uncovered_lines = -1
+target_regions = 90
+target_functions = 90
+target_lines = 95
+"#,
+        )
+        .unwrap();
+        assert!(check_values(&report(10, 10), &negative_policy).is_err());
     }
 
     #[test]
@@ -435,6 +483,23 @@ mod tests {
             }]}]
         });
         assert!(check_values(&relative, &policy(100, 0)).is_ok());
+    }
+
+    #[test]
+    fn package_filename_mapping_handles_crates_xtask_and_dot_components() {
+        assert_eq!(
+            package_for_filename("/repo/crates/demo/src/lib.rs").as_deref(),
+            Some("demo")
+        );
+        assert_eq!(
+            package_for_filename("/repo/crates/./demo/src/lib.rs").as_deref(),
+            Some("demo")
+        );
+        assert_eq!(
+            package_for_filename("/repo/xtask/src/main.rs").as_deref(),
+            Some("xtask")
+        );
+        assert_eq!(package_for_filename("/repo/xtask/tests/main.rs"), None);
     }
 
     #[test]

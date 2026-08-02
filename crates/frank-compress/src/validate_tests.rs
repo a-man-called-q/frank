@@ -127,4 +127,88 @@ mod tests {
                 .any(|f| f.message.contains("Bullet count changed too much"))
         );
     }
+
+    #[test]
+    fn bullet_ratio_uses_subtraction_not_division() {
+        let original = (0..10).map(|i| format!("- {i}\n")).collect::<String>();
+        let compressed = (0..8).map(|i| format!("- {i}\n")).collect::<String>();
+        let result = validate(&original, &compressed);
+        assert!(
+            result
+                .warnings()
+                .any(|f| f.message.contains("Bullet count changed too much")),
+            "a 20% loss must warn"
+        );
+    }
+
+    #[test]
+    fn exactly_fifteen_percent_bullet_loss_is_within_tolerance() {
+        let original = (0..20).map(|i| format!("- {i}\n")).collect::<String>();
+        let compressed = (0..17).map(|i| format!("- {i}\n")).collect::<String>();
+        let result = validate(&original, &compressed);
+        assert!(
+            !result
+                .warnings()
+                .any(|f| f.message.contains("Bullet count changed too much"))
+        );
+    }
+
+    #[test]
+    fn inline_code_that_is_present_with_the_same_count_is_not_reported_lost() {
+        let result = validate("Keep `x` and `y`.", "Keep `x` and `y` plus `z`.");
+        assert!(
+            result.is_valid(),
+            "unexpected findings: {:?}",
+            result.findings
+        );
+        assert!(
+            !result
+                .errors()
+                .any(|f| f.message.contains("Inline code lost"))
+        );
+    }
+
+    #[test]
+    fn a_missing_inline_code_value_is_reported_as_lost() {
+        let result = validate("Use `x` here.", "Use it here.");
+        assert!(
+            result
+                .errors()
+                .any(|f| f.message.contains("Inline code lost"))
+        );
+    }
+
+    #[test]
+    fn an_added_duplicate_inline_code_value_is_not_reported_as_lost() {
+        let result = validate("Keep `x`.", "Keep `x` twice: `x` plus `y`: `y`.");
+        assert!(
+            result.is_valid(),
+            "unexpected findings: {:?}",
+            result.findings
+        );
+        assert!(
+            !result
+                .errors()
+                .any(|f| f.message.contains("Inline code lost"))
+        );
+    }
+
+    #[test]
+    fn bullet_check_is_skipped_when_the_original_has_no_bullets() {
+        let result = validate("Plain prose.", "Plain prose.\n- new item");
+        assert!(
+            !result
+                .warnings()
+                .any(|f| f.message.contains("Bullet count changed too much"))
+        );
+    }
+
+    #[test]
+    fn code_block_extraction_handles_text_and_multiple_blocks_after_a_fence() {
+        let text = "prefix\n```\na\n```\nbetween\n~~~\nb\n~~~\nsuffix";
+        assert_eq!(
+            extract_code_blocks(text),
+            vec!["```\na\n```".to_string(), "~~~\nb\n~~~".to_string()]
+        );
+    }
 }

@@ -67,6 +67,18 @@ mod tests {
         assert!(dir.ends_with("notes"));
         assert!(dir.to_string_lossy().contains("frank-compress"));
         assert!(dir.to_string_lossy().contains("backups"));
+
+        #[cfg(not(windows))]
+        let expected_base = std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| frank_safeio::home_dir().map(|h| h.join(".local").join("share")));
+        #[cfg(windows)]
+        let expected_base = std::env::var_os("LOCALAPPDATA")
+            .map(std::path::PathBuf::from)
+            .or_else(|| frank_safeio::home_dir().map(|h| h.join("AppData").join("Local")));
+        if let Some(base) = expected_base {
+            assert!(dir.starts_with(base));
+        }
     }
 
     #[test]

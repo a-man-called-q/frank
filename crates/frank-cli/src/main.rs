@@ -255,4 +255,9 @@ mod tests {
     fn a_caught_hook_panic_is_a_successful_noop() {
         assert_eq!(guarded_hook(|| panic!("simulated hook panic")), 0);
     }
+
+    #[test]
+    fn a_successful_hook_result_passes_through() {
+        assert_eq!(guarded_hook(|| 7), 7);
+    }
 }

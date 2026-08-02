@@ -164,16 +164,13 @@ fn compress_one(path: &Path, check: bool, dry_run: bool) -> i32 {
     // Read the backup back and byte-compare before ever touching the
     // source — a failed backup must never be discovered after the
     // original is already gone.
-    match frank_safeio::read_text_capped(&backup_path, frank_safeio::MAX_SESSION_BYTES) {
-        Ok(read_back) if read_back == text => {}
-        _ => {
-            eprintln!(
-                "frank: backup verification failed, aborting before touching {}",
-                path.display()
-            );
-            let _ = frank_safeio::remove_file(&backup_path);
-            return 1;
-        }
+    if !backup_matches(&backup_path, &text) {
+        eprintln!(
+            "frank: backup verification failed, aborting before touching {}",
+            path.display()
+        );
+        let _ = frank_safeio::remove_file(&backup_path);
+        return 1;
     }
 
     if let Err(e) = frank_safeio::write_flag_atomic(path, &result_text) {
@@ -244,6 +241,13 @@ fn restore_all(paths: &[PathBuf]) -> i32 {
     exit
 }
 
+fn backup_matches(path: &Path, expected: &str) -> bool {
+    matches!(
+        frank_safeio::read_text_capped(path, frank_safeio::MAX_SESSION_BYTES),
+        Ok(read_back) if read_back == expected
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,5 +295,16 @@ mod tests {
         std::fs::write(&source, "original").unwrap();
         assert_eq!(restore_all(std::slice::from_ref(&source)), 1);
         assert_eq!(std::fs::read_to_string(source).unwrap(), "original");
+    }
+
+    #[test]
+    fn backup_verification_requires_an_exact_readback() {
+        let tmp = tempdir().unwrap();
+        let backup = tmp.path().join("backup.md");
+        std::fs::write(&backup, "different").unwrap();
+        assert!(!backup_matches(&backup, "expected"));
+        std::fs::write(&backup, "expected").unwrap();
+        assert!(backup_matches(&backup, "expected"));
+        assert!(!backup_matches(&tmp.path().join("missing.md"), "expected"));
     }
 }

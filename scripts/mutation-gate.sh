@@ -12,6 +12,7 @@ out="$output_parent/mutants.out"
 timeout="${FRANK_MUTATION_TIMEOUT:-120}"
 minimum="${FRANK_MUTATION_MIN_SCORE:-85}"
 allowlist="$root/mutants-equivalent.allowlist"
+jobs="${FRANK_MUTATION_JOBS:-}"
 
 command -v cargo-mutants >/dev/null 2>&1 || {
   echo 'cargo-mutants is required for the mutation gate' >&2
@@ -40,8 +41,14 @@ esac
 # gate remains responsible for that contract.
 mutation_scope+=(--exclude 'apps/frank-gui/src-tauri/**')
 
+mutation_options=()
+if [[ -n "$jobs" ]]; then
+  mutation_options+=(--jobs "$jobs")
+fi
+
 set +e
-cargo mutants --workspace "${mutation_scope[@]}" --timeout "$timeout" --output "$output_parent"
+cargo mutants --workspace "${mutation_scope[@]}" "${mutation_options[@]}" \
+  --timeout "$timeout" --output "$output_parent"
 mutants_status=$?
 set -e
 
@@ -95,9 +102,10 @@ if (( score < minimum )); then
 fi
 
 # A baseline/build failure must still fail the gate even if an old output file
-# happened to be present. Successful mutation runs return zero; the explicit
-# check keeps a partial interrupted run from looking green.
-if (( mutants_status != 0 )); then
+# happened to be present. cargo-mutants returns 2 for missed mutants and 3 for
+# timeouts; those statuses are acceptable here only after the exact allowlist
+# check above has passed. Other statuses still indicate an invalid run.
+if (( mutants_status != 0 && mutants_status != 2 && mutants_status != 3 )); then
   printf 'cargo-mutants exited with status %d\n' "$mutants_status" >&2
   exit "$mutants_status"
 fi

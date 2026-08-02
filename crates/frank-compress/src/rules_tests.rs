@@ -111,6 +111,21 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_protected_matches_merge_through_the_longest_span() {
+        let text = "foo(STARTER/BUSINESS)";
+        assert_eq!(protected_spans(text), vec![0..text.len()]);
+    }
+
+    #[test]
+    fn separated_protected_matches_remain_separate_spans() {
+        let text = "Use `first` and `second`.";
+        let spans = protected_spans(text);
+        assert_eq!(spans.len(), 2);
+        assert_eq!(&text[spans[0].clone()], "`first`");
+        assert_eq!(&text[spans[1].clone()], "`second`");
+    }
+
+    #[test]
     fn articles_strip_before_any_letter_regardless_of_case() {
         // The original regex carries `/i`, and in JS that flag applies to
         // the whole pattern including the lookahead — `(?=[a-z])` under

@@ -173,3 +173,23 @@ pub fn classify(prompt: &str, pack: &CompiledPack, resolved_default: &str) -> In
 
     Intent::None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Intent, parse_slash_command};
+    use crate::tests::fixture_pack;
+    use tempfile::tempdir;
+
+    #[test]
+    fn each_slash_deactivation_word_is_independent() {
+        let tmp = tempdir().unwrap();
+        let pack = fixture_pack(tmp.path());
+        for word in ["off", "stop", "disable"] {
+            assert_eq!(
+                parse_slash_command(&format!("/caveman {word}"), "caveman", &pack, "full"),
+                Some(Intent::Deactivate),
+                "slash word: {word}"
+            );
+        }
+    }
+}
