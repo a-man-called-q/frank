@@ -37,16 +37,16 @@ pub fn read_settings(path: &Path) -> Option<Value> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(json!({})),
         Err(_) => return None,
     };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > frank_safeio::MAX_CONFIG_BYTES as u64
-    {
+    if metadata.file_type().is_symlink() {
+        return None;
+    }
+    if !metadata.is_file() {
+        return None;
+    }
+    if metadata.len() > frank_safeio::MAX_CONFIG_BYTES as u64 {
         return None;
     }
     match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
-        Err(frank_safeio::SafeIoError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            Some(json!({}))
-        }
         Err(_) => None,
         Ok(raw) => {
             if raw.trim().is_empty() {

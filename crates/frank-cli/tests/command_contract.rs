@@ -161,7 +161,7 @@ fn stats_rendering_covers_empty_json_share_explain_and_lifetime_paths() {
     let zero_output = root.path().join("zero-output.jsonl");
     fs::write(
         &zero_output,
-        r#"{"type":"assistant","timestamp":"2026-08-03T00:00:00.000Z","message":{"model":"claude-3-5-sonnet","usage":{"output_tokens":0,"input_tokens":8}}}"#,
+        r#"{"type":"assistant","timestamp":"2099-01-01T00:00:00.000Z","message":{"model":"claude-3-5-sonnet","usage":{"output_tokens":0,"input_tokens":8}}}"#,
     )
     .unwrap();
     let output = run(
@@ -181,7 +181,7 @@ fn stats_rendering_covers_empty_json_share_explain_and_lifetime_paths() {
     let session = root.path().join("session.jsonl");
     fs::write(
         &session,
-        r#"{"type":"assistant","timestamp":"2026-08-03T00:00:00.000Z","message":{"model":"claude-3-5-sonnet","usage":{"output_tokens":12,"input_tokens":8}}}"#,
+        r#"{"type":"assistant","timestamp":"2099-01-01T00:00:00.000Z","message":{"model":"claude-3-5-sonnet","usage":{"output_tokens":12,"input_tokens":8}}}"#,
     )
     .unwrap();
     let output = run(

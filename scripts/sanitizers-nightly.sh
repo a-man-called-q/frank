@@ -42,10 +42,12 @@ flags="-Zsanitizer=$sanitizer"
 if [[ "$sanitizer" == address ]]; then
   ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1}" \
     RUSTFLAGS="$flags" \
+    RUSTDOCFLAGS="$flags" \
     cargo +nightly test -Zbuild-std --target "$target" "${package_args[@]}"
 else
   TSAN_OPTIONS="${TSAN_OPTIONS:-halt_on_error=1}" \
     RUSTFLAGS="$flags" \
+    RUSTDOCFLAGS="$flags" \
     cargo +nightly test -Zbuild-std --target "$target" "${package_args[@]}"
 fi
 

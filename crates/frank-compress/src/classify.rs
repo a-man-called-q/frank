@@ -110,7 +110,10 @@ fn is_yaml_content(lines: &[&str]) -> bool {
     let sample = &lines[..lines.len().min(30)];
     let indicators = sample.iter().filter(|l| is_indicator(l.trim())).count() as i32;
     let non_empty = sample.iter().filter(|l| !l.trim().is_empty()).count();
-    non_empty > 0 && (indicators as f64 / non_empty as f64) > 0.6
+    if non_empty == 0 {
+        return false;
+    }
+    (indicators as f64 / non_empty as f64) > 0.6
 }
 
 pub fn detect_file_type(path: &Path) -> FileClass {
@@ -164,7 +167,7 @@ pub fn detect_file_type(path: &Path) -> FileClass {
         .filter(|l| !l.trim().is_empty() && is_code_line(l, &patterns))
         .count();
     let non_empty = lines.iter().filter(|l| !l.trim().is_empty()).count();
-    if non_empty > 0 && (code_lines as f64 / non_empty as f64) > 0.4 {
+    if non_empty != 0 && (code_lines as f64 / non_empty as f64) > 0.4 {
         return FileClass::Code;
     }
 

@@ -10,8 +10,7 @@ cd "$root"
 output_parent="${FRANK_MUTANTS_OUTPUT:-$root/target/mutation}"
 out="$output_parent/mutants.out"
 timeout="${FRANK_MUTATION_TIMEOUT:-120}"
-minimum="${FRANK_MUTATION_MIN_SCORE:-85}"
-allowlist="$root/.config/mutants-equivalent.allowlist"
+minimum=100
 jobs="${FRANK_MUTATION_JOBS:-}"
 
 command -v cargo-mutants >/dev/null 2>&1 || {
@@ -74,26 +73,12 @@ score=$((caught * 100 / tested))
 printf 'mutation score: %d%% (%d caught, %d missed, %d timed out, %d unviable)\n' \
   "$score" "$caught" "$missed" "$timed_out" "$unviable"
 
-# A missed or timed-out mutant is acceptable only when its exact rendered
-# description is present in the reviewed allowlist. The allowlist is line
-# based on purpose: a broad regex or package-wide exemption would hide new
-# survivors and violate the reviewed-equivalent-mutant contract.
-unreviewed=0
-for file in "$out/missed.txt" "$out/timeout.txt"; do
-  [[ -f "$file" ]] || continue
-  while IFS= read -r mutant; do
-    [[ -n "${mutant//[[:space:]]/}" ]] || continue
-    if ! grep -Fqx -- "$mutant" "$allowlist"; then
-      if (( unreviewed < 20 )); then
-        printf 'unreviewed surviving mutant: %s\n' "$mutant" >&2
-      fi
-      unreviewed=$((unreviewed + 1))
-    fi
-  done < "$file"
-done
-
-if (( unreviewed > 0 )); then
-  printf '%d surviving mutant(s) require a regression test or a specific allowlist entry\n' "$unreviewed" >&2
+if (( missed > 0 || timed_out > 0 )); then
+  printf 'mutation gate requires zero missed and timed-out mutants\n' >&2
+  for file in "$out/missed.txt" "$out/timeout.txt"; do
+    [[ -f "$file" ]] || continue
+    sed -n '1,20p' "$file" >&2
+  done
   exit 1
 fi
 
@@ -104,8 +89,8 @@ fi
 
 # A baseline/build failure must still fail the gate even if an old output file
 # happened to be present. cargo-mutants returns 2 for missed mutants and 3 for
-# timeouts; those statuses are acceptable here only after the exact allowlist
-# check above has passed. Other statuses still indicate an invalid run.
+# timeouts; those statuses are rejected above. Other statuses still indicate
+# an invalid run.
 if (( mutants_status != 0 && mutants_status != 2 && mutants_status != 3 )); then
   printf 'cargo-mutants exited with status %d\n' "$mutants_status" >&2
   exit "$mutants_status"

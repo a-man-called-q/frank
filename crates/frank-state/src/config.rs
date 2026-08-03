@@ -48,7 +48,10 @@ fn env_default(pack: &CompiledPack, env_var: &str) -> Option<String> {
 /// then be parsed as this project's default level.
 fn read_mode_from_file(pack: &CompiledPack, path: &Path) -> Option<String> {
     let meta = std::fs::symlink_metadata(path).ok()?;
-    if meta.file_type().is_symlink() || !meta.is_file() {
+    if meta.file_type().is_symlink() {
+        return None;
+    }
+    if !meta.is_file() {
         return None;
     }
     let raw = frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES).ok()?;
@@ -63,14 +66,16 @@ fn find_repo_config_path(start: &Path) -> Option<PathBuf> {
         for rel in REPO_CANDIDATES {
             let candidate = dir.join(rel);
             if let Ok(meta) = std::fs::symlink_metadata(&candidate) {
-                if !meta.file_type().is_symlink() && meta.is_file() {
+                if meta.file_type().is_symlink() {
+                    continue;
+                }
+                if meta.is_file() {
                     return Some(candidate);
                 }
             }
         }
-        match dir.parent() {
-            Some(parent) if parent != dir => dir = parent.to_path_buf(),
-            _ => return None,
+        if !dir.pop() {
+            return None;
         }
     }
     None

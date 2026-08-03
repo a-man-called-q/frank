@@ -259,7 +259,7 @@ fn check_values(report: &Value, policy: &toml::Value) -> Result<String> {
             ),
         ];
         for (kind, metric, min, max_uncovered, target) in checks {
-            if metric.percent() + f64::EPSILON < min {
+            if metric.percent() < min {
                 failures.push(format!(
                     "{package} {kind}: {:.2}% is below minimum {:.2}%",
                     metric.percent(),

@@ -138,7 +138,7 @@ fn parse_iso8601_ms(s: &str) -> Option<i64> {
     // Hinnant's algorithm) — no calendar crate needed for a UTC-only,
     // Gregorian-only, always-well-formed input.
     let y = if month <= 2 { year - 1 } else { year };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let era = y / 400;
     let yoe = y - era * 400;
     let mp = (month + 9) % 12;
     let doy = (153 * mp + 2) / 5 + day - 1;

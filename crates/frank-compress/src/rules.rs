@@ -75,9 +75,7 @@ pub fn protected_spans(text: &str) -> Vec<Range<usize>> {
     for r in ranges {
         match merged.last_mut() {
             Some(last) if r.start <= last.end => {
-                if r.end > last.end {
-                    last.end = r.end;
-                }
+                last.end = last.end.max(r.end);
             }
             _ => merged.push(r),
         }

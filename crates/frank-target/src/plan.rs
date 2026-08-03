@@ -232,7 +232,14 @@ pub fn apply(plan: &InstallPlan) -> Result<Vec<String>, ApplyError> {
                     // — capturing the already-merged file and mislabeling
                     // it as pristine pre-install state.
                 } else if std::fs::symlink_metadata(path)
-                    .map(|m| m.is_file() && !m.file_type().is_symlink())
+                    .ok()
+                    .map(|metadata| {
+                        if metadata.file_type().is_symlink() {
+                            false
+                        } else {
+                            metadata.is_file()
+                        }
+                    })
                     .unwrap_or(false)
                 {
                     let contents =
@@ -353,12 +360,22 @@ pub fn apply(plan: &InstallPlan) -> Result<Vec<String>, ApplyError> {
                 let existing =
                     match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
                         Ok(existing) => existing,
-                        Err(frank_safeio::SafeIoError::Io(e))
-                            if e.kind() == std::io::ErrorKind::NotFound && *create_if_missing =>
-                        {
-                            String::new()
+                        Err(frank_safeio::SafeIoError::Io(error)) => {
+                            if error.kind() == std::io::ErrorKind::NotFound {
+                                if *create_if_missing {
+                                    String::new()
+                                } else {
+                                    return Err(ApplyError::SafeIo(frank_safeio::SafeIoError::Io(
+                                        error,
+                                    )));
+                                }
+                            } else {
+                                return Err(ApplyError::SafeIo(frank_safeio::SafeIoError::Io(
+                                    error,
+                                )));
+                            }
                         }
-                        Err(e) => return Err(ApplyError::SafeIo(e)),
+                        Err(error) => return Err(ApplyError::SafeIo(error)),
                     };
                 let block = crate::markdown_block::Block {
                     begin: begin.clone(),
@@ -383,9 +400,12 @@ pub fn apply(plan: &InstallPlan) -> Result<Vec<String>, ApplyError> {
                 let existing =
                     match frank_safeio::read_text_capped(path, frank_safeio::MAX_CONFIG_BYTES) {
                         Ok(existing) => existing,
-                        Err(frank_safeio::SafeIoError::Io(error))
-                            if error.kind() == std::io::ErrorKind::NotFound =>
-                        {
+                        Err(frank_safeio::SafeIoError::Io(error)) => {
+                            if error.kind() != std::io::ErrorKind::NotFound {
+                                return Err(ApplyError::SafeIo(frank_safeio::SafeIoError::Io(
+                                    error,
+                                )));
+                            }
                             continue;
                         }
                         Err(error) => return Err(ApplyError::SafeIo(error)),
@@ -405,7 +425,10 @@ pub fn apply(plan: &InstallPlan) -> Result<Vec<String>, ApplyError> {
                     }
                     None => {
                         let metadata = std::fs::symlink_metadata(path)?;
-                        if metadata.file_type().is_symlink() || !metadata.is_file() {
+                        if metadata.file_type().is_symlink() {
+                            return Err(ApplyError::SafeIo(frank_safeio::SafeIoError::NotAFile));
+                        }
+                        if !metadata.is_file() {
                             return Err(ApplyError::SafeIo(frank_safeio::SafeIoError::NotAFile));
                         }
                         // The file is removed through the same anchored,

@@ -11,7 +11,7 @@
 //! *file descriptor*, not its path, so there is nothing left to swap.
 
 use std::ffi::OsStr;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,28 +21,39 @@ use rustix::fs::{self, AtFlags, CWD, FileType, Mode, OFlags};
 use crate::error::{Result, SafeIoError};
 
 fn verified_dir_flags() -> OFlags {
-    OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    OFlags::DIRECTORY
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
 }
 
 fn append_existing_flags() -> OFlags {
-    OFlags::WRONLY | OFlags::APPEND | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    OFlags::WRONLY
+        .union(OFlags::APPEND)
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
 }
 
 fn append_create_flags() -> OFlags {
     OFlags::WRONLY
-        | OFlags::CREATE
-        | OFlags::EXCL
-        | OFlags::APPEND
-        | OFlags::NOFOLLOW
-        | OFlags::CLOEXEC
+        .union(OFlags::CREATE)
+        .union(OFlags::EXCL)
+        .union(OFlags::APPEND)
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
 }
 
 fn create_write_flags() -> OFlags {
-    OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    OFlags::WRONLY
+        .union(OFlags::CREATE)
+        .union(OFlags::EXCL)
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
 }
 
 fn read_flags() -> OFlags {
-    OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+    OFlags::RDONLY
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
 }
 
 /// Verify `dir` and open it as an fd every following operation anchors to.
@@ -119,7 +130,7 @@ fn open_append_create(dirfd: &OwnedFd, name: &OsStr) -> Result<rustix::fd::Owned
 
     match open_existing() {
         Ok(fd) => return Ok(fd),
-        Err(e) if e == rustix::io::Errno::NOENT => {}
+        Err(rustix::io::Errno::NOENT) => {}
         Err(e) => return Err(e.into()),
     }
 
@@ -130,7 +141,7 @@ fn open_append_create(dirfd: &OwnedFd, name: &OsStr) -> Result<rustix::fd::Owned
         Mode::from_raw_mode(0o600),
     ) {
         Ok(fd) => Ok(fd),
-        Err(e) if e == rustix::io::Errno::EXIST => Ok(open_existing()?),
+        Err(rustix::io::Errno::EXIST) => Ok(open_existing()?),
         Err(e) => Err(e.into()),
     }
 }
@@ -147,7 +158,7 @@ fn refuse_if_symlink(dirfd: &OwnedFd, name: &OsStr) -> Result<()> {
             Err(SafeIoError::IsSymlink)
         }
         Ok(_) => Ok(()), // exists-and-not-a-symlink: proceed
-        Err(e) if e == rustix::io::Errno::NOENT => Ok(()),
+        Err(rustix::io::Errno::NOENT) => Ok(()),
         Err(e) => Err(e.into()),
     }
 }
@@ -226,19 +237,12 @@ pub fn read_flag_raw(flag_path: &Path, max_bytes: usize) -> Result<String> {
 
     let fd = fs::openat(&dirfd, name, read_flags(), Mode::empty())?;
     let capacity = max_bytes.saturating_add(1);
-    let mut buf = vec![0u8; capacity];
-    let mut total = 0;
-    while total < capacity {
-        let n = rustix::io::read(&fd, &mut buf[total..])?;
-        if n == 0 {
-            break;
-        }
-        total += n;
-    }
-    if total > max_bytes {
+    let mut file = std::fs::File::from(fd);
+    let mut buf = Vec::new();
+    file.by_ref().take(capacity as u64).read_to_end(&mut buf)?;
+    if buf.len() > max_bytes {
         return Err(SafeIoError::TooLarge(max_bytes));
     }
-    buf.truncate(total);
     String::from_utf8(buf)
         .map_err(|e| SafeIoError::Io(io::Error::new(io::ErrorKind::InvalidData, e)))
 }
@@ -349,7 +353,10 @@ pub fn read_lines(path: &Path) -> Vec<String> {
     let Ok(lst) = std::fs::symlink_metadata(path) else {
         return Vec::new();
     };
-    if lst.file_type().is_symlink() || !lst.is_file() {
+    if lst.file_type().is_symlink() {
+        return Vec::new();
+    }
+    if !lst.is_file() {
         return Vec::new();
     }
     let Ok(dir) = path
@@ -369,7 +376,10 @@ pub fn read_lines(path: &Path) -> Vec<String> {
         return Vec::new();
     };
     let ft = FileType::from_raw_mode(st.st_mode);
-    if ft == FileType::Symlink || ft != FileType::RegularFile {
+    if ft == FileType::Symlink {
+        return Vec::new();
+    }
+    if ft != FileType::RegularFile {
         return Vec::new();
     }
     let Ok(fd) = fs::openat(&dirfd, name, read_flags(), Mode::empty()) else {

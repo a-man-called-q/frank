@@ -718,24 +718,17 @@ fn fingerprint_path(path: &Path) -> String {
 
 fn fingerprint_file_contents(path: &Path) -> String {
     let mut file_digest = Sha256::new();
-    if let Ok(mut file) = std::fs::File::open(path) {
-        let mut buf = [0_u8; 8192];
-        let mut remaining = frank_safeio::MAX_CONFIG_BYTES;
-        while remaining > 0 {
-            let want = remaining.min(buf.len());
-            match file.read(&mut buf[..want]) {
-                Ok(0) => break,
-                Ok(n) => {
-                    file_digest.update(&buf[..n]);
-                    remaining -= n;
-                }
-                Err(_) => {
-                    file_digest.update([0xff]);
-                    break;
-                }
-            }
+    if let Ok(file) = std::fs::File::open(path) {
+        let mut contents = Vec::new();
+        let read_result = file
+            .take(frank_safeio::MAX_CONFIG_BYTES.saturating_add(1) as u64)
+            .read_to_end(&mut contents);
+        let amount = contents.len().min(frank_safeio::MAX_CONFIG_BYTES);
+        file_digest.update(&contents[..amount]);
+        if read_result.is_err() {
+            file_digest.update([0xff]);
         }
-        if remaining == 0 {
+        if amount == frank_safeio::MAX_CONFIG_BYTES {
             file_digest.update([0xfe]);
         }
     } else {
