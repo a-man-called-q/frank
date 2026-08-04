@@ -270,6 +270,7 @@ mod tests {
 
     #[test]
     fn xdg_config_home_is_used_when_present() {
+        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let previous = std::env::var_os("XDG_CONFIG_HOME");
         unsafe { std::env::set_var("XDG_CONFIG_HOME", tmp.path()) };

@@ -29,6 +29,20 @@ pub fn reinforce_text(level: &CompiledLevel) -> &str {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    static ENVIRONMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    pub(crate) fn environment_lock() -> MutexGuard<'static, ()> {
+        ENVIRONMENT_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use frank_pack::{PackSource, compile};
@@ -318,6 +332,7 @@ command_prefix = "caveman"
 
     #[test]
     fn env_var_takes_precedence_over_everything() {
+        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         // SAFETY: single-threaded test, unique env var name not read elsewhere.
@@ -329,6 +344,7 @@ command_prefix = "caveman"
 
     #[test]
     fn falls_back_to_pack_default_when_nothing_configured() {
+        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         let resolved =
@@ -338,6 +354,7 @@ command_prefix = "caveman"
 
     #[test]
     fn repo_local_config_walks_up_from_a_nested_directory() {
+        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         let nested = tmp.path().join("a/b/c");
@@ -354,6 +371,7 @@ command_prefix = "caveman"
 
     #[test]
     fn symlinked_repo_config_is_refused() {
+        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         let secret = tmp.path().join("secret.toml");
