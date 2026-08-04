@@ -37,7 +37,11 @@ fn is_valid_default(pack: &CompiledPack, value: &str) -> bool {
 }
 
 fn env_default(pack: &CompiledPack, env_var: &str) -> Option<String> {
-    let raw = std::env::var(env_var).ok()?;
+    env_default_from(pack, std::env::var(env_var).ok())
+}
+
+fn env_default_from(pack: &CompiledPack, raw: Option<String>) -> Option<String> {
+    let raw = raw?;
     let lower = raw.trim().to_lowercase();
     is_valid_default(pack, &lower).then_some(lower)
 }
@@ -82,16 +86,30 @@ fn find_repo_config_path(start: &Path) -> Option<PathBuf> {
 }
 
 fn user_config_dir() -> Option<PathBuf> {
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+    user_config_dir_from(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("APPDATA"),
+        frank_safeio::home_dir(),
+    )
+}
+
+fn user_config_dir_from(
+    xdg_config_home: Option<std::ffi::OsString>,
+    appdata: Option<std::ffi::OsString>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if let Some(xdg) = xdg_config_home {
         return Some(PathBuf::from(xdg).join("frank"));
     }
     #[cfg(windows)]
     {
-        if let Some(appdata) = std::env::var_os("APPDATA") {
+        if let Some(appdata) = appdata {
             return Some(PathBuf::from(appdata).join("frank"));
         }
     }
-    frank_safeio::home_dir().map(|h| h.join(".config").join("frank"))
+    #[cfg(not(windows))]
+    let _ = appdata;
+    home.map(|path| path.join(".config").join("frank"))
 }
 
 /// Resolve the effective default level for `cwd`, following the precedence
@@ -228,6 +246,21 @@ mod tests {
     }
 
     #[test]
+    fn environment_default_normalizes_and_validates_values() {
+        let pack = fixture_pack();
+        assert_eq!(
+            env_default_from(&pack, Some(" ULTRA ".to_string())).as_deref(),
+            Some("ultra")
+        );
+        assert_eq!(
+            env_default_from(&pack, Some("classic".to_string())).as_deref(),
+            Some("classic")
+        );
+        assert_eq!(env_default_from(&pack, Some("bogus".to_string())), None);
+        assert_eq!(env_default_from(&pack, None), None);
+    }
+
+    #[test]
     fn repo_search_finds_nested_config_and_refuses_symlink_candidates() {
         let tmp = tempdir().unwrap();
         let nested = tmp.path().join("one/two");
@@ -270,24 +303,49 @@ mod tests {
 
     #[test]
     fn xdg_config_home_is_used_when_present() {
-        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
-        let previous = std::env::var_os("XDG_CONFIG_HOME");
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", tmp.path()) };
-        let actual = user_config_dir();
-        restore_xdg_config_home(previous.clone());
-        restore_xdg_config_home(Some(tmp.path().join("branch").into_os_string()));
-        restore_xdg_config_home(None);
-        restore_xdg_config_home(previous);
-
-        assert_eq!(actual, Some(tmp.path().join("frank")));
+        assert_eq!(
+            user_config_dir_from(
+                Some(tmp.path().as_os_str().to_owned()),
+                Some(tmp.path().join("appdata").into_os_string()),
+                Some(tmp.path().join("home")),
+            ),
+            Some(tmp.path().join("frank"))
+        );
     }
 
-    fn restore_xdg_config_home(value: Option<std::ffi::OsString>) {
-        match value {
-            Some(value) => unsafe { std::env::set_var("XDG_CONFIG_HOME", value) },
-            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME") },
-        }
+    #[test]
+    fn user_config_dir_uses_platform_fallback() {
+        let tmp = tempdir().unwrap();
+        let actual = user_config_dir_from(
+            None,
+            Some(tmp.path().join("appdata").into_os_string()),
+            Some(tmp.path().join("home")),
+        );
+        #[cfg(windows)]
+        assert_eq!(actual, Some(tmp.path().join("appdata/frank")));
+        #[cfg(not(windows))]
+        assert_eq!(actual, Some(tmp.path().join("home/.config/frank")));
+        assert_eq!(user_config_dir_from(None, None, None), None);
+    }
+
+    #[test]
+    fn process_level_resolver_uses_the_repo_before_user_config() {
+        let tmp = tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".frank.toml"),
+            "default_level = \"ultra\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_default_level(
+                &fixture_pack(),
+                tmp.path(),
+                "FRANK_TEST_DEFAULT_LEVEL_UNSET_PROCESS_RESOLVER",
+            ),
+            "ultra"
+        );
     }
 
     #[test]

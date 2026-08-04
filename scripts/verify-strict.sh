@@ -31,7 +31,7 @@ cargo llvm-cov nextest \
   --workspace --exclude frank-gui --all-features --locked --profile ci \
   --jobs 1 \
   --no-cfg-coverage \
-  --json --summary-only \
+  --json \
   --ignore-filename-regex '(^|/)(tests/|[^/]*_tests\.rs$)' \
   --output-path target/llvm-cov/frank-summary.json
 cargo run --locked -p xtask -- coverage-check \

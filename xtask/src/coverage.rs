@@ -217,6 +217,68 @@ fn report_metrics(report: &Value) -> Result<BTreeMap<String, Metrics>> {
     Ok(by_package)
 }
 
+fn compact_symbol(name: &str) -> String {
+    const MAX_CHARS: usize = 160;
+    let mut chars = name.chars();
+    let compact = chars.by_ref().take(MAX_CHARS).collect::<String>();
+    if chars.next().is_some() {
+        format!("{compact}...")
+    } else {
+        compact
+    }
+}
+
+fn uncovered_details(report: &Value, package: &str) -> Vec<String> {
+    let mut details = Vec::new();
+    let mut seen_functions = std::collections::BTreeSet::new();
+    let Some(data) = report.get("data").and_then(Value::as_array) else {
+        return details;
+    };
+
+    for entry in data {
+        if let Some(functions) = entry.get("functions").and_then(Value::as_array) {
+            for function in functions {
+                if function.get("count").and_then(Value::as_u64) != Some(0) {
+                    continue;
+                }
+                let filenames = function
+                    .get("filenames")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter(|filename| package_for_filename(filename).as_deref() == Some(package))
+                    .collect::<Vec<_>>();
+                if filenames.is_empty() {
+                    continue;
+                }
+                let symbol = function
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(compact_symbol)
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                let location = function
+                    .get("regions")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .find_map(|region| {
+                        let region = region.as_array()?;
+                        let line = region.first()?.as_u64()?;
+                        Some(format!("{}:{line}", filenames[0]))
+                    })
+                    .unwrap_or_else(|| filenames[0].to_string());
+                let detail = format!("  uncovered function {location}: {symbol}");
+                if seen_functions.insert(detail.clone()) {
+                    details.push(detail);
+                }
+            }
+        }
+    }
+
+    details
+}
+
 fn check_values(report: &Value, policy: &toml::Value) -> Result<String> {
     let metrics = report_metrics(report)?;
     let packages = policy
@@ -298,9 +360,23 @@ fn check_values(report: &Value, policy: &toml::Value) -> Result<String> {
     if failures.is_empty() {
         Ok(output)
     } else {
+        let mut diagnostics = Vec::new();
+        for package in packages.keys() {
+            if failures
+                .iter()
+                .any(|failure| failure.starts_with(&format!("{package} ")))
+            {
+                diagnostics.extend(uncovered_details(report, package));
+            }
+        }
+        let diagnostics = if diagnostics.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", diagnostics.join("\n"))
+        };
         Err(anyhow!(
-            "coverage policy failed:\n- {}",
-            failures.join("\n- ")
+            "coverage policy failed:\n- {}{diagnostics}",
+            failures.join("\n- "),
         ))
     }
 }
@@ -323,7 +399,9 @@ pub fn check(report_path: &Path, policy_path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, check_values, nonnegative_integer, package_for_filename};
+    use super::{
+        check, check_values, nonnegative_integer, package_for_filename, uncovered_details,
+    };
     use serde_json::json;
     use std::fs;
     use tempfile::tempdir;
@@ -431,6 +509,42 @@ target_lines = 95
         let message = error.to_string();
         assert!(message.contains("below minimum"));
         assert!(message.contains("uncovered exceeds maximum"));
+    }
+
+    #[test]
+    fn reports_uncovered_function_and_segment_locations() {
+        let report = json!({
+            "data": [{
+                "files": [{
+                    "filename": "/repo/crates/demo/src/lib.rs",
+                    "segments": [[12, 1, 0, true, true, false]],
+                    "summary": {
+                        "regions": {"count": 1, "covered": 0},
+                        "functions": {"count": 1, "covered": 0},
+                        "lines": {"count": 1, "covered": 0}
+                    }
+                }],
+                "functions": [{
+                    "name": "demo::missing",
+                    "count": 0,
+                    "filenames": ["/repo/crates/demo/src/lib.rs"],
+                    "regions": [[12, 1, 13, 2, 0, 0, 0, 0]]
+                }]
+            }]
+        });
+
+        let details = uncovered_details(&report, "demo");
+        assert!(details.iter().any(|line| line.contains("demo::missing")));
+        assert!(
+            details
+                .iter()
+                .any(|line| line.contains("lib.rs: 12") || line.contains("lib.rs:12"))
+        );
+        assert!(
+            !details
+                .iter()
+                .any(|line| line.contains("zero-count segments"))
+        );
     }
 
     #[test]

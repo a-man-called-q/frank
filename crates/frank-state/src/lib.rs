@@ -29,20 +29,6 @@ pub fn reinforce_text(level: &CompiledLevel) -> &str {
 }
 
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    static ENVIRONMENT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-    pub(crate) fn environment_lock() -> MutexGuard<'static, ()> {
-        ENVIRONMENT_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use frank_pack::{PackSource, compile};
@@ -331,30 +317,39 @@ command_prefix = "caveman"
     // ---------- config precedence ----------
 
     #[test]
-    fn env_var_takes_precedence_over_everything() {
-        let _environment_lock = crate::test_support::environment_lock();
+    fn repo_config_takes_precedence_over_user_config() {
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
-        // SAFETY: single-threaded test, unique env var name not read elsewhere.
-        unsafe { std::env::set_var("FRANK_TEST_DEFAULT_LEVEL_1", "ultra") };
-        let resolved = resolve_default_level(&pack, tmp.path(), "FRANK_TEST_DEFAULT_LEVEL_1");
-        unsafe { std::env::remove_var("FRANK_TEST_DEFAULT_LEVEL_1") };
-        assert_eq!(resolved, "ultra");
+        fs::write(tmp.path().join(".frank.toml"), "default_level = \"full\"\n").unwrap();
+        let user = tmp.path().join("user");
+        fs::create_dir(&user).unwrap();
+        fs::write(user.join("config.toml"), "default_level = \"ultra\"\n").unwrap();
+        assert_eq!(
+            resolve_default_level_with_user_dir(
+                &pack,
+                tmp.path(),
+                "FRANK_TEST_DEFAULT_LEVEL_UNSET_PRECEDENCE",
+                Some(&user),
+            ),
+            "full"
+        );
     }
 
     #[test]
     fn falls_back_to_pack_default_when_nothing_configured() {
-        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
-        let resolved =
-            resolve_default_level(&pack, tmp.path(), "FRANK_TEST_DEFAULT_LEVEL_UNSET_XYZ");
+        let resolved = resolve_default_level_with_user_dir(
+            &pack,
+            tmp.path(),
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_XYZ",
+            None,
+        );
         assert_eq!(resolved, pack.default_level);
     }
 
     #[test]
     fn repo_local_config_walks_up_from_a_nested_directory() {
-        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         let nested = tmp.path().join("a/b/c");
@@ -365,13 +360,17 @@ command_prefix = "caveman"
         )
         .unwrap();
 
-        let resolved = resolve_default_level(&pack, &nested, "FRANK_TEST_DEFAULT_LEVEL_UNSET_ABC");
+        let resolved = resolve_default_level_with_user_dir(
+            &pack,
+            &nested,
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_ABC",
+            None,
+        );
         assert_eq!(resolved, "ultra");
     }
 
     #[test]
     fn symlinked_repo_config_is_refused() {
-        let _environment_lock = crate::test_support::environment_lock();
         let tmp = tempdir().unwrap();
         let pack = fixture_pack(tmp.path());
         let secret = tmp.path().join("secret.toml");
@@ -379,8 +378,12 @@ command_prefix = "caveman"
         #[cfg(unix)]
         std::os::unix::fs::symlink(&secret, tmp.path().join(".frank.toml")).unwrap();
 
-        let resolved =
-            resolve_default_level(&pack, tmp.path(), "FRANK_TEST_DEFAULT_LEVEL_UNSET_DEF");
+        let resolved = resolve_default_level_with_user_dir(
+            &pack,
+            tmp.path(),
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_DEF",
+            None,
+        );
         assert_eq!(resolved, pack.default_level);
     }
 
