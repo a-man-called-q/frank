@@ -29,6 +29,7 @@ cargo test --workspace --doc --locked
 mkdir -p target/llvm-cov
 cargo llvm-cov nextest \
   --workspace --exclude frank-gui --all-features --locked --profile ci \
+  --jobs 1 \
   --no-cfg-coverage \
   --json --summary-only \
   --ignore-filename-regex '(^|/)(tests/|[^/]*_tests\.rs$)' \
