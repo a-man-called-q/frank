@@ -36,10 +36,6 @@ fn is_valid_default(pack: &CompiledPack, value: &str) -> bool {
     value == "off" || pack.resolve_level(value).is_some()
 }
 
-fn env_default(pack: &CompiledPack, env_var: &str) -> Option<String> {
-    env_default_from(pack, std::env::var(env_var).ok())
-}
-
 fn env_default_from(pack: &CompiledPack, raw: Option<String>) -> Option<String> {
     let raw = raw?;
     let lower = raw.trim().to_lowercase();
@@ -85,14 +81,6 @@ fn find_repo_config_path(start: &Path) -> Option<PathBuf> {
     None
 }
 
-fn user_config_dir() -> Option<PathBuf> {
-    user_config_dir_from(
-        std::env::var_os("XDG_CONFIG_HOME"),
-        std::env::var_os("APPDATA"),
-        frank_safeio::home_dir(),
-    )
-}
-
 fn user_config_dir_from(
     xdg_config_home: Option<std::ffi::OsString>,
     appdata: Option<std::ffi::OsString>,
@@ -116,7 +104,12 @@ fn user_config_dir_from(
 /// chain above. `env_var` is normally `"FRANK_DEFAULT_LEVEL"` — parameterized
 /// for tests.
 pub fn resolve_default_level(pack: &CompiledPack, cwd: &Path, env_var: &str) -> String {
-    resolve_default_level_with_user_dir(pack, cwd, env_var, user_config_dir().as_deref())
+    let user_dir = user_config_dir_from(
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("APPDATA"),
+        frank_safeio::home_dir(),
+    );
+    resolve_default_level_from(pack, cwd, std::env::var(env_var).ok(), user_dir.as_deref())
 }
 
 /// Resolve the same precedence chain while allowing an application service to
@@ -129,7 +122,16 @@ pub fn resolve_default_level_with_user_dir(
     env_var: &str,
     user_dir: Option<&Path>,
 ) -> String {
-    if let Some(v) = env_default(pack, env_var) {
+    resolve_default_level_from(pack, cwd, std::env::var(env_var).ok(), user_dir)
+}
+
+fn resolve_default_level_from(
+    pack: &CompiledPack,
+    cwd: &Path,
+    env_value: Option<String>,
+    user_dir: Option<&Path>,
+) -> String {
+    if let Some(v) = env_default_from(pack, env_value) {
         return v;
     }
     if let Some(repo_config) = find_repo_config_path(cwd) {
@@ -150,7 +152,22 @@ mod tests {
     use super::*;
     use frank_pack::{CompiledActivation, CompiledLevel, CompiledOneshot};
     use std::collections::BTreeMap;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tempfile::tempdir;
+
+    fn environment_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn restore_environment(name: &str, value: Option<std::ffi::OsString>) {
+        match value {
+            Some(value) => unsafe { std::env::set_var(name, value) },
+            None => unsafe { std::env::remove_var(name) },
+        }
+    }
 
     fn fixture_pack() -> CompiledPack {
         let mut levels = BTreeMap::new();
@@ -261,6 +278,25 @@ mod tests {
     }
 
     #[test]
+    fn environment_default_has_highest_precedence() {
+        let tmp = tempdir().unwrap();
+        let user = tmp.path().join("user");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(tmp.path().join(".frank.toml"), "default_level = \"full\"\n").unwrap();
+        std::fs::write(user.join("config.toml"), "default_level = \"full\"\n").unwrap();
+
+        assert_eq!(
+            resolve_default_level_from(
+                &fixture_pack(),
+                tmp.path(),
+                Some(" ULTRA ".to_string()),
+                Some(&user),
+            ),
+            "ultra"
+        );
+    }
+
+    #[test]
     fn repo_search_finds_nested_config_and_refuses_symlink_candidates() {
         let tmp = tempdir().unwrap();
         let nested = tmp.path().join("one/two");
@@ -346,6 +382,41 @@ mod tests {
             ),
             "ultra"
         );
+    }
+
+    #[test]
+    fn process_level_resolver_uses_user_config_when_repo_config_is_absent() {
+        let _environment_lock = environment_lock();
+        let tmp = tempdir().unwrap();
+        let xdg = tmp.path().join("xdg");
+        let user = xdg.join("frank");
+        std::fs::create_dir_all(&user).unwrap();
+        std::fs::write(user.join("config.toml"), "default_level = \"ultra\"\n").unwrap();
+
+        let previous = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &xdg) };
+        let resolved = resolve_default_level(
+            &fixture_pack(),
+            tmp.path(),
+            "FRANK_TEST_DEFAULT_LEVEL_UNSET_PROCESS_USER_CONFIG",
+        );
+        restore_environment("XDG_CONFIG_HOME", previous);
+
+        assert_eq!(resolved, "ultra");
+    }
+
+    #[test]
+    fn process_level_resolver_uses_environment_before_files() {
+        let _environment_lock = environment_lock();
+        let tmp = tempdir().unwrap();
+        std::fs::write(tmp.path().join(".frank.toml"), "default_level = \"full\"\n").unwrap();
+        let name = "FRANK_TEST_DEFAULT_LEVEL_PROCESS_PRECEDENCE";
+        let previous = std::env::var_os(name);
+        unsafe { std::env::set_var(name, "ultra") };
+        let resolved = resolve_default_level(&fixture_pack(), tmp.path(), name);
+        restore_environment(name, previous);
+
+        assert_eq!(resolved, "ultra");
     }
 
     #[test]

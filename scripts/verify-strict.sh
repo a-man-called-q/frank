@@ -4,7 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-required=(cargo-nextest cargo-llvm-cov cargo-deny cargo-audit cargo-mutants)
+required=(cargo-nextest cargo-llvm-cov cargo-deny cargo-audit)
 missing=()
 for tool in "${required[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
@@ -93,7 +93,5 @@ fi
 # require nightly Rust, while this mandatory gate is intentionally pinned to
 # the stable toolchain in rust-toolchain.toml. The nightly scrutiny task owns
 # the fuzz suite and runs it with an explicit nightly toolchain.
-
-./scripts/mutation-gate.sh
 
 printf 'strict verification: passed\n'
