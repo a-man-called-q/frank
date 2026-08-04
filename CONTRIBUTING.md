@@ -15,7 +15,7 @@ Thank you for your interest in contributing to Frank! This guide will help you g
 ### Clone and Build
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/frank.git
+git clone https://github.com/a-man-called-q/frank.git
 cd frank
 cargo build --release -p frank-cli
 ./target/release/frank --help

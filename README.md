@@ -2,226 +2,205 @@
   <img src="assets/branding/frank-hero-banner-with-text.png" alt="Frank" width="100%" />
 </p>
 
-# Frank
+# Frank 🧟‍♂️⚡
 
-A lightweight AI agent persona engine inspired by [Caveman](https://github.com/JuliusBrussee/caveman). Frank helps you manage and optimize your AI coding assistant interactions with honest token tracking and smart prompt compression.
+> *"IT'S ALIVE!... and it's super friendly, nerdy, and ready to save your tokens!"*
 
-## What is Frank?
+Meet **Frank** — your friendly, nerdily precise Frankenstein monster of an AI persona engine and prompt compressor. Stitched together from high-performance Rust crates, Frank stands guard between you and your AI coding assistants (like Claude Code, Codex, and Cline) to optimize context windows, enforce honest token tracking, and switch persona packs with lightning speed!
 
-Frank is designed to make working with AI coding assistants more efficient and transparent:
+---
 
-- **Smart Prompt Management**: Inject context and instructions into your AI sessions without bloating your token usage
-- **Honest Token Tracking**: Know exactly how many tokens you're using and saving, with clear accounting
-- **Multiple Personas**: Switch between different AI assistant personalities and behaviors for different tasks
-- **Offline Compression**: Compress documents before sending them to your AI, saving tokens and costs
+## 🟢 What is Frank?
 
-Built with Rust for speed and reliability.
+Frank might look like a monster assembled from individual Rust modules, but deep inside he's just a warm, passionate nerd who loves token efficiency and clean code:
 
-## Installation
+- 🧠 **Honest & Nerdy Token Ledger**: Frank refuses to guess. He measures exact input and output token usage directly from real session logs so you get 100% verified net token accounting.
+- ⚡ **Stitched with Rust**: Built from the ground up for microsecond execution, atomic flag safety (`O_NOFOLLOW`), and zero runtime bloat.
+- 🎭 **Persona Pack Switching**: Need hyper-concise replies? Frank can swap into "Caveman" mode (or custom packs) seamlessly without breaking your context.
+- 🗜️ **Deterministic Compression**: Shrink massive documents and code snippets before feeding them to AI models without losing structural intent.
+- 💚 **Super Friendly & Transparent**: Frank never hides numbers or makes unverified performance claims. Honesty is in his DNA!
 
-### Quick Install (macOS/Linux)
+---
+
+## ⚡ Quick Start & Installation
+
+### Quick Install (macOS / Linux)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/frank/main/dist/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/a-man-called-q/frank/main/dist/install.sh | bash
 ```
 
-### From Source
+### Build From Source
 
-Requirements: Rust 1.85 or newer. The repository also pins Node 24, pnpm 10,
-and Moon 2.4.5 through proto for GUI and release tasks.
+Requirements: Rust 1.85 or newer. (Node 24, pnpm 10, and Moon 2.4.5 via proto if you want to run or build the desktop control plane).
 
 ```sh
-git clone https://github.com/YOUR_USERNAME/frank.git
+git clone https://github.com/a-man-called-q/frank.git
 cd frank
 cargo build --release -p frank-cli
 ./target/release/frank --help
 ```
 
-### Desktop control panel
+### 🖥️ Desktop Control Panel (Tauri)
 
-The Tauri desktop app is an optional control plane; hooks and the CLI never
-need the GUI process to be running. During development:
+Frank includes an optional, sleek desktop tray app! Note: Frank's CLI and lifecycle hooks run 100% standalone without needing the desktop app running.
+
+To launch the desktop GUI in development mode:
 
 ```sh
 pnpm install --frozen-lockfile
 moon run frank-gui:dev
 ```
 
-The tray-first app exposes status/levels, persona packs, integrations,
-diagnostics, and settings. Release builds can produce `.dmg`, `.msi`, `.deb`,
-and `.rpm` packages with `moon run frank-release:bundle`. MVP packages are
-unsigned and are labelled as development builds; signing and notarization are
-tracked in [`docs/roadmap.md`](docs/roadmap.md).
+---
 
-## Getting Started
+## 🧟‍♂️ Using Frank
 
-After installation, set up Frank with your AI coding assistant:
+Once installed, say hi to Frank and set up your environment:
 
 ```sh
-# Check available personas/levels
+# Check available persona levels & modes
 frank levels
 
-# Turn on a specific level
-frank on [LEVEL_NAME]
+# Turn on a specific mode (e.g. Caveman ultra-compressed mode)
+frank on full
 
-# Check current status
+# Check Frank's current status
 frank status
 
-# Install into your AI assistant (Claude Code, Codex, etc.)
+# Attach Frank into your AI assistant (Claude Code, Codex, etc.)
 frank install
 
-# View token usage statistics
+# View nerdy token usage & honest savings statistics!
 frank stats
 ```
 
-## Key Features
+---
 
-### Persona Management
+## 🛠️ Key Capabilities
 
-Switch between different AI assistant behaviors for different tasks:
+### 🎭 Persona Management
+
+Swap between different AI assistant personalities depending on what you're working on:
 
 ```sh
-# List available personas
+# List installed persona packs
 frank pack list
 
-# Add a new persona pack
+# Add a custom persona pack
 frank pack add ./my-custom-pack
 
-# Switch to a different persona
+# Switch active pack
 frank pack use my-custom-pack
 ```
 
-### Document Compression
+### 🗜️ Document Compression
 
-Save tokens by compressing documents before sending to AI:
+Feed large files into your AI without blowing through your token budget:
 
 ```sh
-# Compress files
+# Compress markdown and code files
 frank compress document.md notes.txt
 
-# Preview compression without modifying files
+# Preview compression without altering original files
 frank compress document.md --dry-run
 
-# Restore original files
+# Restore files back to original state
 frank compress document.md --restore
 ```
 
-### Token Statistics
+### 📊 Honest Token Accounting
 
-Get honest metrics about your AI usage:
+Frank tracks token costs with scientific precision:
 
 ```sh
-# View session statistics
+# View stats for a specific session JSONL file
 frank stats --session path/to/session.jsonl
 
-# See all sessions
+# View overall lifetime statistics
 frank stats --all
 
-# Detailed breakdown
+# Get a detailed breakdown of prompt vs response savings
 frank stats --explain
 ```
 
-## Supported AI Assistants
+---
 
-Frank works with popular AI coding assistants:
+## 🤝 Supported AI Assistants
 
-- **Claude Code**: Full integration with lifecycle hooks
-- **Codex**: Static configuration support
-- **Cline**: Static configuration support
+Frank loves collaborating with all your favorite coding tools:
 
-Check compatibility with your setup:
+- 🤖 **Claude Code**: Native lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `Statusline`)
+- 💻 **Codex**: Configuration and system prompt integration
+- 🛠️ **Cline**: Static rules and system instructions
+
+Check which AI tools Frank detected on your system:
 
 ```sh
 frank targets --detected
 ```
 
-Preview installation without making changes:
+Preview installation safely without writing changes:
 
 ```sh
 frank install --dry-run
 ```
 
-## For Developers
+---
 
-### Contributing
+## 🧪 For Developers & Contributors
 
-Want to contribute? Check out:
+Want to explore Frank's inner workings or stitch together your own persona packs?
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) - Development workflow and guidelines
-- [`docs/architecture.md`](docs/architecture.md) - Technical architecture and design decisions
-- [`docs/roadmap.md`](docs/roadmap.md) - Upcoming features and testing checklist
-- [`docs/pack-authoring.md`](docs/pack-authoring.md) - Create custom persona packs
+- 📜 [`CONTRIBUTING.md`](CONTRIBUTING.md) — Workflow, guidelines, and conventional commits
+- 🏗️ [`docs/architecture.md`](docs/architecture.md) — Technical crate boundaries and security design
+- 🗺️ [`docs/roadmap.md`](docs/roadmap.md) — Roadmap and release checklist
+- 🎨 [`docs/pack-authoring.md`](docs/pack-authoring.md) — Build custom persona packs
 
-### Building from Source
+### Building & Verification
 
 ```sh
-# Build the project
+# Build CLI binary
 cargo build --release -p frank-cli
 
-# Run tests
+# Run workspace unit & integration tests
 cargo test --workspace
 
-# Compile persona packs
+# Rebuild compiled persona pack prompts
 cargo run -p xtask -- build-packs
 
-# Validate target manifests
+# Validate target integration schemas
 cargo run -p xtask -- lint-targets
 ```
 
-The fast workspace gate is:
-
+Fast verification gate:
 ```sh
 moon run :verify
 ```
 
-The mandatory strict gate (coverage, audit, browser tests, and clean generated
-output checks) is:
-
+Mandatory strict CI gate:
 ```sh
 moon run :verify-strict
 ```
 
-Native Tauri smoke (hidden launch, single-instance hand-off, and quit) runs
-against a packaged executable supplied by the platform job:
+---
 
-```sh
-FRANK_GUI_BINARY=/path/to/Frank moon run frank-release:native-smoke
-```
+## 📜 Origin & History
 
-`cargo` remains the source of truth for Rust builds; Moon only orchestrates
-the task graph. Release tasks intentionally run without affected filtering or
-cache reuse.
+Frank began as a Rust port of [Caveman](https://github.com/JuliusBrussee/caveman). The initial goal was simple: take the Node.js reference implementation and rebuild it in Rust for extra speed and safety.
 
-### Project Structure
+As development progressed, Frank evolved into much more! We redesigned the token ledger to measure exact session token usage (verifying real savings instead of relying on estimated numbers), built deterministic document compression engines, established modular Rust crate boundaries, and introduced multi-persona pack support.
 
-Frank is built with modular Rust crates:
+While Frank is proud of his Caveman roots, today he stands tall as his own independent, friendly, and nerdy persona monster! 🧟‍♂️💚
 
-- `frank-cli` - Main command-line interface
-- `frank-pack` - Persona pack management
-- `frank-state` - State machine and mode switching
-- `frank-ledger` - Token usage tracking and accounting
-- `frank-compress` - Document compression engine
-- `frank-target` - AI assistant integration layer
-- `frank-app` - shared application service used by CLI, hooks, and GUI
-- `apps/frank-gui` - Tauri v2 + React desktop control plane
+---
 
-Full architecture details in [`docs/architecture.md`](docs/architecture.md).
+## 📄 License
 
+Licensed under the [MIT License](LICENSE.md) — free, open source, and friendly.
 
-## History
+---
 
-Frank started as a simple Rust port of [Caveman](https://github.com/JuliusBrussee/caveman). The goal was straightforward: take the proven Node.js implementation and rebuild it in Rust for better performance and reliability.
+## 💚 Acknowledgments
 
-But midway through development, new ideas emerged. What began as a faithful port evolved into something more - a reimagined engine with its own architecture, philosophy, and goals. The codebase diverged as we explored better ways to handle token accounting, introduced stricter security guarantees, and built a more flexible persona system.
-
-At that point, calling Frank a "port" or "rebuild" no longer felt honest. It's inspired by Caveman's vision, but it's become its own thing - a new implementation that learned from the original while charting its own path.
-
-The original Caveman remains the reference for what this kind of tool should do. Frank is simply another take on how to do it.
-
-## License
-
-MIT License - see [LICENSE.md](LICENSE.md) for details.
-
-## Acknowledgments
-
-Special thanks to [Julius Brussee](https://github.com/JuliusBrussee) and the [Caveman](https://github.com/JuliusBrussee/caveman) community for pioneering AI assistant persona management and proving the concept works. Frank wouldn't exist without that foundation.
+Special thanks to [Julius Brussee](https://github.com/JuliusBrussee) and the [Caveman](https://github.com/JuliusBrussee/caveman) community for pioneering AI assistant persona management and proving the concept works. Frank wouldn't exist without that foundation!
