@@ -161,7 +161,7 @@ jobs:
       - name: Run the complete mandatory gate before publishing
         env:
           FRANK_MUTATION_TIMEOUT: '120'
-        run: moon run :verify-strict
+        run: moon run frank-scrutiny:strict
 
   publish:
     needs: [build, gui-build, release-gate]

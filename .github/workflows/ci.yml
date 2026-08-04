@@ -56,7 +56,7 @@ jobs:
       - name: Run mandatory PR gate
         env:
           FRANK_MUTATION_TIMEOUT: '120'
-        run: moon run :verify-strict
+        run: moon run frank-scrutiny:strict
 
   frontend-browser:
     name: frontend rendered/accessibility smoke

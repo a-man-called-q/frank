@@ -41,7 +41,7 @@ jobs:
         with:
           toolchain: nightly
       - name: Run full nightly suite
-        run: moon run :nightly
+        run: moon run frank-scrutiny:nightly
 
   sanitizers:
     name: ${{ matrix.sanitizer }} sanitizer (pure Rust critical crates)
