@@ -283,7 +283,7 @@ cargo test --doc
 Test packaged binaries:
 
 ```bash
-FRANK_GUI_BINARY=/path/to/Frank moon run frank-release:native-smoke
+FRANK_GUI_BINARY=/path/to/Frank moon run release:native-smoke
 ```
 
 ## Documentation

@@ -20,6 +20,7 @@ frank-compress = { path = "crates/frank-compress" }
 frank-target = { path = "crates/frank-target" }
 frank-mcp = { path = "crates/frank-mcp" }
 frank-app = { path = "crates/frank-app" }
+frank-release-cli = { path = "crates/frank-release-cli" }
 proptest = "1"
 
 clap = { version = "4", features = ["derive"] }

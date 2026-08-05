@@ -124,6 +124,7 @@ fn architecture_check(root: &Path) -> Result<()> {
         ("frank-safeio", "crates/frank-safeio/Cargo.toml"),
         ("frank-state", "crates/frank-state/Cargo.toml"),
         ("frank-target", "crates/frank-target/Cargo.toml"),
+        ("frank-release-cli", "crates/frank-release-cli/Cargo.toml"),
         ("frank-gui", "apps/frank-gui/src-tauri/Cargo.toml"),
         ("xtask", "xtask/Cargo.toml"),
     ];
@@ -185,6 +186,7 @@ fn expected_architecture_dependencies(package: &str) -> Option<&'static [&'stati
         "frank-safeio" => &[],
         "frank-state" => &["frank-pack", "frank-safeio"],
         "frank-target" => &["frank-pack", "frank-safeio"],
+        "frank-release-cli" => &[],
         "frank-gui" => &["frank-app"],
         "xtask" => &["frank-pack", "frank-target"],
         _ => return None,

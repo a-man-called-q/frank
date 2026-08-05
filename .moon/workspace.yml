@@ -3,7 +3,7 @@ $schema: 'https://moonrepo.dev/schemas/workspace.json'
 projects:
   frank-rust: '.moon/projects/frank-rust'
   frank-gui: 'apps/frank-gui'
-  frank-release: '.moon/projects/frank-release'
+  release: '.moon/projects/release'
   frank-scrutiny: '.moon/projects/frank-scrutiny'
 
 defaultProject: 'frank-rust'

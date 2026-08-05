@@ -1,0 +1,68 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'unknown'
+stack: 'infrastructure'
+
+tasks:
+  status:
+    command: 'cargo run --locked -p frank-release-cli -- status'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  verify:
+    command: 'cargo run --locked -p frank-release-cli -- verify'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  bump:
+    command: 'cargo run --locked -p frank-release-cli -- bump'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  tag:
+    command: 'cargo run --locked -p frank-release-cli -- tag'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  cli:
+    command: 'cargo run --locked -p frank-release-cli --'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  bundle:
+    command: './scripts/build-release.sh'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/apps/frank-gui/**/*'
+      - '/crates/**/*'
+      - '/dist/**/*'
+      - '/scripts/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  checksums:
+    command: 'cargo run --locked -p frank-release-cli -- checksums'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  smoke:
+    command: './scripts/package-smoke.sh'
+    deps: ['~:checksums']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  native-smoke:
+    command: './scripts/native-smoke.sh'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+

@@ -253,16 +253,15 @@ moon run frank-gui:dev
 
 Release:
 ```bash
-moon run frank-release:bundle  # → .dmg / .msi / .deb / .rpm
+moon run release:bundle  # → .dmg / .msi / .deb / .rpm
 ```
 
-MVP packages unsigned. Signing tracked in `roadmap.md`.
+MVP packages unsigned. Signing tracked.
 
-### Native Smoke Tests
+Verify host-native packages after building them:
 
-Tests packaged executable (not dev build):
 ```bash
-FRANK_GUI_BINARY=/path/to/Frank moon run frank-release:native-smoke
+FRANK_GUI_BINARY=/path/to/Frank moon run release:native-smoke
 ```
 
 Validates: hidden launch, single-instance hand-off, clean quit.
