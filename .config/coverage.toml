@@ -104,6 +104,17 @@ target_regions = 90
 target_functions = 90
 target_lines = 95
 
+[packages.frank-release-cli]
+min_regions = 5
+min_functions = 8
+min_lines = 5
+max_uncovered_regions = 276
+max_uncovered_functions = 22
+max_uncovered_lines = 305
+target_regions = 30
+target_functions = 40
+target_lines = 30
+
 [packages.xtask]
 min_regions = 68
 min_functions = 67

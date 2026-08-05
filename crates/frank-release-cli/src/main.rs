@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
-use toml_edit::{value, DocumentMut};
+use toml_edit::{DocumentMut, value};
 
 #[derive(Parser)]
 #[command(name = "frank-release", about = "CLI tool for managing Frank releases")]
@@ -107,8 +107,8 @@ fn get_version_info(root: &Path) -> Result<VersionInfo> {
         .to_string();
 
     let pkg_path = root.join("apps/frank-gui/package.json");
-    let pkg_content = fs::read_to_string(&pkg_path)
-        .with_context(|| format!("reading {}", pkg_path.display()))?;
+    let pkg_content =
+        fs::read_to_string(&pkg_path).with_context(|| format!("reading {}", pkg_path.display()))?;
     let pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)?;
     let package_json = pkg_json
         .get("version")
@@ -153,7 +153,11 @@ fn status(root: &Path) -> Result<()> {
     let git_dirty = is_git_dirty(root);
     println!(
         "Git Tree State:          {}",
-        if git_dirty { "DIRTY (uncommitted changes)" } else { "CLEAN" }
+        if git_dirty {
+            "DIRTY (uncommitted changes)"
+        } else {
+            "CLEAN"
+        }
     );
 
     if let Ok(latest_tag) = get_latest_git_tag(root) {
@@ -170,10 +174,15 @@ fn verify(root: &Path) -> Result<()> {
     if !info.synced {
         bail!(
             "Version mismatch detected!\n  Cargo.toml: {}\n  package.json: {}\n  tauri.conf.json: {}",
-            info.cargo, info.package_json, info.tauri_conf
+            info.cargo,
+            info.package_json,
+            info.tauri_conf
         );
     }
-    println!("Verification passed: version {} is synchronized.", info.cargo);
+    println!(
+        "Verification passed: version {} is synchronized.",
+        info.cargo
+    );
     Ok(())
 }
 
@@ -192,9 +201,8 @@ fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
 fn bump(root: &Path, target: &str) -> Result<()> {
     let info = get_version_info(root)?;
     let current_version = &info.cargo;
-    let (major, minor, patch) = parse_semver(current_version).with_context(|| {
-        format!("Current version '{}' is not valid semver", current_version)
-    })?;
+    let (major, minor, patch) = parse_semver(current_version)
+        .with_context(|| format!("Current version '{}' is not valid semver", current_version))?;
 
     let new_version = match target.to_lowercase().as_str() {
         "patch" => format!("{}.{}.{}", major, minor, patch + 1),
@@ -226,7 +234,10 @@ fn bump(root: &Path, target: &str) -> Result<()> {
     let pkg_content = fs::read_to_string(&pkg_path)?;
     let mut pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)?;
     if let Some(obj) = pkg_json.as_object_mut() {
-        obj.insert("version".to_string(), serde_json::Value::String(new_version.clone()));
+        obj.insert(
+            "version".to_string(),
+            serde_json::Value::String(new_version.clone()),
+        );
     }
     fs::write(&pkg_path, serde_json::to_string_pretty(&pkg_json)? + "\n")?;
     println!(" Updated {}", pkg_path.display());
@@ -236,9 +247,15 @@ fn bump(root: &Path, target: &str) -> Result<()> {
     let tauri_content = fs::read_to_string(&tauri_path)?;
     let mut tauri_json: serde_json::Value = serde_json::from_str(&tauri_content)?;
     if let Some(obj) = tauri_json.as_object_mut() {
-        obj.insert("version".to_string(), serde_json::Value::String(new_version.clone()));
+        obj.insert(
+            "version".to_string(),
+            serde_json::Value::String(new_version.clone()),
+        );
     }
-    fs::write(&tauri_path, serde_json::to_string_pretty(&tauri_json)? + "\n")?;
+    fs::write(
+        &tauri_path,
+        serde_json::to_string_pretty(&tauri_json)? + "\n",
+    )?;
     println!(" Updated {}", tauri_path.display());
 
     println!("Version successfully bumped to {}!", new_version);
@@ -292,7 +309,13 @@ fn tag(root: &Path, allow_dirty: bool, dry_run: bool, push: bool) -> Result<()> 
 
     println!("Creating git tag: {}", tag_name);
     let status = ProcessCommand::new("git")
-        .args(["tag", "-a", &tag_name, "-m", &format!("Release {}", tag_name)])
+        .args([
+            "tag",
+            "-a",
+            &tag_name,
+            "-m",
+            &format!("Release {}", tag_name),
+        ])
         .current_dir(root)
         .status()?;
 
@@ -320,7 +343,10 @@ fn tag(root: &Path, allow_dirty: bool, dry_run: bool, push: bool) -> Result<()> 
 fn checksums(root: &Path) -> Result<()> {
     let dist_dir = root.join("dist");
     if !dist_dir.exists() {
-        bail!("Directory {} does not exist. Build release artifacts first.", dist_dir.display());
+        bail!(
+            "Directory {} does not exist. Build release artifacts first.",
+            dist_dir.display()
+        );
     }
 
     let mut entries = Vec::new();
@@ -380,4 +406,3 @@ mod tests {
         assert_eq!(parse_semver("1.2"), None);
     }
 }
-
