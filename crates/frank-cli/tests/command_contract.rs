@@ -206,6 +206,39 @@ fn stats_rendering_covers_empty_json_share_explain_and_lifetime_paths() {
 }
 
 #[test]
+fn pack_add_accepts_the_typed_yes_confirmation_via_stdin() {
+    let root = tempfile::tempdir().unwrap();
+    let local = root.path().join("local-pack");
+    fs::create_dir_all(local.join("levels")).unwrap();
+    fs::write(
+        local.join("pack.toml"),
+        r#"schema = 1
+[pack]
+id = "local"
+version = "1.0.0"
+default_level = "full"
+[pack.budget]
+max_activation_bytes = 1000
+max_reinforce_bytes = 1000
+[[level]]
+id = "full"
+compose = ["@rules"]
+rules = "levels/full.md"
+"#,
+    )
+    .unwrap();
+    fs::write(local.join("levels/full.md"), "Respond with short answers.").unwrap();
+    let local_source = local.to_string_lossy().into_owned();
+
+    let output = run_with_stdin(root.path(), &["pack", "add", &local_source], "yes\n");
+    assert_success(&output);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("installed local"));
+
+    let output = run(root.path(), &["pack", "list"]);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("local 1.0.0"));
+}
+
+#[test]
 fn compression_check_dry_run_write_and_restore_are_safe() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("notes.md");

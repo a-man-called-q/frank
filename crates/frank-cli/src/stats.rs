@@ -116,3 +116,86 @@ fn lifetime_text(svc: &FrankService) -> String {
         injections.len()
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frank_app::FrankPaths;
+    use tempfile::tempdir;
+
+    fn service(root: &std::path::Path) -> FrankService {
+        FrankService::new(FrankPaths {
+            config_dir: root.join("claude"),
+            data_root: root.join("data"),
+            user_config_dir: root.join("config"),
+            cwd: root.to_path_buf(),
+            frank_bin: root.join("bin/frank"),
+        })
+    }
+
+    #[test]
+    fn lifetime_text_reports_a_verdict_once_enough_sessions_and_turns_exist() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        let ledger_paths = svc.paths().ledger_paths();
+
+        for i in 0..20 {
+            frank_ledger::append_history(
+                &ledger_paths.history,
+                &frank_ledger::HistoryRow {
+                    ts: i,
+                    session_id: format!("session-{i}"),
+                    model: Some("claude-sonnet-4-20250514".to_string()),
+                    output_tokens: 100,
+                    input_tokens: 50,
+                    turns: 10,
+                },
+            );
+        }
+        frank_ledger::append_injection(
+            &ledger_paths.ledger,
+            &frank_ledger::InjectionEntry {
+                ts: 1,
+                kind: "activate".to_string(),
+                session: Some("session-0".to_string()),
+                level: Some("full".to_string()),
+                inject_bytes: 500,
+            },
+        );
+
+        let text = lifetime_text(&svc);
+        assert!(text.contains("lifetime (20 sessions)"), "{text}");
+        assert!(text.contains("Output tokens (measured):  2000"), "{text}");
+        assert!(text.contains("Input tokens (measured):   1000"), "{text}");
+        assert!(
+            text.contains("Frank injected (measured): 500 bytes across 1 log entries"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn share_line_skips_a_mode_with_no_benchmark_entry() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        svc.set_active_level(Some("lite")).unwrap();
+
+        let session = tmp.path().join("session.jsonl");
+        std::fs::write(
+            &session,
+            r#"{"type":"assistant","timestamp":"2099-01-01T00:00:00.000Z","message":{"model":"claude-3-5-sonnet","usage":{"output_tokens":12,"input_tokens":8}}}"#,
+        )
+        .unwrap();
+
+        let text = report_text(
+            &svc,
+            &StatsArgs {
+                session: Some(session),
+                json: false,
+                all: false,
+                share: true,
+                explain: false,
+            },
+        );
+        assert!(text.contains("Saved ~0 output tokens"), "{text}");
+    }
+}

@@ -85,5 +85,6 @@ mod tests {
         });
         assert_eq!(run(&svc, false, true), 0);
         assert_eq!(run(&svc, true, false), 0);
+        assert_eq!(run(&svc, false, false), 0);
     }
 }

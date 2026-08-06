@@ -147,6 +147,27 @@ fn valid_hooks_emit_context_statusline_stats_and_timestamped_ledger_entries() {
 }
 
 #[test]
+fn user_prompt_submit_handles_the_off_trigger_without_reinforcing() {
+    let root = tempfile::tempdir().unwrap();
+    let output = configured(root.path())
+        .args(["on", "lite"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let output = hook_with_input(
+        root.path(),
+        "user-prompt-submit",
+        r#"{"prompt":"turn off caveman"}"#,
+    );
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+
+    let output = configured(root.path()).args(["status"]).output().unwrap();
+    assert!(String::from_utf8_lossy(&output.stdout).contains("frank: off"));
+}
+
+#[test]
 fn hook_dispatch_happens_before_clap_construction() {
     let output = frank()
         .args(["hook", "not-a-real-hook", "--this-would-fail-clap"])

@@ -155,6 +155,24 @@ mod tests {
     }
 
     #[test]
+    fn on_with_no_level_argument_falls_back_to_the_effective_default() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        assert!(on(&svc, None).is_ok());
+        let level = svc.active_level().unwrap();
+        assert!(level.is_some());
+    }
+
+    #[test]
+    fn on_with_off_deactivates_instead_of_activating() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        assert!(on(&svc, Some("lite")).is_ok());
+        assert!(on(&svc, Some("off")).is_ok());
+        assert_eq!(svc.active_level().unwrap(), None);
+    }
+
+    #[test]
     fn on_rejects_an_unknown_level() {
         let tmp = tempdir().unwrap();
         let svc = service(tmp.path());

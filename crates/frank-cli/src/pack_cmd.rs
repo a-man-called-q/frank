@@ -234,4 +234,74 @@ rules = "levels/full.md"
         assert!(add(&svc, source.to_str().unwrap(), None, true).is_ok());
         assert!(use_pack(&svc, "local").is_ok());
     }
+
+    #[test]
+    fn add_reports_a_scoped_error_for_a_missing_source_path() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        let missing = tmp.path().join("does-not-exist");
+        let err = add(&svc, missing.to_str().unwrap(), None, true).unwrap_err();
+        assert!(format!("{err}").starts_with("frank pack add:"), "{err}");
+    }
+
+    #[test]
+    fn use_pack_then_list_shows_the_builtin_as_built_in_and_the_new_pack_as_active() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        let source = tmp.path().join("pack");
+        std::fs::create_dir_all(source.join("levels")).unwrap();
+        std::fs::write(
+            source.join("pack.toml"),
+            r#"schema = 1
+[pack]
+id = "local"
+version = "1.0.0"
+default_level = "full"
+[pack.budget]
+max_activation_bytes = 1000
+max_reinforce_bytes = 1000
+[[level]]
+id = "full"
+compose = ["@rules"]
+rules = "levels/full.md"
+"#,
+        )
+        .unwrap();
+        std::fs::write(source.join("levels/full.md"), "Be concise.").unwrap();
+        assert!(add(&svc, source.to_str().unwrap(), None, true).is_ok());
+        assert!(use_pack(&svc, "local").is_ok());
+
+        assert!(list(&svc).is_ok());
+    }
+
+    #[test]
+    fn remove_deletes_a_non_builtin_installed_pack() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        let source = tmp.path().join("pack");
+        std::fs::create_dir_all(source.join("levels")).unwrap();
+        std::fs::write(
+            source.join("pack.toml"),
+            r#"schema = 1
+[pack]
+id = "local"
+version = "1.0.0"
+default_level = "full"
+[pack.budget]
+max_activation_bytes = 1000
+max_reinforce_bytes = 1000
+[[level]]
+id = "full"
+compose = ["@rules"]
+rules = "levels/full.md"
+"#,
+        )
+        .unwrap();
+        std::fs::write(source.join("levels/full.md"), "Be concise.").unwrap();
+        assert!(add(&svc, source.to_str().unwrap(), None, true).is_ok());
+
+        assert!(remove(&svc, "local").is_ok());
+        let err = use_pack(&svc, "local").unwrap_err();
+        assert_eq!(err.code, 1);
+    }
 }

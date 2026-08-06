@@ -172,3 +172,42 @@ fn statusline(svc: &FrankService) -> i32 {
     let _ = std::io::stdout().write_all(format!("\x1b[38;5;172m{badge}\x1b[0m").as_bytes());
     0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use frank_app::FrankPaths;
+    use tempfile::tempdir;
+
+    fn service(root: &std::path::Path) -> FrankService {
+        FrankService::new(FrankPaths {
+            config_dir: root.join("claude"),
+            data_root: root.join("data"),
+            user_config_dir: root.join("config"),
+            cwd: root.to_path_buf(),
+            frank_bin: root.join("bin/frank"),
+        })
+    }
+
+    #[test]
+    fn session_start_records_the_discovered_session_id() {
+        let tmp = tempdir().unwrap();
+        let svc = service(tmp.path());
+        svc.set_active_level(Some("full")).unwrap();
+
+        let project_dir = svc.paths().config_dir.join("projects").join("proj");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(project_dir.join("session-42.jsonl"), "{}").unwrap();
+
+        assert_eq!(session_start(&svc), 0);
+
+        let ledger_paths = svc.paths().ledger_paths();
+        let entries = frank_ledger::read_injections(&ledger_paths.ledger);
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.kind == "activate" && e.session.as_deref() == Some("session-42")),
+            "{entries:?}"
+        );
+    }
+}
