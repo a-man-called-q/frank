@@ -41,15 +41,8 @@ impl FlagPaths {
     }
 }
 
-fn valid_values(pack: &CompiledPack) -> Vec<&str> {
-    let mut v: Vec<&str> = pack.levels.keys().map(String::as_str).collect();
-    v.extend(pack.oneshots.keys().map(String::as_str));
-    v.push("off");
-    v
-}
-
 fn record_mode_change(paths: &FlagPaths, pack: &CompiledPack, next: Option<&str>) {
-    let current = frank_safeio::read_flag(&paths.active, &valid_values(pack));
+    let current = frank_safeio::read_flag(&paths.active, &pack.valid_flag_values());
     if current.as_deref() == next {
         return;
     }
@@ -87,7 +80,7 @@ pub fn apply(intent: &Intent, pack: &CompiledPack, paths: &FlagPaths) -> Applied
         Intent::Deactivate => deactivate(paths, pack),
         Intent::Activate(level) => activate(paths, pack, level),
         Intent::Oneshot(id) => {
-            let current = frank_safeio::read_flag(&paths.active, &valid_values(pack));
+            let current = frank_safeio::read_flag(&paths.active, &pack.valid_flag_values());
             if let Some(cur) = current.as_deref() {
                 if !pack.oneshots.contains_key(cur) {
                     let _ = frank_safeio::write_flag_atomic(&paths.prev, cur);
@@ -100,11 +93,11 @@ pub fn apply(intent: &Intent, pack: &CompiledPack, paths: &FlagPaths) -> Applied
         Intent::None | Intent::Stats(_) => {}
     }
 
-    let mut active = frank_safeio::read_flag(&paths.active, &valid_values(pack));
+    let mut active = frank_safeio::read_flag(&paths.active, &pack.valid_flag_values());
 
     if let Some(cur) = active.clone() {
         if pack.oneshots.contains_key(&cur) && !set_oneshot_this_turn {
-            let prev = frank_safeio::read_flag(&paths.prev, &valid_values(pack));
+            let prev = frank_safeio::read_flag(&paths.prev, &pack.valid_flag_values());
             let _ = frank_safeio::remove_file(&paths.prev);
             match prev.filter(|p| !pack.oneshots.contains_key(p)) {
                 Some(p) => {

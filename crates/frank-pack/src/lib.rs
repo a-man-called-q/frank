@@ -102,6 +102,22 @@ command_prefix = "caveman"
     }
 
     #[test]
+    fn valid_flag_values_include_levels_oneshots_and_off() {
+        let tmp = tempdir().unwrap();
+        minimal_pack(tmp.path());
+        let pack = compile(&PackSource::load(tmp.path()).unwrap()).unwrap();
+
+        let values = pack.valid_flag_values();
+        for level in pack.levels.keys() {
+            assert!(values.contains(&level.as_str()));
+        }
+        for oneshot in pack.oneshots.keys() {
+            assert!(values.contains(&oneshot.as_str()));
+        }
+        assert!(values.contains(&"off"));
+    }
+
+    #[test]
     fn alias_resolves_to_canonical_level() {
         let tmp = tempdir().unwrap();
         minimal_pack(tmp.path());

@@ -70,8 +70,20 @@ impl FrankPaths {
         self.user_config_dir().join("config.toml")
     }
 
+    /// The state files `frank-state`'s engine reads and writes: the active
+    /// flag, its one-shot-restore backup, and the mode-transition log.
+    pub fn flag_paths(&self) -> frank_state::FlagPaths {
+        frank_state::FlagPaths::under(&self.config_dir)
+    }
+
+    /// The two ledger files `frank-ledger` reads and appends to: the
+    /// per-turn injection log and the lifetime session history.
+    pub fn ledger_paths(&self) -> frank_ledger::LedgerPaths {
+        frank_ledger::LedgerPaths::under(&self.config_dir)
+    }
+
     pub fn active_flag_path(&self) -> PathBuf {
-        self.config_dir.join(".frank-active")
+        self.flag_paths().active
     }
 
     /// Override the executable used in generated target hook commands. The

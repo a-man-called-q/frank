@@ -1,13 +1,15 @@
 mod commands;
 mod compress_cmd;
-mod flag;
+mod error;
 mod hook;
-mod pack;
+mod pack_cmd;
 mod stats;
 mod targets_cmd;
 
 use clap::{Parser, Subcommand};
-use std::panic::UnwindSafe;
+use frank_app::{FrankPaths, FrankService};
+
+use error::report;
 
 /// `hook` is dispatched before clap's `Command` tree is even constructed —
 /// clap's builder allocation is the dominant startup cost in a binary this
@@ -18,10 +20,11 @@ fn main() {
     let raw: Vec<String> = std::env::args().collect();
     if raw.len() >= 3 && raw[1] == "hook" {
         let name = raw[2].clone();
+        let svc = FrankService::new(FrankPaths::from_process());
         // Backstop: hook::dispatch is written to never panic, but a hook
         // exiting non-zero (or crashing) can break the host agent's turn,
         // so this is a hard guarantee, not an optimization.
-        let code = guarded_hook(|| hook::dispatch(&name));
+        let code = guarded_hook(|| hook::dispatch(&svc, &name));
         std::process::exit(code);
     }
     std::process::exit(run());
@@ -29,9 +32,9 @@ fn main() {
 
 fn guarded_hook<F>(run: F) -> i32
 where
-    F: FnOnce() -> i32 + UnwindSafe,
+    F: FnOnce() -> i32,
 {
-    std::panic::catch_unwind(run).unwrap_or(0)
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)).unwrap_or(0)
 }
 
 #[derive(Parser)]
@@ -164,16 +167,21 @@ enum PackCommand {
 
 fn run() -> i32 {
     let cli = Cli::parse();
+    let svc = FrankService::new(FrankPaths::from_process());
     match cli.command {
-        Command::Hook { name } => hook::dispatch(&name),
-        Command::On { level } => commands::on(level.as_deref()),
-        Command::Off => commands::off(),
-        Command::Status => commands::status(),
-        Command::Levels => commands::levels(),
-        Command::Install { dry_run, only } => commands::install(dry_run, only.as_deref()),
-        Command::Uninstall { dry_run, only } => commands::uninstall(dry_run, only.as_deref()),
-        Command::Doctor => commands::doctor(),
-        Command::Targets { detected, json } => targets_cmd::run(detected, json),
+        Command::Hook { name } => hook::dispatch(&svc, &name),
+        Command::On { level } => report(commands::on(&svc, level.as_deref())),
+        Command::Off => report(commands::off(&svc)),
+        Command::Status => report(commands::status(&svc)),
+        Command::Levels => report(commands::levels(&svc)),
+        Command::Install { dry_run, only } => {
+            report(commands::install(&svc, dry_run, only.as_deref()))
+        }
+        Command::Uninstall { dry_run, only } => {
+            report(commands::uninstall(&svc, dry_run, only.as_deref()))
+        }
+        Command::Doctor => commands::doctor(&svc),
+        Command::Targets { detected, json } => targets_cmd::run(&svc, detected, json),
         Command::Stats {
             session,
             json,
@@ -188,7 +196,7 @@ fn run() -> i32 {
                 share,
                 explain,
             };
-            print!("{}", stats::report_text(&args));
+            print!("{}", stats::report_text(&svc, &args));
             0
         }
         Command::Compress {
@@ -225,13 +233,13 @@ fn run() -> i32 {
                 source,
                 sha256,
                 yes,
-            } => pack::add(&source, sha256.as_deref(), yes),
-            PackCommand::List => pack::list(),
-            PackCommand::Use { selector } => pack::use_pack(&selector),
-            PackCommand::Remove { selector } => pack::remove(&selector),
+            } => report(pack_cmd::add(&svc, &source, sha256.as_deref(), yes)),
+            PackCommand::List => report(pack_cmd::list(&svc)),
+            PackCommand::Use { selector } => report(pack_cmd::use_pack(&svc, &selector)),
+            PackCommand::Remove { selector } => report(pack_cmd::remove(&svc, &selector)),
             PackCommand::Build { path } => {
                 let path = path.unwrap_or_else(|| std::path::PathBuf::from("packs/caveman"));
-                match pack::build(&path) {
+                match pack_cmd::build(&path) {
                     Ok(compiled) => {
                         println!("frank: compiled {} v{}", compiled.id, compiled.version);
                         0
@@ -242,7 +250,7 @@ fn run() -> i32 {
                     }
                 }
             }
-            PackCommand::Show { selector } => pack::show(selector.as_deref()),
+            PackCommand::Show { selector } => report(pack_cmd::show(&svc, selector.as_deref())),
         },
     }
 }

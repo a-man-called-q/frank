@@ -17,12 +17,12 @@ target_functions = 90
 target_lines = 95
 
 [packages.frank-cli]
-min_regions = 56
-min_functions = 56
-min_lines = 55
-max_uncovered_regions = 224
-max_uncovered_functions = 39
-max_uncovered_lines = 411
+min_regions = 80
+min_functions = 68
+min_lines = 84
+max_uncovered_regions = 105
+max_uncovered_functions = 34
+max_uncovered_lines = 150
 target_regions = 75
 target_functions = 80
 target_lines = 80

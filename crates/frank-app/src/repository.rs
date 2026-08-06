@@ -2,13 +2,6 @@ use std::path::PathBuf;
 
 use crate::{FrankPaths, LevelSummary, PackSummary};
 
-pub(super) fn valid_values(pack: &frank_pack::CompiledPack) -> Vec<&str> {
-    let mut values = pack.levels.keys().map(String::as_str).collect::<Vec<_>>();
-    values.extend(pack.oneshots.keys().map(String::as_str));
-    values.push("off");
-    values
-}
-
 pub(super) fn pack_summary(
     pack: &frank_pack::CompiledPack,
     active: bool,

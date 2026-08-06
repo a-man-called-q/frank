@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::{FrankService, builtin_pack, valid_values};
+use super::FrankService;
 
 impl FrankService {
     /// Build and record the ledger report used by both the CLI stats command
@@ -12,7 +12,7 @@ impl FrankService {
         &self,
         session_override: Option<&Path>,
     ) -> frank_ledger::SessionReport {
-        let compiled = self.current_pack().unwrap_or_else(|_| builtin_pack());
+        let compiled = self.pack_or_builtin();
         let session_path = session_override
             .map(PathBuf::from)
             .or_else(|| frank_ledger::find_recent_session(&self.paths.config_dir));
@@ -29,10 +29,12 @@ impl FrankService {
             };
         };
 
-        let mode_log_path = self.paths.config_dir.join(".frank-mode-log.jsonl");
-        let ledger_path = self.paths.config_dir.join(".frank-ledger.jsonl");
-        let valid = valid_values(&compiled);
-        let current_mode = frank_safeio::read_flag(&self.paths.active_flag_path(), &valid);
+        let flag_paths = self.paths.flag_paths();
+        let ledger_paths = self.paths.ledger_paths();
+        let current_mode = frank_safeio::read_flag(
+            &self.paths.active_flag_path(),
+            &compiled.valid_flag_values(),
+        );
         let flag_mtime_ms = std::fs::metadata(self.paths.active_flag_path())
             .and_then(|metadata| metadata.modified())
             .ok()
@@ -41,8 +43,8 @@ impl FrankService {
 
         let report = frank_ledger::build_session_report(
             &session_path,
-            &mode_log_path,
-            &ledger_path,
+            &flag_paths.mode_log,
+            &ledger_paths.ledger,
             &compiled,
             current_mode.as_deref(),
             flag_mtime_ms,
@@ -51,7 +53,7 @@ impl FrankService {
         if report.turns > 0 {
             if let Some(session_id) = &report.session_id {
                 frank_ledger::append_history(
-                    &self.paths.config_dir.join(".frank-history.jsonl"),
+                    &ledger_paths.history,
                     &frank_ledger::HistoryRow {
                         ts: SystemTime::now()
                             .duration_since(UNIX_EPOCH)

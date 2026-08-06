@@ -10,6 +10,7 @@
 mod attribution;
 mod injection_ledger;
 mod mode_log;
+mod paths;
 mod pricing;
 mod session;
 mod stats;
@@ -26,6 +27,7 @@ pub use injection_ledger::{
     InjectionEntry, append as append_injection, read_all as read_injections,
 };
 pub use mode_log::{ModeLogRow, read_mode_log};
+pub use paths::LedgerPaths;
 pub use pricing::{MODEL_OUTPUT_PRICE_PER_M, format_usd, price_for_model};
 pub use session::{SessionScan, SessionTurn, find_recent_session, parse_session};
 pub use stats::{

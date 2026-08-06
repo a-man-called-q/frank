@@ -2,30 +2,21 @@
 //! `/caveman-stats` hook interception (`hook.rs`) also calls, so the two
 //! entry points can never drift into reporting different numbers.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use frank_app::{FrankPaths, FrankService};
+use frank_app::FrankService;
 use frank_ledger::{
     MIN_SESSIONS_FOR_LIFETIME_VERDICT, MIN_TURNS_FOR_LIFETIME_VERDICT, aggregate_history,
     format_usd, lifetime_verdict_has_enough_data, measured_output_total, price_for_model,
     read_history, read_injections, savings_estimate,
 };
 
-use crate::{flag, pack};
-
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
-}
-
-/// Build the current-session report and, if it has any turns, append a
-/// lifetime history row. Shared by `frank stats` and the
-/// `/caveman-stats` hook interception.
-pub fn build_and_record(session_override: Option<&Path>) -> frank_ledger::SessionReport {
-    FrankService::new(FrankPaths::from_process()).build_and_record_stats(session_override)
 }
 
 pub struct StatsArgs {
@@ -38,19 +29,19 @@ pub struct StatsArgs {
 
 /// Returns the report text (used by both the CLI command's stdout and the
 /// hook's `{"decision":"block","reason":...}` payload).
-pub fn report_text(args: &StatsArgs) -> String {
+pub fn report_text(svc: &FrankService, args: &StatsArgs) -> String {
     if args.all {
-        return lifetime_text();
+        return lifetime_text(svc);
     }
 
-    let report = build_and_record(args.session.as_deref());
-    let compiled = pack::current_or_builtin();
+    let report = svc.build_and_record_stats(args.session.as_deref());
+    let compiled = svc.pack_or_builtin();
 
     if args.json {
         return frank_ledger::render_json(&report, &compiled).to_string();
     }
     if args.share {
-        return share_line(&report);
+        return share_line(&compiled, &report);
     }
 
     let mut text = frank_ledger::render_text(&report, &compiled);
@@ -60,12 +51,11 @@ pub fn report_text(args: &StatsArgs) -> String {
     text
 }
 
-fn share_line(report: &frank_ledger::SessionReport) -> String {
+fn share_line(compiled: &frank_pack::CompiledPack, report: &frank_ledger::SessionReport) -> String {
     let output_total = measured_output_total(&report.attribution);
     if report.turns == 0 || output_total == 0 {
         return "\u{1FAA8} frank armed but no turns yet\n".to_string();
     }
-    let compiled = pack::current_or_builtin();
     let mut saved = 0u64;
     for (mode, bucket) in &report.attribution.by_mode {
         if let Some(stat) = compiled.benchmark.get(mode) {
@@ -92,9 +82,9 @@ fn explain_text() -> String {
         .to_string()
 }
 
-fn lifetime_text() -> String {
-    let config_dir = flag::config_dir();
-    let rows = aggregate_history(&read_history(&config_dir.join(".frank-history.jsonl")));
+fn lifetime_text(svc: &FrankService) -> String {
+    let ledger_paths = svc.paths().ledger_paths();
+    let rows = aggregate_history(&read_history(&ledger_paths.history));
     let sessions = rows.len();
     let turns: usize = rows.iter().map(|row| row.turns).sum();
 
@@ -109,8 +99,7 @@ fn lifetime_text() -> String {
 
     let output_total: u64 = rows.iter().map(|r| r.output_tokens).sum();
     let input_total: u64 = rows.iter().map(|r| r.input_tokens).sum();
-    let ledger_path = config_dir.join(".frank-ledger.jsonl");
-    let injections = read_injections(&ledger_path);
+    let injections = read_injections(&ledger_paths.ledger);
     let frank_bytes: usize = injections.iter().map(|e| e.inject_bytes).sum();
 
     format!(

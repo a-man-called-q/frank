@@ -12,35 +12,33 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 
-use frank_app::{FrankPaths, FrankService};
+use frank_app::FrankService;
 use frank_ledger::{InjectionEntry, append_injection};
-use frank_state::{AppliedState, FlagPaths};
+use frank_state::AppliedState;
 
-use crate::{flag, pack, stats};
+use crate::stats;
 
-pub fn dispatch(name: &str) -> i32 {
+pub fn dispatch(svc: &FrankService, name: &str) -> i32 {
     match name {
-        "session-start" => session_start(),
-        "user-prompt-submit" => user_prompt_submit(),
-        "statusline" => statusline(),
+        "session-start" => session_start(svc),
+        "user-prompt-submit" => user_prompt_submit(svc),
+        "statusline" => statusline(svc),
         _ => 0,
     }
 }
 
-fn session_start() -> i32 {
-    let current = match pack::current() {
+fn session_start(svc: &FrankService) -> i32 {
+    let current = match svc.current_pack() {
         Ok(pack) => pack,
         Err(_) => return 0,
     };
-    let flag_path = flag::path();
-    let valid = pack::valid_flag_values(&current);
-    let valid = valid.iter().map(String::as_str).collect::<Vec<_>>();
-    let level_id = frank_safeio::read_flag(&flag_path, &valid);
+    let flag_path = svc.paths().flag_paths().active;
+    let level_id = frank_safeio::read_flag(&flag_path, &current.valid_flag_values());
 
     match level_id.as_deref() {
         None | Some("off") => {}
         Some(id) => {
-            if let Some(level) = pack::level_by_id(&current, id) {
+            if let Some(level) = current.levels.get(id) {
                 // SessionStart stdout is injected as hidden context by the
                 // host agent, not shown to the user directly.
                 let _ = std::io::stdout().write_all(level.activation_prompt.as_bytes());
@@ -56,10 +54,10 @@ fn session_start() -> i32 {
                 // isn't created until the first turn), the entry is
                 // written with no session id and simply won't be counted
                 // toward any session's report — a safe degradation.
-                let session_id = frank_ledger::find_recent_session(&flag::config_dir())
+                let session_id = frank_ledger::find_recent_session(&svc.paths().config_dir)
                     .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()));
                 append_injection(
-                    &flag::config_dir().join(".frank-ledger.jsonl"),
+                    &svc.paths().ledger_paths().ledger,
                     &InjectionEntry {
                         ts: stats::now_ms(),
                         kind: "activate".to_string(),
@@ -74,7 +72,7 @@ fn session_start() -> i32 {
     0
 }
 
-fn user_prompt_submit() -> i32 {
+fn user_prompt_submit(svc: &FrankService) -> i32 {
     let mut raw = String::new();
     if std::io::stdin().read_to_string(&mut raw).is_err() {
         return 0;
@@ -88,17 +86,17 @@ fn user_prompt_submit() -> i32 {
         .map(PathBuf::from)
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()));
 
-    let compiled = match pack::current() {
+    let compiled = match svc.current_pack() {
         Ok(pack) => pack,
         Err(_) => return 0,
     };
-    let resolved_default = FrankService::new(FrankPaths::from_process())
+    let resolved_default = svc
         .effective_default_level()
         .unwrap_or_else(|_| compiled.default_level.clone());
     let intent = frank_state::classify(prompt, &compiled, &resolved_default);
 
-    let paths = FlagPaths::under(&flag::config_dir());
-    let applied = frank_state::apply(&intent, &compiled, &paths);
+    let flag_paths = svc.paths().flag_paths();
+    let applied = frank_state::apply(&intent, &compiled, &flag_paths);
 
     match applied {
         AppliedState::StatsRequested(tail_args) => {
@@ -109,12 +107,12 @@ fn user_prompt_submit() -> i32 {
                 share: tail_args.iter().any(|a| a == "--share"),
                 explain: false,
             };
-            let reason = stats::report_text(&args);
+            let reason = stats::report_text(svc, &args);
             let out = serde_json::json!({ "decision": "block", "reason": reason.trim() });
             let _ = std::io::stdout().write_all(out.to_string().as_bytes());
         }
         AppliedState::Level(id) => {
-            if let Some(level) = pack::level_by_id(&compiled, &id) {
+            if let Some(level) = compiled.levels.get(&id) {
                 let out = serde_json::json!({
                     "hookSpecificOutput": {
                         "hookEventName": "UserPromptSubmit",
@@ -129,7 +127,7 @@ fn user_prompt_submit() -> i32 {
                 // every turn it fires so `frank stats` can show it as its
                 // own line, not folded into the activation cost.
                 append_injection(
-                    &flag::config_dir().join(".frank-ledger.jsonl"),
+                    &svc.paths().ledger_paths().ledger,
                     &InjectionEntry {
                         ts: stats::now_ms(),
                         kind: "reinforce".to_string(),
@@ -149,14 +147,15 @@ fn user_prompt_submit() -> i32 {
     0
 }
 
-fn statusline() -> i32 {
-    let current = match pack::current() {
+fn statusline(svc: &FrankService) -> i32 {
+    let current = match svc.current_pack() {
         Ok(pack) => pack,
         Err(_) => return 0,
     };
-    let valid = pack::valid_flag_values(&current);
-    let valid = valid.iter().map(String::as_str).collect::<Vec<_>>();
-    let level_id = frank_safeio::read_flag(&flag::path(), &valid);
+    let level_id = frank_safeio::read_flag(
+        &svc.paths().flag_paths().active,
+        &current.valid_flag_values(),
+    );
     let pack_label = current.id.to_uppercase();
 
     let badge = match level_id.as_deref() {

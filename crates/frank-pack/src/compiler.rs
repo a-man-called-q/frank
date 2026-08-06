@@ -96,6 +96,18 @@ impl CompiledPack {
         let canonical = self.aliases.get(name)?;
         self.levels.get(canonical)
     }
+
+    /// Every value that may legally appear in the active flag file:
+    /// canonical level ids, one-shot ids, and the `off` sentinel. One-shots
+    /// must be included — a statusline/session-start read that rejected
+    /// them would collapse an in-flight one-shot to `off` before its
+    /// restore turn runs.
+    pub fn valid_flag_values(&self) -> Vec<&str> {
+        let mut values = self.levels.keys().map(String::as_str).collect::<Vec<_>>();
+        values.extend(self.oneshots.keys().map(String::as_str));
+        values.push("off");
+        values
+    }
 }
 
 /// A level with every inheritable field filled in from its `inherits` chain.

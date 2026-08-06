@@ -11,6 +11,18 @@ mod generated {
 pub const PACK_ID: &str = generated::PACK_ID;
 pub const PACK_VERSION: &str = generated::PACK_VERSION;
 
+/// Selects the built-in pack: bare id, or id at the shipped version.
+pub(crate) fn selects_builtin(selector: &str) -> bool {
+    selector == PACK_ID || selector == format!("{PACK_ID}@{PACK_VERSION}")
+}
+
+/// Claims the built-in id at *any* version. Used only to refuse removal, so
+/// `caveman@9.9.9` cannot be deleted by inventing a version that isn't the
+/// one actually shipped.
+pub(crate) fn claims_builtin_id(selector: &str) -> bool {
+    selector == PACK_ID || selector.starts_with(&format!("{PACK_ID}@"))
+}
+
 pub fn builtin_pack() -> frank_pack::CompiledPack {
     let levels = generated::LEVELS
         .iter()
