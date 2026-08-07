@@ -52,6 +52,16 @@ pub fn run(
     .run()
 }
 
+fn window_settings() -> window::Settings {
+    let mut settings = window::Settings::default();
+    if let Ok((rgba, width, height)) = tray::load_icon_rgba() {
+        if let Ok(icon) = window::icon::from_rgba(rgba, width, height) {
+            settings.icon = Some(icon);
+        }
+    }
+    settings
+}
+
 fn boot(
     hidden: bool,
     service: FrankService,
@@ -72,7 +82,7 @@ fn boot(
     let window_task = if hidden {
         Task::none()
     } else {
-        let (id, open) = window::open(window::Settings::default());
+        let (id, open) = window::open(window_settings());
         state.window = Some(id);
         open.map(|_id| Message::WindowOpened)
     };
@@ -136,7 +146,7 @@ fn interpret(effect: Effect, state: &mut State) -> Task<Message> {
             if let Some(id) = state.window {
                 window::set_mode(id, window::Mode::Windowed)
             } else {
-                let (id, open) = window::open(window::Settings::default());
+                let (id, open) = window::open(window_settings());
                 state.window = Some(id);
                 open.map(|_id| Message::WindowOpened)
             }

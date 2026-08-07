@@ -25,6 +25,7 @@ muda = "0.19"
 auto-launch = "0.5"
 rfd = "0.16"
 futures = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # cargo-packager (dmg/wix/deb) reads this directly -- no separate
 # Packager.toml. `version.workspace = true` above means the packaged

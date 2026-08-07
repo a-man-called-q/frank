@@ -154,13 +154,20 @@ target_regions = 90
 target_functions = 90
 target_lines = 95
 
+# M-7 (frank-gui -> iced migration, nightly mutation gate): this crate had
+# exactly one test (`test_parse_semver`) before a real `cargo mutants` run
+# surfaced 20 missed mutants across status/verify/bump/tag/checksums/
+# repo_root/is_git_dirty/get_latest_git_tag -- none of it exercised at all.
+# Added a real integration suite (tempdir git repos + Cargo.toml fixtures)
+# that kills all of them; floors below are the new measured baseline, not
+# the pre-existing near-zero one.
 [packages.frank-release-cli]
-min_regions = 5
-min_functions = 8
-min_lines = 5
-max_uncovered_regions = 507
-max_uncovered_functions = 22
-max_uncovered_lines = 305
+min_regions = 86
+min_functions = 90
+min_lines = 90
+max_uncovered_regions = 62
+max_uncovered_functions = 2
+max_uncovered_lines = 22
 target_regions = 30
 target_functions = 40
 target_lines = 30

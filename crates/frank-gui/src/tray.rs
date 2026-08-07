@@ -115,7 +115,22 @@ pub fn update_status(active: Option<&str>) {
     });
 }
 
+pub fn load_icon_rgba() -> Result<(Vec<u8>, u32, u32), String> {
+    let bytes = include_bytes!("../packaging/icons/icon.png");
+    let img = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok((rgba.into_raw(), width, height))
+}
+
 fn load_icon() -> Result<Icon, String> {
+    if let Ok((rgba, width, height)) = load_icon_rgba() {
+        if let Ok(icon) = Icon::from_rgba(rgba, width, height) {
+            return Ok(icon);
+        }
+    }
+
     // A small solid-color fallback keeps the tray non-blank even if the
     // packaged asset is ever missing; `xtask`/packaging should still ship a
     // real multi-resolution icon (see the plan's M-6 packaging notes).

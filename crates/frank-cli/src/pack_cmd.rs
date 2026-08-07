@@ -114,13 +114,6 @@ pub fn use_pack(svc: &FrankService, selector: &str) -> Result<(), CliError> {
 }
 
 pub fn remove(svc: &FrankService, selector: &str) -> Result<(), CliError> {
-    let builtin_id = frank_app::builtin_pack().id;
-    if selector == builtin_id || selector.starts_with(&format!("{builtin_id}@")) {
-        return Err(CliError::scoped(
-            "pack remove",
-            format!("the built-in {builtin_id} pack cannot be removed"),
-        ));
-    }
     svc.remove_pack(selector)
         .map_err(|e| CliError::scoped("pack remove", e))?;
     println!("frank: removed {selector}");
