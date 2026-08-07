@@ -66,6 +66,13 @@ fn main() -> Result<()> {
     }
 }
 
+/// Before the frank-gui -> iced migration, this compared the workspace
+/// version against `apps/frank-gui/package.json` and `.../tauri.conf.json`
+/// by hand -- two extra version files a GUI needed to stay in sync with
+/// manually. `crates/frank-gui`'s `[package] version.workspace = true`
+/// makes that whole class of drift structurally impossible for any
+/// workspace member, so the check is repurposed: assert every member
+/// actually uses the inherited version rather than hard-pinning its own.
 fn version_check(root: &Path) -> Result<()> {
     let cargo_path = root.join("Cargo.toml");
     let cargo: toml::Value = toml::from_str(
@@ -79,28 +86,44 @@ fn version_check(root: &Path) -> Result<()> {
         .and_then(toml::Value::as_str)
         .context("[workspace.package].version is missing")?;
 
-    for relative in [
-        "apps/frank-gui/package.json",
-        "apps/frank-gui/src-tauri/tauri.conf.json",
-    ] {
-        let path = root.join(relative);
-        let json: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?,
-        )?;
-        let actual = json
-            .get("version")
-            .and_then(serde_json::Value::as_str)
-            .with_context(|| format!("version is missing from {}", path.display()))?;
-        if actual != expected {
+    let members_dir = root.join("crates");
+    let mut checked = Vec::new();
+    let mut entries: Vec<_> = std::fs::read_dir(&members_dir)
+        .with_context(|| format!("reading {}", members_dir.display()))?
+        .collect::<std::io::Result<_>>()?;
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for entry in entries {
+        let manifest_path = entry.path().join("Cargo.toml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+        let manifest: toml::Value = toml::from_str(
+            &std::fs::read_to_string(&manifest_path)
+                .with_context(|| format!("reading {}", manifest_path.display()))?,
+        )
+        .with_context(|| format!("parsing {}", manifest_path.display()))?;
+        // `version.workspace = true` parses as `package.version` being a
+        // table `{ workspace = true }`, not a bare boolean.
+        let inherits_workspace = manifest
+            .get("package")
+            .and_then(|p| p.get("version"))
+            .and_then(|v| v.get("workspace"))
+            .and_then(toml::Value::as_bool)
+            == Some(true);
+        if !inherits_workspace {
             anyhow::bail!(
-                "version mismatch: workspace is {expected}, {} is {actual}",
-                path.display()
+                "{} does not use `version.workspace = true` -- every workspace \
+                 member must inherit the workspace version rather than pin its own",
+                manifest_path.display()
             );
         }
+        checked.push(entry.file_name().to_string_lossy().into_owned());
     }
 
-    println!("xtask version-check: all application metadata is {expected}");
+    println!(
+        "xtask version-check: {} crate(s) inherit workspace version {expected}",
+        checked.len()
+    );
     Ok(())
 }
 
@@ -125,7 +148,8 @@ fn architecture_check(root: &Path) -> Result<()> {
         ("frank-state", "crates/frank-state/Cargo.toml"),
         ("frank-target", "crates/frank-target/Cargo.toml"),
         ("frank-release-cli", "crates/frank-release-cli/Cargo.toml"),
-        ("frank-gui", "apps/frank-gui/src-tauri/Cargo.toml"),
+        ("frank-gui-core", "crates/frank-gui-core/Cargo.toml"),
+        ("frank-gui", "crates/frank-gui/Cargo.toml"),
         ("xtask", "xtask/Cargo.toml"),
     ];
 
@@ -143,8 +167,7 @@ fn architecture_check(root: &Path) -> Result<()> {
         let expected = expected.iter().copied().collect::<BTreeSet<_>>();
         if actual != expected {
             errors.push(format!(
-                "{package}: expected {:?}, found {:?}",
-                expected, actual
+                "{package}: expected {expected:?}, found {actual:?}"
             ));
         }
     }
@@ -187,7 +210,8 @@ fn expected_architecture_dependencies(package: &str) -> Option<&'static [&'stati
         "frank-state" => &["frank-pack", "frank-safeio"],
         "frank-target" => &["frank-pack", "frank-safeio"],
         "frank-release-cli" => &[],
-        "frank-gui" => &["frank-app"],
+        "frank-gui-core" => &["frank-app"],
+        "frank-gui" => &["frank-app", "frank-gui-core", "frank-safeio"],
         "xtask" => &["frank-pack", "frank-target"],
         _ => return None,
     })
@@ -870,9 +894,14 @@ off = []
                 &["frank-pack", "frank-safeio"][..],
             ),
             (
-                "frank-gui",
-                "apps/frank-gui/src-tauri/Cargo.toml",
+                "frank-gui-core",
+                "crates/frank-gui-core/Cargo.toml",
                 &["frank-app"][..],
+            ),
+            (
+                "frank-gui",
+                "crates/frank-gui/Cargo.toml",
+                &["frank-app", "frank-gui-core", "frank-safeio"][..],
             ),
             (
                 "xtask",
@@ -999,26 +1028,25 @@ create_if_missing = true
     #[test]
     fn version_check_and_checksum_generation_are_fail_closed() {
         let root = tempfile::tempdir().unwrap();
-        fs::create_dir_all(root.path().join("apps/frank-gui/src-tauri")).unwrap();
         fs::write(
             root.path().join("Cargo.toml"),
             "[workspace.package]\nversion = \"1.2.3\"\n",
         )
         .unwrap();
+        let crates_dir = root.path().join("crates");
+        fs::create_dir_all(crates_dir.join("frank-gui")).unwrap();
         fs::write(
-            root.path().join("apps/frank-gui/package.json"),
-            r#"{"version":"1.2.3"}"#,
-        )
-        .unwrap();
-        fs::write(
-            root.path().join("apps/frank-gui/src-tauri/tauri.conf.json"),
-            r#"{"version":"1.2.3"}"#,
+            crates_dir.join("frank-gui/Cargo.toml"),
+            "[package]\nname = \"frank-gui\"\nversion.workspace = true\n",
         )
         .unwrap();
         version_check(root.path()).unwrap();
+
+        // A crate that hard-pins its own version instead of inheriting the
+        // workspace one must fail closed, not silently pass.
         fs::write(
-            root.path().join("apps/frank-gui/package.json"),
-            r#"{"version":"9.9.9"}"#,
+            crates_dir.join("frank-gui/Cargo.toml"),
+            "[package]\nname = \"frank-gui\"\nversion = \"9.9.9\"\n",
         )
         .unwrap();
         assert!(version_check(root.path()).is_err());

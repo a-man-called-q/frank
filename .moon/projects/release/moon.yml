@@ -39,7 +39,6 @@ tasks:
     inputs:
       - '/Cargo.toml'
       - '/Cargo.lock'
-      - '/apps/frank-gui/**/*'
       - '/crates/**/*'
       - '/dist/**/*'
       - '/scripts/**/*'

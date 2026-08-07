@@ -12,7 +12,7 @@ thiserror.workspace = true
 rustix.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_IO"] }
 
 [dev-dependencies]
 tempfile = "3"

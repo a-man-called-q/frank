@@ -118,7 +118,7 @@ pub fn remove(svc: &FrankService, selector: &str) -> Result<(), CliError> {
     if selector == builtin_id || selector.starts_with(&format!("{builtin_id}@")) {
         return Err(CliError::scoped(
             "pack remove",
-            "the built-in caveman pack cannot be removed",
+            format!("the built-in {builtin_id} pack cannot be removed"),
         ));
     }
     svc.remove_pack(selector)

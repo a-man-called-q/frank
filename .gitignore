@@ -6,15 +6,8 @@ bench/results/*.json
 !bench/results/.gitkeep
 /graphify-out/
 /.moon/cache
-/node_modules
-/apps/*/node_modules
 /coverage/
-/apps/frank-gui/dist
-/apps/frank-gui/coverage
 *.lcov
-/apps/frank-gui/test-results
-/apps/frank-gui/src-tauri/target
-/apps/frank-gui/src-tauri/gen
 /mutants.out*
 /target/mutation/
 /dist/SHA256SUMS
@@ -24,11 +17,3 @@ bench/results/*.json
 /dist/*.msi
 /dist/*.deb
 /dist/*.rpm
-/apps/frank-gui/src-tauri/binaries/frank
-/apps/frank-gui/src-tauri/binaries/frank-sidecar
-/apps/frank-gui/src-tauri/binaries/frank-sidecar-*
-/apps/frank-gui/src-tauri/binaries/*.exe
-/apps/frank-gui/src-tauri/packaging/frank
-/apps/frank-gui/src-tauri/packaging/frank.exe
-!/apps/frank-gui/src-tauri/binaries/frank-sidecar-x86_64-pc-windows-msvc.exe
-!/apps/frank-gui/src-tauri/binaries/frank-sidecar-x86_64-pc-windows-gnu.exe

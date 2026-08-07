@@ -8,7 +8,7 @@ workspace:
 
 tasks:
   verify:
-    command: 'moon run frank-rust:verify frank-gui:verify'
+    command: 'moon run frank-rust:verify'
     options:
       runFromWorkspaceRoot: true
       cache: false

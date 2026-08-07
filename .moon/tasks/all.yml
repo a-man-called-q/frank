@@ -14,7 +14,6 @@ tasks:
       - '/Cargo.lock'
       - '/crates/**/*.rs'
       - '/xtask/**/*.rs'
-      - '/apps/**/*.rs'
     options:
       runFromWorkspaceRoot: true
       cache: false

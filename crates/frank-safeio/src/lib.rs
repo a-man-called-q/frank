@@ -138,12 +138,107 @@ pub fn read_lines(path: &Path) -> Vec<String> {
     imp::read_lines(path)
 }
 
+/// A held exclusive lock, released when dropped. Kept opaque — callers only
+/// need to know whether they got one, not what platform primitive backs it
+/// (`flock` fd on Unix, `LockFileEx` handle on Windows). The field is never
+/// read; holding it alive until `Drop` releases the underlying lock is the
+/// entire point.
+#[allow(dead_code)]
+pub struct LockGuard(imp::LockGuard);
+
+/// Try to take an exclusive, non-blocking lock on a file named `name` inside
+/// `dir`, verified and symlink-safe the same way every write in this crate
+/// is. Returns `Ok(None)` — not an error — when another process already
+/// holds the lock; that is the expected outcome for a single-instance guard
+/// (e.g. the desktop GUI refusing a second concurrent launch), not a
+/// failure to be retried or logged as one.
+pub fn try_lock_exclusive(dir: &Path, name: &std::ffi::OsStr) -> Result<Option<LockGuard>> {
+    Ok(imp::try_lock_exclusive(dir, name)?.map(LockGuard))
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::os::unix::ffi::OsStringExt;
     use std::os::unix::fs::{PermissionsExt, symlink};
     use tempfile::tempdir;
+
+    #[test]
+    fn try_lock_exclusive_grants_the_lock_when_uncontended() {
+        let tmp = tempdir().unwrap();
+        let guard = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock")).unwrap();
+        assert!(guard.is_some());
+    }
+
+    #[test]
+    fn try_lock_exclusive_refuses_a_second_holder() {
+        let tmp = tempdir().unwrap();
+        let first = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock")).unwrap();
+        assert!(first.is_some());
+
+        let second = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock")).unwrap();
+        assert!(
+            second.is_none(),
+            "a second holder must be refused, not error, while the first is alive"
+        );
+    }
+
+    #[test]
+    fn try_lock_exclusive_is_available_again_after_the_guard_drops() {
+        let tmp = tempdir().unwrap();
+        let first = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock")).unwrap();
+        assert!(first.is_some());
+        drop(first);
+
+        let second = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock")).unwrap();
+        assert!(
+            second.is_some(),
+            "the lock must be free once the guard drops"
+        );
+    }
+
+    /// Regression test for a real failure found running two real `frank-gui`
+    /// processes launched at nearly the same instant against a brand-new
+    /// (never-before-existing) data directory: both processes' first
+    /// `try_lock_exclusive` call had to *create* `gui.lock`, and the naive
+    /// `openat(..., O_CREAT | O_NOFOLLOW, ...)` (no `O_EXCL`) spuriously
+    /// failed with `ENOENT` on macOS/XNU under that exact race -- the same
+    /// failure mode `open_append_create`'s doc comment already documents
+    /// for 16 threads racing to create a log file, just reproduced here via
+    /// real concurrent processes racing to create a lock file instead.
+    #[test]
+    fn try_lock_exclusive_survives_concurrent_first_creation() {
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join("data").join("frank");
+
+        let handles: Vec<_> = (0..16)
+            .map(|_| {
+                let dir = dir.clone();
+                std::thread::spawn(move || try_lock_exclusive(&dir, OsStr::new("gui.lock")))
+            })
+            .collect();
+
+        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        for result in &results {
+            if let Err(e) = result {
+                panic!("concurrent first-time lock creation must never error: {e}");
+            }
+        }
+        let winners = results.iter().filter(|r| matches!(r, Ok(Some(_)))).count();
+        assert_eq!(winners, 1, "exactly one racer must win the exclusive lock");
+    }
+
+    #[test]
+    fn try_lock_exclusive_refuses_a_symlinked_lock_file() {
+        let tmp = tempdir().unwrap();
+        let decoy = tmp.path().join("decoy");
+        std::fs::write(&decoy, "not a lock").unwrap();
+        symlink(&decoy, tmp.path().join("gui.lock")).unwrap();
+
+        let result = try_lock_exclusive(tmp.path(), OsStr::new("gui.lock"));
+        assert!(matches!(result, Err(SafeIoError::IsSymlink)));
+    }
 
     const MODES: &[&str] = &[
         "off",

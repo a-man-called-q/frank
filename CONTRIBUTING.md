@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Frank! This guide will help you g
 
 ### Prerequisites
 
-- **Rust**: 1.85 or newer
+- **Rust**: 1.88 or newer
 - **Proto** (optional): For pinned toolchain versions
   - Node 24
   - pnpm 10

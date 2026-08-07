@@ -238,7 +238,9 @@ fn run() -> i32 {
             PackCommand::Use { selector } => report(pack_cmd::use_pack(&svc, &selector)),
             PackCommand::Remove { selector } => report(pack_cmd::remove(&svc, &selector)),
             PackCommand::Build { path } => {
-                let path = path.unwrap_or_else(|| std::path::PathBuf::from("packs/caveman"));
+                let path = path.unwrap_or_else(|| {
+                    std::path::PathBuf::from(format!("packs/{}", frank_app::BUILTIN_PACK_ID))
+                });
                 match pack_cmd::build(&path) {
                     Ok(compiled) => {
                         println!("frank: compiled {} v{}", compiled.id, compiled.version);

@@ -180,8 +180,8 @@ pub fn remove_file_if_contains(path: &Path, marker: &str) -> Result<bool> {
     if !metadata.is_file() {
         return Err(SafeIoError::NotAFile);
     }
-    if metadata.len() > MAX_CONFIG_BYTES as u64 {
-        return Err(SafeIoError::TooLarge(MAX_CONFIG_BYTES));
+    if metadata.len() > crate::MAX_CONFIG_BYTES as u64 {
+        return Err(SafeIoError::TooLarge(crate::MAX_CONFIG_BYTES));
     }
     let content = std::fs::read_to_string(&real_path)?;
     if !content.contains(marker) {
@@ -241,6 +241,69 @@ pub fn read_lines(path: &Path) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.to_string())
         .collect()
+}
+
+/// Holds the locked file open for the guard's lifetime. Windows releases a
+/// `LockFileEx` lock automatically when the handle is closed, so `Drop`
+/// doesn't need an explicit `UnlockFileEx` call — dropping the `File` is
+/// enough, same shape as the Unix `flock`-on-an-`OwnedFd` guard.
+pub struct LockGuard {
+    _file: std::fs::File,
+}
+
+/// Try to take an exclusive, non-blocking lock on `name` inside `dir` via
+/// `LockFileEx(..., LOCKFILE_FAIL_IMMEDIATELY | LOCKFILE_EXCLUSIVE_LOCK, ...)`.
+/// Returns `Ok(None)` — not an error — when another process already holds
+/// it, matching the Unix backend's contract.
+///
+/// Compiles and cross-checks clean (`cargo check --target
+/// x86_64-pc-windows-gnu`) but is **not yet exercised on real Windows** --
+/// see this module's top-level doc comment.
+pub fn try_lock_exclusive(dir: &Path, name: &std::ffi::OsStr) -> Result<Option<LockGuard>> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{ERROR_IO_PENDING, ERROR_LOCK_VIOLATION};
+    use windows_sys::Win32::Storage::FileSystem::{
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    };
+    use windows_sys::Win32::System::IO::OVERLAPPED;
+
+    let real_dir = verify_dir(dir)?;
+    let real_path = real_dir.join(name);
+    if is_symlink_at(&real_path) {
+        return Err(SafeIoError::IsSymlink);
+    }
+
+    let file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(&real_path)?;
+
+    let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
+    // SAFETY: `handle` is a valid, open `HANDLE` for the lifetime of `file`,
+    // which outlives this call. `overlapped` is zero-initialized and its
+    // address is valid for the duration of the (synchronous, since
+    // LOCKFILE_FAIL_IMMEDIATELY never queues an async completion) call.
+    let succeeded = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as _,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            u32::MAX,
+            u32::MAX,
+            &mut overlapped,
+        )
+    };
+
+    if succeeded != 0 {
+        return Ok(Some(LockGuard { _file: file }));
+    }
+
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error().map(|code| code as u32) {
+        Some(ERROR_LOCK_VIOLATION) | Some(ERROR_IO_PENDING) => Ok(None),
+        _ => Err(SafeIoError::Io(error)),
+    }
 }
 
 #[cfg(test)]

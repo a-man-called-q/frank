@@ -11,7 +11,7 @@ fn run(args: &[&str]) -> Output {
 fn binary_dispatches_real_workspace_tasks() {
     let output = run(&["version-check"]);
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("all application metadata"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("inherit workspace version"));
 
     let output = run(&["lint-targets"]);
     assert!(output.status.success());

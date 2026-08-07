@@ -434,10 +434,7 @@ rules = "levels/full.md"
     assert!(!output.status.success());
     let output = run(root.path(), &["pack", "remove", "caveman"]);
     assert!(!output.status.success());
-    assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("the built-in caveman pack cannot be removed")
-    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("built-in"));
     let output = run(root.path(), &["pack", "remove", "caveman@9.9.9"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be removed"));

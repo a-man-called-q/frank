@@ -37,9 +37,18 @@ launch_args+=("$binary" --hidden)
 
 "${launch_args[@]}" >"$tmp/first.log" 2>&1 &
 first_pid=$!
-for _ in {1..30}; do
-  if kill -0 "$first_pid" 2>/dev/null; then break; fi
-  sleep 0.2
+# Wait for real evidence the first process has *acquired* the single-instance
+# lock, not just that its PID exists in the process table -- `kill -0`
+# succeeds within milliseconds of fork, long before a GUI process (loading
+# its full dependency graph) reaches the lock call. Without this, launching
+# the second process too early turns the test into a genuine coin flip on
+# which process reaches the lock first, independent of launch order --
+# confirmed by running both binaries with zero stagger versus a real
+# ~300ms one during the M-4 investigation (see the plan).
+for _ in {1..50}; do
+  if [[ -e "$tmp/data/frank/gui.lock" ]]; then break; fi
+  if ! kill -0 "$first_pid" 2>/dev/null; then break; fi
+  sleep 0.1
 done
 kill -0 "$first_pid" 2>/dev/null || {
   cat "$tmp/first.log" >&2 || true

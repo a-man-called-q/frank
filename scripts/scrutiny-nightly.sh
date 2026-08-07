@@ -20,7 +20,7 @@ cargo +nightly fuzz run ledger_attribution -- -max_total_time=900
 cargo +nightly fuzz run compressor -- -max_total_time=900
 cargo +nightly fuzz run jsonc_settings -- -max_total_time=900
 cargo +nightly fuzz run marker_fences -- -max_total_time=900
-cargo +nightly fuzz run tauri_payloads -- -max_total_time=900
+cargo +nightly fuzz run app_payloads -- -max_total_time=900
 FRANK_MUTATION_JOBS="${FRANK_MUTATION_JOBS:-2}" ./scripts/mutation-gate.sh
 
 if command -v cargo-miri >/dev/null 2>&1; then

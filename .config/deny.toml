@@ -17,6 +17,12 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  # OSI-approved, FSF-free permissive license (Boost C++ libraries). First
+  # pulled in by the frank-gui -> iced migration: iced_winit ->
+  # window_clipboard -> clipboard-win/error-code (Windows clipboard access).
+  # No copyleft, no binary-distribution notice requirement -- same category
+  # as MIT/Zlib below, just historically unseen in the Tauri graph.
+  "BSL-1.0",
   "CC0-1.0",
   "ISC",
   "MIT",

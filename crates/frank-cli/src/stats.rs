@@ -90,10 +90,9 @@ fn lifetime_text(svc: &FrankService) -> String {
 
     if !lifetime_verdict_has_enough_data(&rows) {
         return format!(
-            "Frank ledger — lifetime\n  Not enough data yet ({sessions} session(s), {turns} turn(s) recorded; need {} sessions and {} turns). \
+            "Frank ledger — lifetime\n  Not enough data yet ({sessions} session(s), {turns} turn(s) recorded; need {MIN_SESSIONS_FOR_LIFETIME_VERDICT} sessions and {MIN_TURNS_FOR_LIFETIME_VERDICT} turns). \
             Keep using Frank; `frank stats --all` will report a verdict once there's enough history \
-            to be honest about.\n",
-            MIN_SESSIONS_FOR_LIFETIME_VERDICT, MIN_TURNS_FOR_LIFETIME_VERDICT
+            to be honest about.\n"
         );
     }
 

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rustix::fd::OwnedFd;
-use rustix::fs::{self, AtFlags, CWD, FileType, Mode, OFlags};
+use rustix::fs::{self, AtFlags, CWD, FileType, FlockOperation, Mode, OFlags};
 
 use crate::error::{Result, SafeIoError};
 
@@ -400,6 +400,83 @@ pub fn read_lines(path: &Path) -> Vec<String> {
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.to_string())
         .collect()
+}
+
+/// Holds the locked file's fd for the guard's lifetime. `flock` releases
+/// automatically when the last fd referring to this open file description is
+/// closed, so `Drop` doesn't need to do anything beyond dropping the fd —
+/// there is no separate unlock syscall to forget to call.
+pub struct LockGuard {
+    _fd: OwnedFd,
+}
+
+/// Try to take an exclusive, non-blocking lock on `name` inside `dir`
+/// (verified and symlink-safe, same as every other operation in this
+/// module). Returns `Ok(None)` — not an error — if another process already
+/// holds it: that is the expected, common case for a single-instance guard,
+/// not a failure.
+fn lock_file_existing_flags() -> OFlags {
+    OFlags::WRONLY
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
+}
+
+fn lock_file_create_flags() -> OFlags {
+    OFlags::WRONLY
+        .union(OFlags::CREATE)
+        .union(OFlags::EXCL)
+        .union(OFlags::NOFOLLOW)
+        .union(OFlags::CLOEXEC)
+}
+
+/// Open (or create) the lock file itself, anchored to `dirfd`.
+///
+/// Reuses `open_append_create`'s exact retry shape rather than a single
+/// `openat(..., O_CREAT | O_NOFOLLOW, ...)`: that combination is the one
+/// this file's own comment on `open_append_create` already documents as
+/// spuriously failing with `ENOENT` on macOS/XNU under concurrent creation
+/// of the same not-yet-existing path. That comment was written against 16
+/// threads racing to create a log file; this function reproduces the exact
+/// same failure via two *processes* racing to create the lock file on
+/// first launch (`try_lock_exclusive_refuses_a_second_holder`-adjacent, but
+/// only visible with real concurrent processes, not threads within one — see
+/// the M-4 native-smoke.sh investigation in the plan).
+fn open_lock_file(dirfd: &OwnedFd, name: &OsStr) -> Result<OwnedFd> {
+    let open_existing = || fs::openat(dirfd, name, lock_file_existing_flags(), Mode::empty());
+
+    match open_existing() {
+        Ok(fd) => return Ok(fd),
+        Err(rustix::io::Errno::NOENT) => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    match fs::openat(
+        dirfd,
+        name,
+        lock_file_create_flags(),
+        Mode::from_raw_mode(0o600),
+    ) {
+        Ok(fd) => Ok(fd),
+        Err(rustix::io::Errno::EXIST) => Ok(open_existing()?),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn try_lock_exclusive(dir: &Path, name: &OsStr) -> Result<Option<LockGuard>> {
+    let dirfd = open_verified_dir(dir)?;
+    refuse_if_symlink(&dirfd, name)?;
+
+    // Racing to create this file is fine and expected (two processes
+    // launching at once); the flock below is what serializes *ownership*,
+    // not file creation, which is why `open_lock_file` tolerates losing the
+    // creation race instead of treating it as a hard error.
+    let fd = open_lock_file(&dirfd, name)?;
+
+    match fs::flock(&fd, FlockOperation::NonBlockingLockExclusive) {
+        Ok(()) => Ok(Some(LockGuard { _fd: fd })),
+        Err(rustix::io::Errno::WOULDBLOCK) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
 #[cfg(test)]

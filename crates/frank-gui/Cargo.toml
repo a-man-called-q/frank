@@ -1,0 +1,74 @@
+[package]
+name = "frank-gui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Frank desktop control panel"
+
+[[bin]]
+name = "frank-gui"
+path = "src/main.rs"
+
+[dependencies]
+frank-app = { path = "../frank-app", version = "0.1.0" }
+frank-gui-core = { path = "../frank-gui-core", version = "0.1.0" }
+frank-safeio = { path = "../frank-safeio", version = "0.1.0" }
+# `iced::time::every` (the 2s snapshot poll, the 1s show-request tick) needs
+# a runtime that provides real timers -- the default `futures::ThreadPool`
+# executor iced uses for everything else (Task::perform, etc.) doesn't have
+# one. Confirmed against the M-0 spike, which needed the same feature to get
+# a periodic Tick subscription working at all.
+iced = { version = "0.14", features = ["tokio"] }
+tray-icon = "0.24"
+muda = "0.19"
+auto-launch = "0.5"
+rfd = "0.16"
+futures = "0.3"
+
+# cargo-packager (dmg/wix/deb) reads this directly -- no separate
+# Packager.toml. `version.workspace = true` above means the packaged
+# version is automatically correct; there is no third version file to
+# keep in sync the way apps/frank-gui/package.json and tauri.conf.json
+# used to require (see xtask's version-check).
+[package.metadata.packager]
+product-name = "Frank"
+identifier = "dev.frank.desktop"
+category = "Utility"
+description = "Frank persona engine control panel"
+long-description = "Manage Frank modes, persona packs, and AI coding agent integrations."
+icons = ["packaging/icons/icon-512.png"]
+out-dir = "../../dist"
+resources = [
+  { src = "packaging/install-frank-cli.command", target = "install-frank-cli.command" },
+]
+# `frank` rides alongside `frank-gui` in every package: Frank is a CLI
+# first, the GUI is an optional control panel on top of it (see the plan).
+# Both land in the same directory in every bundle (e.g.
+# `Frank.app/Contents/MacOS/` on macOS), which is what lets
+# `crates/frank-gui/src/cli_path.rs` resolve the CLI as a plain sibling of
+# `current_exe()` instead of the ~20-line Tauri sidecar-resource dance it
+# replaced.
+binaries = [
+  { path = "../../target/release/frank-gui", main = true },
+  { path = "../../target/release/frank" },
+]
+
+[package.metadata.packager.deb]
+depends = []
+
+[package.metadata.packager.wix]
+fragment-paths = ["packaging/windows/frank-path.wxs"]
+component-refs = ["FrankCliPath"]
+
+# cargo-generate-rpm (M-6): cargo-packager has no Rpm variant in
+# PackageFormat (verified against its own source), so rpm is built
+# separately by this tool instead. `assets` maps the same two binaries
+# cargo-packager's `binaries` list bundles for dmg/deb/msi.
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/frank-gui", dest = "/usr/bin/frank-gui", mode = "755" },
+  { source = "target/release/frank", dest = "/usr/bin/frank", mode = "755" },
+  { source = "crates/frank-gui/packaging/frank-gui.desktop", dest = "/usr/share/applications/frank-gui.desktop", mode = "644" },
+  { source = "crates/frank-gui/packaging/icons/icon-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/frank-gui.png", mode = "644" },
+]

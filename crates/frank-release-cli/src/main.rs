@@ -58,17 +58,22 @@ fn main() -> Result<()> {
     }
 }
 
+/// `apps/frank-gui` no longer exists (the frank-gui -> iced migration
+/// removed the Tauri app it used to sentinel on -- see the plan). A
+/// workspace root is, definitionally, wherever `[workspace]` lives; that is
+/// the sentinel now, and it needs no GUI-specific knowledge at all.
 fn repo_root() -> Result<PathBuf> {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         let path = PathBuf::from(manifest_dir);
         if let Some(parent) = path.parent() {
             if let Some(root) = parent.parent() {
-                if root.join("Cargo.toml").exists() {
+                if is_workspace_root(&root.join("Cargo.toml")) {
                     return Ok(root.to_path_buf());
                 }
             }
-            if path.join("../../Cargo.toml").exists() {
-                return Ok(path.join("../..").canonicalize()?);
+            let candidate = path.join("../..");
+            if is_workspace_root(&candidate.join("Cargo.toml")) {
+                return Ok(candidate.canonicalize()?);
             }
         }
     }
@@ -76,7 +81,7 @@ fn repo_root() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     let mut current = cwd.as_path();
     loop {
-        if current.join("Cargo.toml").exists() && current.join("apps/frank-gui").exists() {
+        if is_workspace_root(&current.join("Cargo.toml")) {
             return Ok(current.to_path_buf());
         }
         match current.parent() {
@@ -86,11 +91,17 @@ fn repo_root() -> Result<PathBuf> {
     }
 }
 
+fn is_workspace_root(cargo_toml: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(cargo_toml) else {
+        return false;
+    };
+    toml::from_str::<toml::Value>(&content)
+        .ok()
+        .is_some_and(|doc| doc.get("workspace").is_some())
+}
+
 struct VersionInfo {
     cargo: String,
-    package_json: String,
-    tauri_conf: String,
-    synced: bool,
 }
 
 fn get_version_info(root: &Path) -> Result<VersionInfo> {
@@ -106,34 +117,7 @@ fn get_version_info(root: &Path) -> Result<VersionInfo> {
         .context("Missing workspace.package.version in root Cargo.toml")?
         .to_string();
 
-    let pkg_path = root.join("apps/frank-gui/package.json");
-    let pkg_content =
-        fs::read_to_string(&pkg_path).with_context(|| format!("reading {}", pkg_path.display()))?;
-    let pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)?;
-    let package_json = pkg_json
-        .get("version")
-        .and_then(serde_json::Value::as_str)
-        .context("Missing version in package.json")?
-        .to_string();
-
-    let tauri_path = root.join("apps/frank-gui/src-tauri/tauri.conf.json");
-    let tauri_content = fs::read_to_string(&tauri_path)
-        .with_context(|| format!("reading {}", tauri_path.display()))?;
-    let tauri_json: serde_json::Value = serde_json::from_str(&tauri_content)?;
-    let tauri_conf = tauri_json
-        .get("version")
-        .and_then(serde_json::Value::as_str)
-        .context("Missing version in tauri.conf.json")?
-        .to_string();
-
-    let synced = cargo == package_json && cargo == tauri_conf;
-
-    Ok(VersionInfo {
-        cargo,
-        package_json,
-        tauri_conf,
-        synced,
-    })
+    Ok(VersionInfo { cargo })
 }
 
 fn status(root: &Path) -> Result<()> {
@@ -141,14 +125,6 @@ fn status(root: &Path) -> Result<()> {
     println!("=== Frank Release Status ===");
     println!("Repository Root: {}", root.display());
     println!("Cargo Workspace Version: {}", info.cargo);
-    println!("package.json Version:    {}", info.package_json);
-    println!("tauri.conf.json Version: {}", info.tauri_conf);
-
-    if info.synced {
-        println!("Version Sync:            OK (all match {})", info.cargo);
-    } else {
-        println!("Version Sync:            MISMATCH!");
-    }
 
     let git_dirty = is_git_dirty(root);
     println!(
@@ -161,7 +137,7 @@ fn status(root: &Path) -> Result<()> {
     );
 
     if let Ok(latest_tag) = get_latest_git_tag(root) {
-        println!("Latest Git Tag:          {}", latest_tag);
+        println!("Latest Git Tag:          {latest_tag}");
     } else {
         println!("Latest Git Tag:          (none)");
     }
@@ -171,18 +147,9 @@ fn status(root: &Path) -> Result<()> {
 
 fn verify(root: &Path) -> Result<()> {
     let info = get_version_info(root)?;
-    if !info.synced {
-        bail!(
-            "Version mismatch detected!\n  Cargo.toml: {}\n  package.json: {}\n  tauri.conf.json: {}",
-            info.cargo,
-            info.package_json,
-            info.tauri_conf
-        );
-    }
-    println!(
-        "Verification passed: version {} is synchronized.",
-        info.cargo
-    );
+    parse_semver(&info.cargo)
+        .with_context(|| format!("workspace version '{}' is not valid semver", info.cargo))?;
+    println!("Verification passed: version {} is valid.", info.cargo);
     Ok(())
 }
 
@@ -202,7 +169,7 @@ fn bump(root: &Path, target: &str) -> Result<()> {
     let info = get_version_info(root)?;
     let current_version = &info.cargo;
     let (major, minor, patch) = parse_semver(current_version)
-        .with_context(|| format!("Current version '{}' is not valid semver", current_version))?;
+        .with_context(|| format!("Current version '{current_version}' is not valid semver"))?;
 
     let new_version = match target.to_lowercase().as_str() {
         "patch" => format!("{}.{}.{}", major, minor, patch + 1),
@@ -211,17 +178,19 @@ fn bump(root: &Path, target: &str) -> Result<()> {
         other => {
             if parse_semver(other).is_none() {
                 bail!(
-                    "Invalid target version '{}'. Expected semver (e.g. '0.2.0') or bump keyword ('patch', 'minor', 'major').",
-                    other
+                    "Invalid target version '{other}'. Expected semver (e.g. '0.2.0') or bump keyword ('patch', 'minor', 'major')."
                 );
             }
             other.strip_prefix('v').unwrap_or(other).to_string()
         }
     };
 
-    println!("Bumping version: {} -> {}", current_version, new_version);
+    println!("Bumping version: {current_version} -> {new_version}");
 
-    // 1. Update Cargo.toml
+    // Every workspace member inherits `version.workspace = true` (enforced
+    // by `xtask version-check`), so the root manifest is the only file that
+    // ever needs updating -- this used to also rewrite
+    // apps/frank-gui/package.json and .../tauri.conf.json by hand.
     let cargo_path = root.join("Cargo.toml");
     let cargo_content = fs::read_to_string(&cargo_path)?;
     let mut cargo_doc = cargo_content.parse::<DocumentMut>()?;
@@ -229,36 +198,7 @@ fn bump(root: &Path, target: &str) -> Result<()> {
     fs::write(&cargo_path, cargo_doc.to_string())?;
     println!(" Updated {}", cargo_path.display());
 
-    // 2. Update apps/frank-gui/package.json
-    let pkg_path = root.join("apps/frank-gui/package.json");
-    let pkg_content = fs::read_to_string(&pkg_path)?;
-    let mut pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)?;
-    if let Some(obj) = pkg_json.as_object_mut() {
-        obj.insert(
-            "version".to_string(),
-            serde_json::Value::String(new_version.clone()),
-        );
-    }
-    fs::write(&pkg_path, serde_json::to_string_pretty(&pkg_json)? + "\n")?;
-    println!(" Updated {}", pkg_path.display());
-
-    // 3. Update apps/frank-gui/src-tauri/tauri.conf.json
-    let tauri_path = root.join("apps/frank-gui/src-tauri/tauri.conf.json");
-    let tauri_content = fs::read_to_string(&tauri_path)?;
-    let mut tauri_json: serde_json::Value = serde_json::from_str(&tauri_content)?;
-    if let Some(obj) = tauri_json.as_object_mut() {
-        obj.insert(
-            "version".to_string(),
-            serde_json::Value::String(new_version.clone()),
-        );
-    }
-    fs::write(
-        &tauri_path,
-        serde_json::to_string_pretty(&tauri_json)? + "\n",
-    )?;
-    println!(" Updated {}", tauri_path.display());
-
-    println!("Version successfully bumped to {}!", new_version);
+    println!("Version successfully bumped to {new_version}!");
     Ok(())
 }
 
@@ -300,41 +240,35 @@ fn tag(root: &Path, allow_dirty: bool, dry_run: bool, push: bool) -> Result<()> 
     }
 
     if dry_run {
-        println!("[DRY RUN] Would create git tag: {}", tag_name);
+        println!("[DRY RUN] Would create git tag: {tag_name}");
         if push {
-            println!("[DRY RUN] Would push git tag '{}' to origin", tag_name);
+            println!("[DRY RUN] Would push git tag '{tag_name}' to origin");
         }
         return Ok(());
     }
 
-    println!("Creating git tag: {}", tag_name);
+    println!("Creating git tag: {tag_name}");
     let status = ProcessCommand::new("git")
-        .args([
-            "tag",
-            "-a",
-            &tag_name,
-            "-m",
-            &format!("Release {}", tag_name),
-        ])
+        .args(["tag", "-a", &tag_name, "-m", &format!("Release {tag_name}")])
         .current_dir(root)
         .status()?;
 
     if !status.success() {
-        bail!("Failed to create git tag '{}'", tag_name);
+        bail!("Failed to create git tag '{tag_name}'");
     }
 
-    println!("Successfully created git tag '{}'", tag_name);
+    println!("Successfully created git tag '{tag_name}'");
 
     if push {
-        println!("Pushing tag '{}' to origin...", tag_name);
+        println!("Pushing tag '{tag_name}' to origin...");
         let push_status = ProcessCommand::new("git")
             .args(["push", "origin", &tag_name])
             .current_dir(root)
             .status()?;
         if !push_status.success() {
-            bail!("Failed to push git tag '{}' to origin", tag_name);
+            bail!("Failed to push git tag '{tag_name}' to origin");
         }
-        println!("Successfully pushed tag '{}' to origin", tag_name);
+        println!("Successfully pushed tag '{tag_name}' to origin");
     }
 
     Ok(())
@@ -378,7 +312,7 @@ fn checksums(root: &Path) -> Result<()> {
             .file_name()
             .and_then(|s| s.to_str())
             .context("Invalid filename")?;
-        lines.push(format!("{}  {}", hash, file_name));
+        lines.push(format!("{hash}  {file_name}"));
     }
 
     let sums_path = dist_dir.join("SHA256SUMS");
@@ -387,7 +321,7 @@ fn checksums(root: &Path) -> Result<()> {
 
     println!("Wrote checksums to {}", sums_path.display());
     for line in lines {
-        println!("  {}", line);
+        println!("  {line}");
     }
 
     Ok(())

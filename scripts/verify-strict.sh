@@ -19,13 +19,15 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo nextest run --workspace --locked --profile ci
 cargo test --workspace --doc --locked
-# The native Tauri crate is covered by its platform smoke jobs; its build script
-# places a sidecar shell/executable in Cargo's target directory, which LLVM
-# cannot instrument as Rust. Keep the workspace report focused on Rust crates
-# and exclude standalone test source files so tests cannot inflate production
-# coverage. The xtask checker applies the per-crate floors and uncovered-count
-# ceilings from .config/coverage.toml; keeping one report avoids dependency coverage
-# being counted repeatedly by separate package invocations.
+# frank-gui (crates/frank-gui) is covered by its platform smoke job --
+# native-smoke.sh -- not by this Rust unit-test coverage run. It is a thin
+# platform shell (tray/window lifecycle/single-instance) that needs a real
+# event loop and OS tray to exercise; its actual logic lives in
+# frank-gui-core, which stays in this report. Also exclude standalone test
+# source files so tests cannot inflate production coverage. The xtask checker
+# applies the per-crate floors and uncovered-count ceilings from
+# .config/coverage.toml; keeping one report avoids dependency coverage being
+# counted repeatedly by separate package invocations.
 mkdir -p target/llvm-cov
 cargo llvm-cov nextest \
   --workspace --exclude frank-gui --all-features --locked --profile ci \
@@ -38,18 +40,29 @@ cargo run --locked -p xtask -- coverage-check \
   --report target/llvm-cov/frank-summary.json \
   --policy .config/coverage.toml
 
-# cargo-deny 0.18 is the Rust-1.85-compatible release. Its advisory parser
-# cannot read the CVSS-4 records currently in the RustSec database, so the
-# advisory job below remains the source of truth while deny still gates every
-# ban, license, and source policy.
+# cargo-deny 0.18 (still pinned post-1.88 bump; 0.20.2 is available and may
+# fix this, but hasn't been verified -- follow-up, not required by the MSRV
+# bump itself) cannot read the CVSS-4 records currently in the RustSec
+# database, so the advisory job below remains the source of truth while deny
+# still gates every ban, license, and source policy.
 cargo deny -L error check -c .config/deny.toml bans licenses sources
 
-# These are explicit, reviewable exceptions for the pinned Rust 1.85/Tauri 2
-# graph. They are not a blanket allow-list: every identifier is tied to a
-# concrete upstream constraint and must be revisited when either toolchain is
-# upgraded. The three 2026 IDs are transitive Tauri advisories whose patched
-# releases require Rust 1.88; the release checklist must keep these visible and
-# block a release if the exception is not renewed during dependency review.
+# These are explicit, reviewable exceptions. They are not a blanket
+# allow-list: every identifier is tied to a concrete upstream constraint and
+# must be revisited when the GUI's dependency graph changes.
+#
+# 17 are for the Tauri 2 GTK3/Linux-tray dependency graph -- unmaintained/
+# unsound gtk-rs 0.18 and unic-* crates pulled in transitively by
+# tray-icon/muda's Linux GTK backend. They do not move with the Rust version
+# and are expected to disappear only when Tauri is removed from the tree
+# (see the frank-gui -> iced migration plan).
+#
+# 2 are for the iced 0.14 dependency graph added by that same migration's
+# M-3: `paste` (unmaintained, via metal -> wgpu-hal -> wgpu, iced's GPU
+# renderer) and `ttf-parser` (unmaintained, via cosmic-text/winit's glyph
+# rendering). Both are "unmaintained", not active vulnerabilities, and have
+# no compatible replacement in iced 0.14's pinned graph; re-evaluate on the
+# next iced upgrade.
 cargo audit --deny warnings \
   --ignore RUSTSEC-2024-0370 \
   --ignore RUSTSEC-2024-0411 \
@@ -63,30 +76,27 @@ cargo audit --deny warnings \
   --ignore RUSTSEC-2024-0419 \
   --ignore RUSTSEC-2024-0420 \
   --ignore RUSTSEC-2024-0429 \
+  --ignore RUSTSEC-2024-0436 \
   --ignore RUSTSEC-2025-0075 \
   --ignore RUSTSEC-2025-0080 \
   --ignore RUSTSEC-2025-0081 \
   --ignore RUSTSEC-2025-0098 \
   --ignore RUSTSEC-2025-0100 \
-  --ignore RUSTSEC-2026-0009 \
-  --ignore RUSTSEC-2026-0194 \
-  --ignore RUSTSEC-2026-0195
+  --ignore RUSTSEC-2026-0192
 cargo run --locked -p xtask -- build-packs
 git diff --exit-code -- packs/
 cargo run --locked -p xtask -- lint-targets
 cargo run --locked -p xtask -- version-check
 cargo run --locked -p xtask -- architecture-check
 
-if [[ -f pnpm-lock.yaml ]]; then
-  pnpm install --frozen-lockfile
-fi
-if [[ -f apps/frank-gui/package.json ]]; then
-  pnpm --dir apps/frank-gui lint
-  pnpm --dir apps/frank-gui typecheck
-  pnpm --dir apps/frank-gui test --coverage
-  pnpm --dir apps/frank-gui exec playwright install --with-deps chromium
-  pnpm gui:e2e
-  pnpm audit --prod --audit-level high
+# frank-cli is on the hot path of every hook invocation (see CLAUDE.md's
+# startup-cost contract); xtask's architecture-check only tracks frank-*
+# crates and cannot see this, so it's enforced here directly. The GUI is a
+# separate binary precisely so wgpu/iced never link into the binary that runs
+# every turn.
+if cargo tree -e normal -p frank-cli --prefix none --locked | grep -qE '^(iced|wgpu|winit|tray-icon) '; then
+  echo 'frank-cli must not link GUI dependencies' >&2
+  exit 1
 fi
 
 # cargo-fuzz enables AddressSanitizer and -Zbuild-std by default. Those flags

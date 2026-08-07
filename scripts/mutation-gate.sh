@@ -37,8 +37,23 @@ esac
 
 # The Tauri command bridge is exercised by the GUI's Playwright/E2E jobs, not
 # by Rust unit tests. Keep it out of this Rust-only mutation run; the frontend
-# gate remains responsible for that contract.
+# gate remains responsible for that contract. Removed once M-5 deletes Tauri.
 mutation_scope+=(--exclude 'apps/frank-gui/src-tauri/**')
+
+# frank-gui -> iced migration (M-4): crates/frank-gui (package name
+# "frank-desktop" until M-5's rename) is the platform shell -- tray/window
+# lifecycle/single-instance glue that needs a real event loop and OS tray to
+# exercise, covered by scripts/native-smoke.sh instead. Its own reducer/model
+# logic lives in frank-gui-core and stays fully mutated below. Narrower than
+# the Tauri exclusion above: the whole GUI used to be excluded, now only the
+# ~250-line shell is.
+mutation_scope+=(--exclude 'crates/frank-gui/src/**')
+# Widget layout/styling code (padding, spacing, which container wraps which)
+# produces mutants no test can meaningfully distinguish from the original --
+# see the plan's "Styling" note. reducer.rs/model.rs/message.rs/i18n.rs stay
+# fully mutated.
+mutation_scope+=(--exclude 'crates/frank-gui-core/src/pages/**')
+mutation_scope+=(--exclude 'crates/frank-gui-core/src/view.rs')
 
 mutation_command=(cargo mutants --workspace)
 mutation_command+=("${mutation_scope[@]}")

@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/a-man-called-q/frank/main/dist/inst
 
 ### Build From Source
 
-Requirements: Rust 1.85 or newer. (Node 24, pnpm 10, and Moon 2.4.5 via proto if you want to run or build the desktop control plane).
+Requirements: Rust 1.88 or newer. (Node 24, pnpm 10, and Moon 2.4.5 via proto if you want to run or build the desktop control plane).
 
 ```sh
 git clone https://github.com/a-man-called-q/frank.git

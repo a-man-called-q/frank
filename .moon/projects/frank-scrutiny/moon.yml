@@ -11,11 +11,6 @@ tasks:
       - '/Cargo.lock'
       - '/.config/**/*'
       - '/crates/**/*'
-      - '/apps/frank-gui/src/**/*'
-      - '/apps/frank-gui/src-tauri/**/*'
-      - '/apps/frank-gui/index.html'
-      - '/apps/frank-gui/*.json'
-      - '/apps/frank-gui/*.ts'
       - '/scripts/**/*'
       - '/xtask/**/*'
     options:

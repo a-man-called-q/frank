@@ -68,8 +68,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "tauri_payloads"
-path = "fuzz_targets/tauri_payloads.rs"
+name = "app_payloads"
+path = "fuzz_targets/app_payloads.rs"
 test = false
 doc = false
 bench = false

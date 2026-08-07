@@ -25,7 +25,7 @@ mod repository;
 mod settings;
 mod target_service;
 
-pub use builtin::builtin_pack;
+pub use builtin::{PACK_ID as BUILTIN_PACK_ID, builtin_pack};
 
 pub use models::{
     AppError, Clock, DashboardSnapshot, DiagnosisView, DoctorReport, FrankPaths, GuiSettings,

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Frank
+Comment=Frank persona engine control panel
+Exec=frank-gui
+Icon=frank-gui
+Terminal=false
+Categories=Utility;
+StartupNotify=true
