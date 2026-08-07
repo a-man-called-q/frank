@@ -49,39 +49,36 @@ cargo deny -L error check -c .config/deny.toml bans licenses sources
 
 # These are explicit, reviewable exceptions. They are not a blanket
 # allow-list: every identifier is tied to a concrete upstream constraint and
-# must be revisited when the GUI's dependency graph changes.
+# must be revisited when the GUI's dependency graph changes. See SECURITY.md
+# for the full review record.
 #
-# 17 are for the Tauri 2 GTK3/Linux-tray dependency graph -- unmaintained/
-# unsound gtk-rs 0.18 and unic-* crates pulled in transitively by
-# tray-icon/muda's Linux GTK backend. They do not move with the Rust version
-# and are expected to disappear only when Tauri is removed from the tree
-# (see the frank-gui -> iced migration plan).
+# 9 are for the gtk-rs 0.18 GTK3 bindings (atk, atk-sys, gdk, gdk-sys, glib,
+# gtk, gtk-sys, gtk3-macros, and gtk3-macros's own proc-macro-error
+# dependency). These are NOT a Tauri leftover -- Tauri was fully removed at
+# M-5 of the frank-gui -> iced migration, and gtk-rs is still here because
+# tray-icon/muda's own Linux tray backend (libappindicator) links it
+# directly. They will not disappear until that Linux tray implementation
+# changes.
 #
 # 2 are for the iced 0.14 dependency graph added by that same migration's
 # M-3: `paste` (unmaintained, via metal -> wgpu-hal -> wgpu, iced's GPU
 # renderer) and `ttf-parser` (unmaintained, via cosmic-text/winit's glyph
-# rendering). Both are "unmaintained", not active vulnerabilities, and have
-# no compatible replacement in iced 0.14's pinned graph; re-evaluate on the
-# next iced upgrade.
+# rendering).
+#
+# All 11 are "unmaintained"/"unsound" advisories against crates with no
+# compatible replacement in the currently pinned dependency graph, not
+# advisories Frank's own code path is exposed to.
 cargo audit --deny warnings \
   --ignore RUSTSEC-2024-0370 \
-  --ignore RUSTSEC-2024-0411 \
   --ignore RUSTSEC-2024-0412 \
   --ignore RUSTSEC-2024-0413 \
-  --ignore RUSTSEC-2024-0414 \
   --ignore RUSTSEC-2024-0415 \
   --ignore RUSTSEC-2024-0416 \
-  --ignore RUSTSEC-2024-0417 \
   --ignore RUSTSEC-2024-0418 \
   --ignore RUSTSEC-2024-0419 \
   --ignore RUSTSEC-2024-0420 \
   --ignore RUSTSEC-2024-0429 \
   --ignore RUSTSEC-2024-0436 \
-  --ignore RUSTSEC-2025-0075 \
-  --ignore RUSTSEC-2025-0080 \
-  --ignore RUSTSEC-2025-0081 \
-  --ignore RUSTSEC-2025-0098 \
-  --ignore RUSTSEC-2025-0100 \
   --ignore RUSTSEC-2026-0192
 cargo run --locked -p xtask -- build-packs
 git diff --exit-code -- packs/

@@ -1,8 +1,8 @@
 #![no_main]
 
-use frank_ledger::attribution::attribute_by_mode;
-use frank_ledger::mode_log::ModeLogRow;
-use frank_ledger::session::SessionTurn;
+use frank_ledger::ModeLogRow;
+use frank_ledger::SessionTurn;
+use frank_ledger::attribute_by_mode;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

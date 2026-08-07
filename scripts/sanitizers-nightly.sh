@@ -23,8 +23,9 @@ rustup run nightly rustc --version >/dev/null 2>&1 || {
 }
 
 # Keep the sanitizer scope on the pure Rust correctness/security boundary. The
-# native Tauri host is exercised by its platform smoke jobs and pulls in GUI
-# system libraries that are unrelated to sanitizer coverage.
+# native frank-gui host is exercised by its platform smoke jobs (native-smoke.sh)
+# and pulls in GUI system libraries (iced/wgpu/tray-icon) unrelated to
+# sanitizer coverage.
 target="x86_64-unknown-linux-gnu"
 packages=(
   frank-safeio

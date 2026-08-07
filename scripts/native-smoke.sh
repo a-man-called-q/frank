@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Native smoke is intentionally separate from Playwright: it exercises the
-# actual Tauri process boundary (tray-first hidden launch and the
-# single-instance hand-off). A package/VM job supplies the built executable via
-# FRANK_GUI_BINARY; silently skipping would turn this into a decorative test.
+# Native smoke exercises the actual GUI process boundary (tray-first hidden
+# launch and the single-instance hand-off) against a real built executable --
+# not a unit test double. A package/VM job supplies it via FRANK_GUI_BINARY;
+# silently skipping would turn this into a decorative test.
 binary="${FRANK_GUI_BINARY:-}"
 [[ -n "$binary" ]] || { echo 'FRANK_GUI_BINARY must point at the built Frank GUI executable' >&2; exit 2; }
 [[ -x "$binary" ]] || { echo "GUI executable is missing or not executable: $binary" >&2; exit 1; }

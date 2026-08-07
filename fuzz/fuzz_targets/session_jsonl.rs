@@ -7,7 +7,7 @@ fuzz_target!(|bytes: &[u8]| {
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("session.jsonl");
     if std::fs::write(&path, bytes).is_ok() {
-        let _ = frank_ledger::session::parse_session(&path);
+        let _ = frank_ledger::parse_session(&path);
     }
     let _ = std::fs::remove_file(path);
 });

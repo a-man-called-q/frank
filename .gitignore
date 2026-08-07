@@ -17,3 +17,10 @@ bench/results/*.json
 /dist/*.msi
 /dist/*.deb
 /dist/*.rpm
+
+# cargo-fuzz writes every input that finds new coverage as a hash-named file
+# with no extension -- exploration cache, not the curated seed corpus. The
+# actual seeds (fuzz/corpus/*/malformed.toml etc.) all have a real extension,
+# so re-include those explicitly and ignore everything else per target dir.
+fuzz/corpus/*/*
+!fuzz/corpus/*/*.*

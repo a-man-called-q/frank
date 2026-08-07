@@ -87,9 +87,9 @@ impl FrankPaths {
     }
 
     /// Override the executable used in generated target hook commands. The
-    /// CLI uses `current_exe`; the desktop adapter points this at the bundled
-    /// sidecar so installing from the GUI still leaves a hook that can run
-    /// without the GUI process.
+    /// CLI uses `current_exe`; the desktop adapter points this at the `frank`
+    /// binary bundled alongside it so installing from the GUI still leaves a
+    /// hook that can run without the GUI process.
     pub fn with_frank_bin(mut self, frank_bin: PathBuf) -> Self {
         self.frank_bin = frank_bin;
         self
@@ -147,7 +147,7 @@ pub struct UserSettingsPatch {
     /// `None` means the caller did not send this field; `Some(None)` means
     /// explicitly remove the user override; `Some(Some(level))` sets it.
     /// Serde's normal `Option<Option<T>>` handling collapses the first two
-    /// cases for JSON/Tauri `null`, so keep the tri-state contract explicit.
+    /// cases for JSON `null`, so keep the tri-state contract explicit.
     #[serde(deserialize_with = "deserialize_double_option")]
     pub default_level: Option<Option<String>>,
     pub launch_at_login: Option<bool>,

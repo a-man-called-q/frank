@@ -7,10 +7,10 @@ Thank you for your interest in contributing to Frank! This guide will help you g
 ### Prerequisites
 
 - **Rust**: 1.88 or newer
-- **Proto** (optional): For pinned toolchain versions
-  - Node 24
-  - pnpm 10
-  - Moon 2.4.5
+- **Proto** (optional): For a pinned Moon 2.4.5 toolchain
+
+Everything, including the desktop GUI, is native Rust — no Node/pnpm toolchain is
+needed anywhere in this repo.
 
 ### Clone and Build
 
@@ -39,8 +39,7 @@ cargo test --workspace -- --nocapture
 For GUI development:
 
 ```bash
-pnpm install --frozen-lockfile
-moon run frank-gui:dev
+cargo run --locked -p frank-gui
 ```
 
 ## Before Committing
@@ -92,7 +91,7 @@ moon run :verify
 moon run :verify-strict
 ```
 
-Includes coverage, audit, browser tests, and clean generated output checks.
+Includes coverage, `cargo-deny`/`cargo-audit`, and clean generated output checks.
 
 ## Project Structure
 
@@ -107,9 +106,9 @@ frank/
 │   ├── frank-target/ # AI integrations
 │   ├── frank-mcp/    # MCP server
 │   ├── frank-safeio/ # Security kernel
-│   └── frank-app/    # Shared service
-├── apps/
-│   └── frank-gui/    # Tauri desktop app
+│   ├── frank-app/    # Shared service facade
+│   ├── frank-gui-core/ # iced Model/Message/reduce() + view layer
+│   └── frank-gui/    # Desktop app binary (iced::daemon, tray, autostart)
 ├── packs/            # Persona packs
 │   └── caveman/      # Default pack
 ├── targets/          # AI assistant integrations
@@ -179,7 +178,7 @@ We follow conventional commits:
 - `test`: Adding/updating tests
 - `chore`: Maintenance, dependencies
 
-**Scopes**: `cli`, `pack`, `state`, `ledger`, `compress`, `target`, `mcp`, `safeio`, `app`, `gui`
+**Scopes**: `cli`, `pack`, `state`, `ledger`, `compress`, `target`, `mcp`, `safeio`, `app`, `gui-core`, `gui`
 
 **Examples**:
 ```
@@ -283,7 +282,7 @@ cargo test --doc
 Test packaged binaries:
 
 ```bash
-FRANK_GUI_BINARY=/path/to/Frank moon run release:native-smoke
+FRANK_GUI_BINARY=target/release/frank-gui moon run release:native-smoke
 ```
 
 ## Documentation

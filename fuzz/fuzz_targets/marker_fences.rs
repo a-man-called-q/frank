@@ -1,6 +1,6 @@
 #![no_main]
 
-use frank_target::markdown_block::{append, remove, strip_all, Block};
+use frank_target::{Block, append, remove, strip_all};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

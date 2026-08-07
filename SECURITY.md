@@ -9,35 +9,35 @@ it. That resolved and removed the three `RUSTSEC-2026-*` IDs that used to be
 listed here. `cargo audit` is clean of them as of this Rust bump; re-run it
 after any future dependency change to confirm they stay resolved.
 
-What remains is the Tauri Linux tray backend's GTK3 dependency graph, which
-does **not** move with the Rust version -- these are archived/unmaintained
-`gtk-rs` 0.18 bindings and the `unic-*` Unicode helpers `gtk3-macros` pulls
-in. The IDs are listed explicitly in `scripts/verify-strict.sh` with this
-review record rather than silently discarded:
+## GTK3 tray backend (9 IDs)
 
-- `RUSTSEC-2024-0429`: transitive GTK3 unsoundness; Frank does not call the
-  affected iterator, but the Linux webview remains a platform dependency.
-- `RUSTSEC-2024-0411` through `RUSTSEC-2024-0420`, and `RUSTSEC-2025-0075`,
-  `RUSTSEC-2025-0080`, `RUSTSEC-2025-0081`, `RUSTSEC-2025-0098`,
-  `RUSTSEC-2025-0100`: unmaintained transitive GUI/macro crates with no
-  replacement available in the gtk-rs 0.18 line the Tauri 2 Linux backend
-  pins to.
+`frank-gui` migrated off Tauri 2 + React onto native Rust + iced 0.14 (see
+the frank-gui -> iced migration plan); Tauri was fully removed from the tree
+at that migration's M-5. **These 9 IDs are not a Tauri leftover** -- they
+persist because `tray-icon`/`muda`, the crates providing the Linux tray icon
+and menu, link `gtk-rs` 0.18 (via `libappindicator`) directly for their own
+Linux backend:
+
+- `RUSTSEC-2024-0429`: `glib` unsoundness in `Iterator`/`DoubleEndedIterator`
+  impls for `VariantStrIter`. Frank does not call the affected iterator, but
+  `glib` remains a transitive platform dependency.
+- `RUSTSEC-2024-0412`, `-0413`, `-0415`, `-0416`, `-0418`, `-0419`, `-0420`:
+  unmaintained `gtk-rs` 0.18 bindings (`gdk`, `atk`, `gtk`, `atk-sys`,
+  `gdk-sys`, `gtk3-macros`, `gtk-sys`) with no replacement available in the
+  gtk-rs 0.18 line `tray-icon`'s Linux backend pins to.
 - `RUSTSEC-2024-0370`: unmaintained `proc-macro-error`, pulled in by
   `gtk3-macros`.
 
-This is a temporary dependency-review exception, not a claim that those
-upstream advisories are fixed. These 17 IDs are expected to disappear
-entirely once the desktop GUI moves off Tauri (see the frank-gui -> native
-Rust/iced migration plan) rather than through a further toolchain bump --
-they are tied to the GTK3 graph, not the Rust version. Until then, upgrade
-the toolchain/Tauri graph, remove each ID, and rerun the audit before
-enabling production signing or auto-update.
+This is a reviewed dependency exception, not a claim the upstream advisories
+are fixed. Unlike the old Tauri-era framing, these do **not** have a known
+removal path today -- they are tied to `tray-icon`'s Linux GTK backend, and
+would only disappear if that crate (or Frank's use of it) changes. Re-check
+this list whenever `tray-icon`/`muda` are upgraded, in case a newer release
+drops the GTK3 dependency.
 
-## iced 0.14 graph (added by the migration itself, M-3)
+## iced 0.14 graph (2 IDs)
 
-Two more IDs, unrelated to the Tauri/GTK3 set above -- these come from
-`frank-gui-core`'s new `iced` dependency, so they will **outlive** the Tauri
-removal rather than disappear with it:
+Unrelated to the GTK3 set above, from `frank-gui-core`'s `iced` dependency:
 
 - `RUSTSEC-2024-0436`: `paste` is unmaintained. Pulled in via
   `metal -> wgpu-hal -> wgpu -> iced_wgpu`, iced's GPU renderer backend.
@@ -49,3 +49,10 @@ Both are "unmaintained" warnings, not active vulnerabilities, and both have
 no replacement available in iced 0.14's pinned dependency graph. Re-evaluate
 on the next iced upgrade rather than assuming they resolve on their own.
 
+## Accessibility
+
+iced 0.14 has no accessibility tree (no AT-SPI/UIA/NSAccessibility
+integration). `frank`, the CLI, is the accessible, screen-reader-native way
+to perform every operation `frank-gui` exposes, and every installer places
+both binaries side by side. This is a documented product tradeoff, not an
+oversight -- see the frank-gui -> iced migration plan's "Regresi" section.

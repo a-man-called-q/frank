@@ -33,6 +33,9 @@ frank-state ──> frank-pack, frank-safeio
 frank-ledger ──> frank-state, frank-safeio
 frank-target ──> frank-pack, frank-safeio
 frank-mcp ──> frank-compress
+frank-app ──> frank-pack, frank-state, frank-safeio, frank-target, frank-ledger
+frank-gui-core ──> frank-app
+frank-gui ──> frank-app, frank-gui-core, frank-safeio
 frank-pack, frank-compress, frank-safeio ──> (leaves)
 ```
 
@@ -46,7 +49,17 @@ frank-pack, frank-compress, frank-safeio ──> (leaves)
 | `frank-target` | Target schema, detection, install planning, JSONC/settings merge, marker fences | `bin/install.js`, `bin/lib/{settings,openclaw}.js` |
 | `frank-mcp` | stdio proxy, two std threads | `src/mcp-servers/caveman-shrink/index.js` |
 | `frank-cli` | binary `frank` — argv dispatch, formatting | `bin/install.js` CLI surface |
+| `frank-app` | Facade shared by every frontend: settings, flag-state, prepare/apply boundary for confirmation-based UIs | *n/a — Caveman had no GUI; built for the desktop control panel* |
+| `frank-gui-core` | `Model`/`Message`/`reduce()` state machine + iced view layer, backend-agnostic | *n/a — replaces the Tauri 2 + React `apps/frank-gui` frontend* |
+| `frank-gui` | binary `frank-gui` — `iced::daemon` shell: tray, single-instance lock, window lifecycle, autostart | *n/a — replaces the Tauri shell `apps/frank-gui/src-tauri`* |
 | `xtask` | `build-packs`, `checksums`, `lint-targets`, `dist` | `.github/workflows/sync-skill.yml` |
+
+**`frank-gui` migrated off Tauri 2 + React onto native Rust + iced 0.14** (tray via
+`tray-icon`/`muda`, single-instance via a `frank-safeio` file lock). `frank` itself
+never links GUI dependencies — `frank-cli` and `frank-gui` are separate binaries over
+the shared `frank-app` facade, both installed together by every platform bundle.
+`frank` remains the accessible surface: iced has no accessibility tree today, so the
+CLI is the screen-reader-native way to perform every operation the GUI exposes.
 
 **Deliberately not split further:** no `frank-core` grab bag — `Level`/`LevelId` live
 in `frank-pack` because levels are a pack concept. The JSONC parser, marker-fence

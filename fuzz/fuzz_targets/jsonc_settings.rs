@@ -1,6 +1,6 @@
 #![no_main]
 
-use frank_target::settings::read_settings;
+use frank_target::read_settings;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|bytes: &[u8]| {

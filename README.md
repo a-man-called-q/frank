@@ -32,7 +32,8 @@ curl -fsSL https://raw.githubusercontent.com/a-man-called-q/frank/main/dist/inst
 
 ### Build From Source
 
-Requirements: Rust 1.88 or newer. (Node 24, pnpm 10, and Moon 2.4.5 via proto if you want to run or build the desktop control plane).
+Requirements: Rust 1.88 or newer. That's it — the desktop control panel is native
+Rust too, so no Node/pnpm toolchain is needed to build or run any part of Frank.
 
 ```sh
 git clone https://github.com/a-man-called-q/frank.git
@@ -41,16 +42,18 @@ cargo build --release -p frank-cli
 ./target/release/frank --help
 ```
 
-### 🖥️ Desktop Control Panel (Tauri)
+### 🖥️ Desktop Control Panel
 
-Frank includes an optional, sleek desktop tray app! Note: Frank's CLI and lifecycle hooks run 100% standalone without needing the desktop app running.
+Frank includes an optional, sleek desktop tray app, built with [iced](https://iced.rs) — no Electron, no WebView, no bundled browser runtime. Note: Frank's CLI and lifecycle hooks run 100% standalone without needing the desktop app running.
 
 To launch the desktop GUI in development mode:
 
 ```sh
-pnpm install --frozen-lockfile
-moon run frank-gui:dev
+cargo run --locked -p frank-gui
 ```
+
+The CLI (`frank`) is Frank's screen-reader-native surface: iced has no accessibility
+tree yet, so anything the GUI can do, `frank` can do too.
 
 ---
 

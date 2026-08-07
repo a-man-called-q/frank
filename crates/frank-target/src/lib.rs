@@ -27,6 +27,7 @@ pub use manifest::{
     CommandVersionProbe, DetectClause, FileSpec, InstallSpec, MarkdownBlockSpec, SettingsHookSpec,
     SettingsMergeSpec, SpawnStep, TargetManifest, TargetMeta,
 };
+pub use markdown_block::{AppendOutcome, Block, append, remove, strip_all};
 pub use plan::{
     Action, ApplyError, Detection, Diagnosis, InstallCtx, InstallPlan, ProbeEnv, ResolvedSpawnStep,
     apply,

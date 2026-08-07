@@ -19,6 +19,8 @@ frank-ledger ──> frank-state, frank-safeio
 frank-target ──> frank-pack, frank-safeio
 frank-mcp ──> frank-compress
 frank-app ──> pack, state, ledger, target, safeio
+frank-gui-core ──> frank-app
+frank-gui ──> frank-app, frank-gui-core, frank-safeio
 frank-pack, frank-compress, frank-safeio ──> (no internal deps)
 ```
 
@@ -164,6 +166,24 @@ Application service layer used by CLI, hooks, and GUI. Provides unified interfac
 
 New addition (not in original Caveman).
 
+### `frank-gui-core` - GUI State & View Layer
+
+Backend-agnostic core of the desktop control panel: `Model`, `Message`, the pure `reduce()` state machine, and the iced `view()` layer (shell + 4 pages: overview, personas, integrations, settings).
+
+**Pure reducer, no side effects**: `update()` never builds an `iced::Task` directly. `reduce(&mut Model, Message) -> Effect` is a plain state machine — easy to unit-test and reach 100% mutation coverage on, since every branch lives here. A separate `interpret(Effect, &Platform, &Backend) -> Task<Message>` is a flat match with no logic, generic over a `trait Backend` (the 7 `FrankService` entry points) and a `trait Platform` (tray/autostart/file-picker), which is what keeps `frank-app` and `tray-icon`/`auto-launch`/`rfd` out of the coverage-gated core.
+
+**Testing**: unit tests over `reduce()`, plus `iced_test::simulator` headless UI tests that render the real `view()` output (tiny-skia, no GPU/display) and assert on `.click()`/`.find()`/`.into_messages()`.
+
+New addition (not in original Caveman — replaces the Tauri 2 + React `apps/frank-gui` frontend).
+
+### `frank-gui` - Desktop Binary
+
+The `frank-gui` binary: an `iced::daemon` shell around `frank-gui-core`. Owns everything that needs a real OS event loop and can't be unit-tested — tray icon/menu (`tray-icon` + `muda`), single-instance locking (via a `frank-safeio`-owned `flock`/`LockFileEx` lock, not a third-party lock crate), window lifecycle (`--hidden` launch, close-to-tray, reopen from tray), autostart (`auto-launch`, with macOS `.app`-bundle path resolution), and CLI-path resolution (`frank` ships as a sibling binary in every platform bundle).
+
+Deliberately excluded from the Rust coverage report (`--exclude frank-gui` in `scripts/verify-strict.sh`) — it's a thin platform shell that needs a real tray/event loop to exercise; `scripts/native-smoke.sh` is its acceptance test instead. Packaged via `cargo-packager` (dmg/msi/deb) and `cargo-generate-rpm` (rpm — `cargo-packager` has no `PackageFormat::Rpm` variant).
+
+New addition (not in original Caveman — replaces the Tauri shell `apps/frank-gui/src-tauri`).
+
 ### `xtask` - Build Tasks
 
 Cargo xtask for:
@@ -228,27 +248,31 @@ Standard Rust workspace. `cargo` is source of truth for builds.
 
 Moon 2.4.5 (via proto) orchestrates task graph but doesn't replace cargo. Used for:
 - Cross-crate task dependencies
-- GUI dev server
 - Release packaging
 - Verification gates
 
 **Verification gates**:
 ```bash
 moon run :verify        # Fast: tests + clippy + fmt
-moon run :verify-strict # + coverage + audit + browser tests
+moon run :verify-strict # + coverage + audit + cargo-deny
 ```
 
-### Tauri GUI
+### Desktop GUI (iced)
 
-Desktop app (optional):
-- Framework: Tauri v2
-- Frontend: React + TypeScript
-- Build: pnpm 10 + Node 24 (via proto)
+Desktop app (optional), native Rust throughout — no Node/pnpm toolchain required anywhere in this repo:
+- Framework: [iced](https://iced.rs) 0.14, `iced::daemon` (tray-first, zero windows by default)
+- Tray: `tray-icon` + `muda`
+- Autostart: `auto-launch`
+- File picker: `rfd`
+
+`frank-cli` never links any of these — `frank` and `frank-gui` are separate
+binaries sharing the `frank-app` facade, so hook invocations never pay for
+GPU/windowing startup cost. `scripts/verify-strict.sh` enforces this
+mechanically with a `cargo tree -p frank-cli` check.
 
 Development:
 ```bash
-pnpm install --frozen-lockfile
-moon run frank-gui:dev
+cargo run --locked -p frank-gui
 ```
 
 Release:
@@ -261,10 +285,14 @@ MVP packages unsigned. Signing tracked.
 Verify host-native packages after building them:
 
 ```bash
-FRANK_GUI_BINARY=/path/to/Frank moon run release:native-smoke
+FRANK_GUI_BINARY=target/release/frank-gui moon run release:native-smoke
 ```
 
 Validates: hidden launch, single-instance hand-off, clean quit.
+
+**Accessibility**: iced 0.14 has no accessibility tree yet. `frank`, the CLI,
+is the screen-reader-native way to perform every operation the GUI exposes,
+and every installer places both binaries side by side — see `SECURITY.md`.
 
 ## Historical Context
 
@@ -280,7 +308,10 @@ Frank fixes these while maintaining feature parity.
 
 ### What Changed?
 
-**Architecture**: Added `frank-app` service layer, stricter separation.
+**Architecture**: Added `frank-app` service layer, stricter separation. The
+desktop control panel itself moved from Tauri 2 + React onto native Rust +
+iced 0.14 (`frank-gui-core` + `frank-gui`), removing the entire Node/pnpm/
+webview toolchain from the repo.
 
 **Security**: Symlink protection, fail-closed installs, immutable fixtures.
 
