@@ -568,4 +568,54 @@ mod tests {
         };
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
     }
+
+    #[test]
+    fn lock_file_flags_have_required_security_bits() {
+        let existing = lock_file_existing_flags();
+        assert!(existing.contains(OFlags::WRONLY));
+        assert!(existing.contains(OFlags::NOFOLLOW));
+        assert!(existing.contains(OFlags::CLOEXEC));
+
+        let create = lock_file_create_flags();
+        assert!(create.contains(OFlags::WRONLY));
+        assert!(create.contains(OFlags::CREATE));
+        assert!(create.contains(OFlags::EXCL));
+        assert!(create.contains(OFlags::NOFOLLOW));
+        assert!(create.contains(OFlags::CLOEXEC));
+    }
+
+    #[test]
+    fn open_lock_file_succeeds_for_new_and_existing_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path()).unwrap();
+        let dirfd = fs::openat(CWD, tmp.path(), verified_dir_flags(), Mode::empty()).unwrap();
+
+        // First call creates the file
+        let fd1 = open_lock_file(&dirfd, OsStr::new("test.lock")).unwrap();
+        drop(fd1);
+
+        // Second call opens the existing file
+        let fd2 = open_lock_file(&dirfd, OsStr::new("test.lock")).unwrap();
+        drop(fd2);
+    }
+
+    #[test]
+    fn open_lock_file_handles_concurrent_creation() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path()).unwrap();
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = tmp.path().to_path_buf();
+                std::thread::spawn(move || {
+                    let dirfd = fs::openat(CWD, &path, verified_dir_flags(), Mode::empty()).unwrap();
+                    open_lock_file(&dirfd, OsStr::new("race.lock"))
+                })
+            })
+            .collect();
+
+        for h in handles {
+            assert!(h.join().unwrap().is_ok(), "concurrent open_lock_file must not fail");
+        }
+    }
 }
