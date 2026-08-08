@@ -576,4 +576,46 @@ mod tests {
 
         assert_eq!(read_lines(&path), vec!["a", "b", "c"]);
     }
+
+    #[test]
+    fn ensure_dir_unit_test() {
+        let tmp = tempdir().unwrap();
+        let nested = tmp.path().join("sub/dir");
+        ensure_dir(&nested).unwrap();
+        assert!(nested.is_dir());
+
+        let file = tmp.path().join("file.txt");
+        std::fs::write(&file, "hello").unwrap();
+        assert!(ensure_dir(&file).is_err());
+    }
+
+    #[test]
+    fn remove_file_unit_test() {
+        let tmp = tempdir().unwrap();
+        let file = tmp.path().join("target.txt");
+        std::fs::write(&file, "content").unwrap();
+        assert!(remove_file(&file).unwrap());
+        assert!(!file.exists());
+
+        let missing = tmp.path().join("missing.txt");
+        assert!(!remove_file(&missing).unwrap());
+    }
+
+    #[test]
+    fn write_text_atomic_unit_test() {
+        let tmp = tempdir().unwrap();
+        let file = tmp.path().join("config.toml");
+        write_text_atomic(&file, "key = 'value'", 64).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "key = 'value'");
+
+        assert!(matches!(
+            write_text_atomic(&file, "over limit", 4),
+            Err(SafeIoError::TooLarge(4))
+        ));
+    }
+
+    #[test]
+    fn home_dir_unit_test() {
+        let _ = home_dir();
+    }
 }

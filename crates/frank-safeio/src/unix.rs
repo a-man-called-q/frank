@@ -515,6 +515,42 @@ mod tests {
         assert!(read.contains(OFlags::RDONLY));
         assert!(read.contains(OFlags::NOFOLLOW));
         assert!(read.contains(OFlags::CLOEXEC));
+
+        let lock_existing = lock_file_existing_flags();
+        assert!(lock_existing.contains(OFlags::WRONLY));
+        assert!(lock_existing.contains(OFlags::NOFOLLOW));
+        assert!(lock_existing.contains(OFlags::CLOEXEC));
+
+        let lock_create = lock_file_create_flags();
+        assert!(lock_create.contains(OFlags::WRONLY));
+        assert!(lock_create.contains(OFlags::CREATE));
+        assert!(lock_create.contains(OFlags::EXCL));
+        assert!(lock_create.contains(OFlags::NOFOLLOW));
+        assert!(lock_create.contains(OFlags::CLOEXEC));
+    }
+
+    #[test]
+    fn try_lock_exclusive_error_paths() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+
+        // Path where dir is actually a file
+        let file_as_dir = tmp.path().join("file_as_dir");
+        std::fs::write(&file_as_dir, "not a dir").unwrap();
+        assert!(try_lock_exclusive(&file_as_dir, std::ffi::OsStr::new("gui.lock")).is_err());
+
+        // Path where directory is read-only so lock file creation fails
+        let blocked = tmp.path().join("read_only_dir");
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        assert!(try_lock_exclusive(&blocked, std::ffi::OsStr::new("gui.lock")).is_err());
+
+        // Pre-existing lock file (covers open_existing Ok branch in open_lock_file)
+        let lock_file = tmp.path().join("existing.lock");
+        std::fs::write(&lock_file, "").unwrap();
+        let guard = try_lock_exclusive(tmp.path(), std::ffi::OsStr::new("existing.lock")).unwrap();
+        assert!(guard.is_some());
     }
 
     #[test]
