@@ -237,6 +237,100 @@ fn bump_rejects_an_invalid_target() {
 }
 
 #[test]
+fn bump_keeps_internal_path_dependency_constraints_in_lockstep() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_workspace_manifest(root, "1.2.3");
+    fs::create_dir_all(root.join("crates/a")).unwrap();
+    fs::create_dir_all(root.join("crates/b")).unwrap();
+    fs::write(
+        root.join("crates/a/Cargo.toml"),
+        "[package]\nname = \"a\"\nversion.workspace = true\n\n[dependencies]\nb = { path = \"../b\", version = \"1.2.3\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("crates/b/Cargo.toml"),
+        "[package]\nname = \"b\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+
+    assert_success(&run(root, &["bump", "2.0.0"]));
+    let dependency_manifest = fs::read_to_string(root.join("crates/a/Cargo.toml")).unwrap();
+    assert!(dependency_manifest.contains("version = \"2.0.0\""));
+}
+
+#[test]
+fn publish_dry_run_uses_the_current_version_without_changing_git() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_workspace_manifest(root, "1.2.3");
+    init_git_repo(root);
+    commit_all(root, "initial");
+
+    let output = run(root, &["bump", "--publish", "--dry-run"]);
+    let stdout = assert_success(&output);
+    assert!(
+        stdout.contains("Version:                 1.2.3 -> 1.2.3"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("Tag:                     v1.2.3"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("[DRY RUN] No files"), "{stdout}");
+    assert!(
+        String::from_utf8_lossy(&git(root, &["tag", "-l"]).stdout)
+            .trim()
+            .is_empty()
+    );
+    assert!(git(root, &["status", "--porcelain"]).stdout.is_empty());
+}
+
+#[test]
+fn publish_without_push_commits_and_tags_the_release_locally() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    write_workspace_manifest(root, "1.2.3");
+    fs::create_dir_all(root.join("crates/fixture")).unwrap();
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/fixture\"]\n\n[workspace.package]\nversion = \"1.2.3\"\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("crates/fixture/Cargo.toml"),
+        "[package]\nname = \"fixture\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("crates/fixture/src")).unwrap();
+    fs::write(
+        root.join("crates/fixture/src/lib.rs"),
+        "pub fn fixture() {}\n",
+    )
+    .unwrap();
+    init_git_repo(root);
+    commit_all(root, "initial");
+
+    let output = run(root, &["bump", "--publish", "--no-push", "patch"]);
+    let stdout = assert_success(&output);
+    assert!(
+        stdout.contains("Created release commit for v1.2.4"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Created release tag v1.2.4"), "{stdout}");
+    assert!(stdout.contains("prepared locally"), "{stdout}");
+    assert_eq!(
+        String::from_utf8_lossy(&git(root, &["tag", "-l"]).stdout).trim(),
+        "v1.2.4"
+    );
+    assert!(git(root, &["status", "--porcelain"]).stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&git(root, &["log", "-1", "--pretty=%s"]).stdout)
+            .contains("chore(release): v1.2.4")
+    );
+}
+
+#[test]
 fn tag_dry_run_reports_without_creating_a_tag() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

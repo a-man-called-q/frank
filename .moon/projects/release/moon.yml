@@ -17,7 +17,11 @@ tasks:
       cache: false
 
   bump:
-    command: 'cargo run --locked -p frank-release-cli -- bump'
+    # `--publish` makes this the single end-to-end release entrypoint:
+    # version manifests -> Cargo.lock -> commit -> annotated tag -> push.
+    # The pushed tag triggers .github/workflows/release.yml, which builds the
+    # platform artifacts and publishes the GitHub Release.
+    command: 'cargo run --locked -p frank-release-cli -- bump --publish'
     options:
       runFromWorkspaceRoot: true
       cache: false
@@ -64,4 +68,3 @@ tasks:
     options:
       runFromWorkspaceRoot: true
       cache: false
-

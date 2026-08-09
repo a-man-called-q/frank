@@ -10,14 +10,14 @@ name = "frank"
 path = "src/main.rs"
 
 [dependencies]
-frank-app = { path = "../frank-app", version = "0.1.0" }
-frank-pack = { path = "../frank-pack", version = "0.1.0" }
-frank-state = { path = "../frank-state", version = "0.1.0" }
-frank-safeio = { path = "../frank-safeio", version = "0.1.0" }
-frank-ledger = { path = "../frank-ledger", version = "0.1.0" }
-frank-compress = { path = "../frank-compress", version = "0.1.0" }
-frank-target = { path = "../frank-target", version = "0.1.0" }
-frank-mcp = { path = "../frank-mcp", version = "0.1.0" }
+frank-app = { path = "../frank-app", version = "0.2.0" }
+frank-pack = { path = "../frank-pack", version = "0.2.0" }
+frank-state = { path = "../frank-state", version = "0.2.0" }
+frank-safeio = { path = "../frank-safeio", version = "0.2.0" }
+frank-ledger = { path = "../frank-ledger", version = "0.2.0" }
+frank-compress = { path = "../frank-compress", version = "0.2.0" }
+frank-target = { path = "../frank-target", version = "0.2.0" }
+frank-mcp = { path = "../frank-mcp", version = "0.2.0" }
 clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true

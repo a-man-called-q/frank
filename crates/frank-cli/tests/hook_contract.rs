@@ -181,5 +181,8 @@ fn hook_dispatch_happens_before_clap_construction() {
 fn version_is_available_from_the_binary_adapter() {
     let output = frank().arg("--version").output().unwrap();
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).starts_with("frank 0.1.0"));
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .starts_with(&format!("frank {}", env!("CARGO_PKG_VERSION")))
+    );
 }

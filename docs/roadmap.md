@@ -86,7 +86,7 @@ unsigned artifact as trusted or production-ready.
 
 - [ ] Implement minisign signing
 - [ ] Implement signature verification
-- [ ] Complete GitHub Release publishing automation
+- [x] Complete GitHub Release publishing automation (`release:bump` → tag-triggered workflow)
 - [ ] Test full cross-compilation workflow on CI runner
 - [ ] Normalize `cargo fmt --all -- --check` across workspace
 

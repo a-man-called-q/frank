@@ -11,9 +11,9 @@ name = "frank-gui"
 path = "src/main.rs"
 
 [dependencies]
-frank-app = { path = "../frank-app", version = "0.1.0" }
-frank-gui-core = { path = "../frank-gui-core", version = "0.1.0" }
-frank-safeio = { path = "../frank-safeio", version = "0.1.0" }
+frank-app = { path = "../frank-app", version = "0.2.0" }
+frank-gui-core = { path = "../frank-gui-core", version = "0.2.0" }
+frank-safeio = { path = "../frank-safeio", version = "0.2.0" }
 # `iced::time::every` (the 2s snapshot poll, the 1s show-request tick) needs
 # a runtime that provides real timers -- the default `futures::ThreadPool`
 # executor iced uses for everything else (Task::perform, etc.) doesn't have
