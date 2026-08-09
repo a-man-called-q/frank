@@ -55,6 +55,12 @@ binaries = [
   { path = "../../target/release/frank" },
 ]
 
+[package.metadata.packager.dmg]
+background = "packaging/dmg-background.png"
+window_size = { width = 640, height = 480 }
+app_position = { x = 170, y = 170 }
+application_folder_position = { x = 470, y = 170 }
+
 [package.metadata.packager.deb]
 depends = []
 

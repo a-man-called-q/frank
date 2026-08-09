@@ -608,14 +608,18 @@ mod tests {
             .map(|_| {
                 let path = tmp.path().to_path_buf();
                 std::thread::spawn(move || {
-                    let dirfd = fs::openat(CWD, &path, verified_dir_flags(), Mode::empty()).unwrap();
+                    let dirfd =
+                        fs::openat(CWD, &path, verified_dir_flags(), Mode::empty()).unwrap();
                     open_lock_file(&dirfd, OsStr::new("race.lock"))
                 })
             })
             .collect();
 
         for h in handles {
-            assert!(h.join().unwrap().is_ok(), "concurrent open_lock_file must not fail");
+            assert!(
+                h.join().unwrap().is_ok(),
+                "concurrent open_lock_file must not fail"
+            );
         }
     }
 }
