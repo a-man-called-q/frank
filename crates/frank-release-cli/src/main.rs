@@ -92,15 +92,9 @@ fn main() -> Result<()> {
 fn repo_root() -> Result<PathBuf> {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
         let path = PathBuf::from(manifest_dir);
-        if let Some(parent) = path.parent() {
-            if let Some(root) = parent.parent() {
-                if is_workspace_root(&root.join("Cargo.toml")) {
-                    return Ok(root.to_path_buf());
-                }
-            }
-            let candidate = path.join("../..");
-            if is_workspace_root(&candidate.join("Cargo.toml")) {
-                return Ok(candidate.canonicalize()?);
+        if let Some(root) = path.parent().and_then(Path::parent) {
+            if is_workspace_root(&root.join("Cargo.toml")) {
+                return Ok(root.to_path_buf());
             }
         }
     }
@@ -133,8 +127,8 @@ struct VersionInfo {
 
 fn get_version_info(root: &Path) -> Result<VersionInfo> {
     let cargo_path = root.join("Cargo.toml");
-    let cargo_content = fs::read_to_string(&cargo_path)
-        .with_context(|| format!("reading {}", cargo_path.display()))?;
+    let cargo_content =
+        fs::read_to_string(&cargo_path).context(format!("reading {}", cargo_path.display()))?;
     let cargo_toml: toml::Value = toml::from_str(&cargo_content)?;
     let cargo = cargo_toml
         .get("workspace")
@@ -173,11 +167,18 @@ fn status(root: &Path) -> Result<()> {
 }
 
 fn verify(root: &Path) -> Result<()> {
-    let info = get_version_info(root)?;
-    parse_semver(&info.cargo)
-        .with_context(|| format!("workspace version '{}' is not valid semver", info.cargo))?;
-    println!("Verification passed: version {} is valid.", info.cargo);
+    let _ = verified_version(root)?;
     Ok(())
+}
+
+fn verified_version(root: &Path) -> Result<VersionInfo> {
+    let info = get_version_info(root)?;
+    parse_semver(&info.cargo).context(format!(
+        "workspace version '{}' is not valid semver",
+        info.cargo
+    ))?;
+    println!("Verification passed: version {} is valid.", info.cargo);
+    Ok(info)
 }
 
 fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
@@ -208,7 +209,7 @@ fn bump(root: &Path, target: &str) -> Result<()> {
 
 fn resolve_version(current: &str, target: Option<&str>) -> Result<String> {
     let (major, minor, patch) = parse_semver(current)
-        .with_context(|| format!("Current version '{current}' is not valid semver"))?;
+        .context(format!("Current version '{current}' is not valid semver"))?;
 
     let Some(target) = target else {
         return Ok(current.to_string());
@@ -230,10 +231,20 @@ fn resolve_version(current: &str, target: Option<&str>) -> Result<String> {
 }
 
 fn workspace_member_manifests(root: &Path) -> Result<Vec<PathBuf>> {
+    workspace_member_manifests_from(root, |path| fs::read_dir(path))
+}
+
+fn workspace_member_manifests_from<F, I>(root: &Path, read_entries: F) -> Result<Vec<PathBuf>>
+where
+    F: FnOnce(&Path) -> std::io::Result<I>,
+    I: IntoIterator<Item = std::io::Result<fs::DirEntry>>,
+{
     let mut manifests = Vec::new();
     let crates_dir = root.join("crates");
     if crates_dir.is_dir() {
-        let mut entries: Vec<_> = fs::read_dir(&crates_dir)?.collect::<std::io::Result<_>>()?;
+        let mut entries: Vec<_> = read_entries(&crates_dir)?
+            .into_iter()
+            .collect::<std::io::Result<_>>()?;
         entries.sort_by_key(std::fs::DirEntry::path);
         for entry in entries {
             let manifest = entry.path().join("Cargo.toml");
@@ -300,9 +311,9 @@ fn update_path_dependency_versions(
                 continue;
             }
 
-            let Some(dependency) = dependency.as_table_like_mut() else {
-                continue;
-            };
+            let dependency = dependency
+                .as_table_like_mut()
+                .expect("dependency was table-like but not mutable");
             if dependency.get("version").is_some() {
                 dependency.insert("version", value(new_version));
                 changed = true;
@@ -355,16 +366,16 @@ fn git_status_paths(root: &Path) -> Result<Vec<String>> {
     }
 
     let stdout = String::from_utf8(output.stdout).context("git status output is not UTF-8")?;
-    stdout
-        .lines()
-        .map(|line| {
-            line.get(3..)
-                .map(str::trim)
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned)
-                .with_context(|| format!("unexpected git status line: {line:?}"))
-        })
-        .collect()
+    let mut paths = Vec::new();
+    for line in stdout.lines() {
+        let path = line
+            .get(3..)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .context(format!("unexpected git status line: {line:?}"))?;
+        paths.push(path.to_owned());
+    }
+    Ok(paths)
 }
 
 fn is_git_dirty(root: &Path) -> bool {
@@ -394,7 +405,7 @@ fn git_remote_url(root: &Path, remote: &str) -> Result<String> {
         .args(["remote", "get-url", remote])
         .current_dir(root)
         .output()
-        .with_context(|| format!("reading git remote {remote}"))?;
+        .context(format!("reading git remote {remote}"))?;
     if !output.status.success() {
         bail!("git remote '{remote}' is not configured");
     }
@@ -402,15 +413,23 @@ fn git_remote_url(root: &Path, remote: &str) -> Result<String> {
 }
 
 fn github_release_url(remote_url: &str, tag_name: &str) -> Option<String> {
-    let remote = remote_url
-        .trim()
-        .strip_prefix("https://github.com/")
-        .or_else(|| remote_url.trim().strip_prefix("http://github.com/"))
-        .or_else(|| remote_url.trim().strip_prefix("git@github.com:"))
-        .or_else(|| remote_url.trim().strip_prefix("ssh://git@github.com/"))?;
+    let remote_url = remote_url.trim();
+    let mut remote = None;
+    for prefix in [
+        "https://github.com/",
+        "http://github.com/",
+        "git@github.com:",
+        "ssh://git@github.com/",
+    ] {
+        if let Some(stripped) = remote_url.strip_prefix(prefix) {
+            remote = Some(stripped);
+            break;
+        }
+    }
+    let remote = remote?;
     let repository = remote.trim_end_matches('/').trim_end_matches(".git");
     let mut parts = repository.split('/');
-    let owner = parts.next()?;
+    let owner = parts.next().unwrap_or("");
     let name = parts.next()?;
     if owner.is_empty() || name.is_empty() || parts.next().is_some() {
         return None;
@@ -497,7 +516,7 @@ fn push_ref(root: &Path, remote: &str, reference: &str, description: &str) -> Re
         .args(["push", remote, reference])
         .current_dir(root)
         .status()
-        .with_context(|| format!("pushing {description}"))?;
+        .context(format!("pushing {description}"))?;
     if !status.success() {
         bail!("failed to push {description} to {remote}");
     }
@@ -518,9 +537,10 @@ fn publish_release(root: &Path, target: Option<&str>, dry_run: bool, no_push: bo
 
     let branch = git_current_branch(root)?;
     let remote_url = git_remote_url(root, "origin").ok();
-    let release_url = remote_url
-        .as_deref()
-        .and_then(|url| github_release_url(url, &tag_name));
+    let release_url = match remote_url.as_deref() {
+        Some(url) => github_release_url(url, &tag_name),
+        None => None,
+    };
 
     println!("=== Frank GitHub Release ===");
     println!("Version:                 {} -> {new_version}", info.cargo);
@@ -624,9 +644,7 @@ fn get_latest_git_tag(root: &Path) -> Result<String> {
 }
 
 fn tag(root: &Path, allow_dirty: bool, dry_run: bool, push: bool) -> Result<()> {
-    verify(root)?;
-
-    let info = get_version_info(root)?;
+    let info = verified_version(root)?;
     let tag_name = format!("v{}", info.cargo);
 
     if is_git_dirty(root) && !allow_dirty {
@@ -679,8 +697,15 @@ fn checksums(root: &Path) -> Result<()> {
         );
     }
 
+    checksums_from_entries(&dist_dir, fs::read_dir(&dist_dir)?)
+}
+
+fn checksums_from_entries(
+    dist_dir: &Path,
+    directory_entries: impl IntoIterator<Item = std::io::Result<fs::DirEntry>>,
+) -> Result<()> {
     let mut entries = Vec::new();
-    for entry in fs::read_dir(&dist_dir)? {
+    for entry in directory_entries {
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
@@ -704,10 +729,7 @@ fn checksums(root: &Path) -> Result<()> {
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         let hash = format!("{:x}", hasher.finalize());
-        let file_name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .context("Invalid filename")?;
+        let file_name = release_file_name(path)?;
         lines.push(format!("{hash}  {file_name}"));
     }
 
@@ -723,16 +745,12 @@ fn checksums(root: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_semver() {
-        assert_eq!(parse_semver("0.1.0"), Some((0, 1, 0)));
-        assert_eq!(parse_semver("v1.2.3"), Some((1, 2, 3)));
-        assert_eq!(parse_semver("10.20.30"), Some((10, 20, 30)));
-        assert_eq!(parse_semver("invalid"), None);
-        assert_eq!(parse_semver("1.2"), None);
-    }
+fn release_file_name(path: &Path) -> Result<&str> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .context("Invalid filename")
 }
+
+#[cfg(test)]
+#[path = "release_unit_tests.rs"]
+mod tests;
