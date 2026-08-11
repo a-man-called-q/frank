@@ -308,7 +308,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::write(&command, "#!/bin/sh\nprintf 'frank 1.2.3\\n'\n").unwrap();
+            fs::write(&command, "#!/bin/sh\nsleep 1\nprintf 'frank 1.2.3\\n'\n").unwrap();
             let mut permissions = fs::metadata(&command).unwrap().permissions();
             permissions.set_mode(0o755);
             fs::set_permissions(&command, permissions).unwrap();
