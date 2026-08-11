@@ -177,6 +177,7 @@ fn version_and_manifest_helpers_cover_success_and_rejection_paths() {
 
     fs::create_dir_all(root.join("crates/a")).unwrap();
     fs::create_dir_all(root.join("crates/b")).unwrap();
+    fs::create_dir_all(root.join("crates/external")).unwrap();
     fs::create_dir_all(root.join("crates/no-manifest")).unwrap();
     fs::write(
         root.join("crates/a/Cargo.toml"),
@@ -200,6 +201,7 @@ fn version_and_manifest_helpers_cover_success_and_rejection_paths() {
     assert_eq!(workspace_member_dirs(root).unwrap().len(), 3);
     let a_manifest = root.join("crates/a/Cargo.toml");
     assert!(is_workspace_path(root, &a_manifest, "../b"));
+    assert!(!is_workspace_path(root, &a_manifest, "../external"));
     assert!(!is_workspace_path(root, &a_manifest, "../missing"));
     assert!(!is_workspace_path(
         root,
@@ -608,6 +610,24 @@ fn publish_release_handles_a_preexisting_lockfile_without_a_release_commit() {
     assert_eq!(
         String::from_utf8_lossy(&git(root, &["log", "-1", "--pretty=%s"]).stdout).trim(),
         "initial"
+    );
+}
+
+#[test]
+fn publish_release_allows_a_new_lockfile_when_the_version_is_unchanged() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    write_cargo_workspace(root, "1.2.3");
+    init_git_repo(root);
+    commit_all(root, "initial");
+
+    publish_release(root, None, false, true).unwrap();
+
+    assert!(root.join("Cargo.lock").is_file());
+    assert!(local_tag_exists(root, "v1.2.3").unwrap());
+    assert_eq!(
+        String::from_utf8_lossy(&git(root, &["log", "-1", "--pretty=%s"]).stdout).trim(),
+        "chore(release): v1.2.3"
     );
 }
 
