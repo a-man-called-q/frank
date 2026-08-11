@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-frank-app = { path = "../frank-app", version = "0.2.1" }
+frank-app = { path = "../frank-app", version = "0.2.2" }
 iced = "0.14"
 
 [dev-dependencies]

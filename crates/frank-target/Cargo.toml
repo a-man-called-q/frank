@@ -6,8 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-frank-pack = { path = "../frank-pack", version = "0.2.1" }
-frank-safeio = { path = "../frank-safeio", version = "0.2.1" }
+frank-pack = { path = "../frank-pack", version = "0.2.2" }
+frank-safeio = { path = "../frank-safeio", version = "0.2.2" }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
