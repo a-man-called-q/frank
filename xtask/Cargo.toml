@@ -6,8 +6,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-frank-pack = { path = "../crates/frank-pack", version = "0.2.0" }
-frank-target = { path = "../crates/frank-target", version = "0.2.0" }
+frank-pack = { path = "../crates/frank-pack", version = "0.2.1" }
+frank-target = { path = "../crates/frank-target", version = "0.2.1" }
 anyhow.workspace = true
 sha2.workspace = true
 clap.workspace = true

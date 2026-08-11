@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "frank-app"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-ledger",
  "frank-pack",
@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "frank-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "frank-compress"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-safeio",
  "proptest",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "frank-gui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "auto-launch",
  "frank-app",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "frank-gui-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-app",
  "iced",
@@ -1331,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "frank-ledger"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-pack",
  "frank-safeio",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "frank-mcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-compress",
  "serde_json",
@@ -1354,7 +1354,7 @@ dependencies = [
 
 [[package]]
 name = "frank-pack"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-safeio",
  "proptest",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "frank-release-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "frank-safeio"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rustix 0.38.44",
  "tempfile",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "frank-state"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-pack",
  "frank-safeio",
@@ -1405,7 +1405,7 @@ dependencies = [
 
 [[package]]
 name = "frank-target"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "frank-pack",
  "frank-safeio",
@@ -5572,7 +5572,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
