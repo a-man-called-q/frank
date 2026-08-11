@@ -6,9 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-frank-state = { path = "../frank-state", version = "0.2.3" }
-frank-safeio = { path = "../frank-safeio", version = "0.2.3" }
-frank-pack = { path = "../frank-pack", version = "0.2.3" }
+frank-state = { path = "../frank-state", version = "0.2.4" }
+frank-safeio = { path = "../frank-safeio", version = "0.2.4" }
+frank-pack = { path = "../frank-pack", version = "0.2.4" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
