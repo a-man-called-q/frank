@@ -18,16 +18,22 @@ jobs:
         include:
           - runner: macos-13
             target: x86_64-apple-darwin
+            builder: cargo
           - runner: macos-14
             target: aarch64-apple-darwin
+            builder: cargo
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-musl
+            builder: cargo
           - runner: ubuntu-22.04
             target: aarch64-unknown-linux-musl
+            builder: cross
           - runner: windows-2022
             target: x86_64-pc-windows-msvc
+            builder: cargo
           - runner: windows-2022
             target: aarch64-pc-windows-msvc
+            builder: cargo
 
     steps:
       - uses: actions/checkout@v4
@@ -38,11 +44,13 @@ jobs:
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes musl-tools
-      # HOLD(M6): the aarch64-musl linker/toolchain has not been exercised from
-      # this workspace. This CI job is the place to settle whether `cross` or a
-      # pinned linker image is the supported route before marking M6 complete.
+      - name: Install cross
+        if: matrix.builder == 'cross'
+        run: cargo install cross --version 0.2.5 --locked
+      # `cross` supplies the aarch64-musl linker inside its pinned container;
+      # the remaining targets use the runner's native Cargo toolchain.
       - name: Build
-        run: cargo build --locked --release --target ${{ matrix.target }} -p frank-cli
+        run: ${{ matrix.builder }} build --locked --release --target ${{ matrix.target }} -p frank-cli
       - name: Package
         shell: bash
         run: cargo run --locked --release -p xtask -- dist --target ${{ matrix.target }}

@@ -2,12 +2,16 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
     <!-- Add the per-user application directory to PATH without replacing the
-         user's existing value. The component is removed with the MSI. -->
+         user's existing value. The registry value is the component key path;
+         the CLI binary itself is already included by cargo-packager. -->
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="FrankCliPath" Guid="*">
-        <File
-          Id="FrankCliBinary"
-          Source="$(var.ProjectDir)\packaging\frank.exe"
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Frank"
+          Name="PathComponent"
+          Type="integer"
+          Value="1"
           KeyPath="yes" />
         <Environment
           Id="FrankCliPathEnvironment"

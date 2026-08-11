@@ -31,14 +31,14 @@ else
   # cargo-packager's `binaries` list in crates/frank-gui/Cargo.toml points at
   # the fixed, target-less `target/release/` path (matching how every other
   # cargo invocation in this repo already works) rather than a per-target
-  # path, so a plain `--target` build has to be copied there too.
-  if [[ "$target" != "$(rustc -vV | awk '$1 == "host:" { print $2 }')" ]]; then
-    mkdir -p "$root/target/release"
-    for binary in frank frank-gui; do
-      src="$root/target/$target/release/$binary"
-      [[ -f "$src" ]] && install -m 0755 "$src" "$root/target/release/$binary"
-    done
-  fi
+  # path, so an explicit `--target` build has to be copied there too. Cargo
+  # uses the per-target directory even when the target equals the host.
+  mkdir -p "$root/target/release"
+  for binary in frank frank-gui; do
+    src="$root/target/$target/release/$binary"
+    [[ -f "$src" ]] || { echo "missing target binary: $src" >&2; exit 1; }
+    install -m 0755 "$src" "$root/target/release/$binary"
+  done
 fi
 
 if [[ "${FRANK_SKIP_GUI:-0}" == "1" ]]; then
