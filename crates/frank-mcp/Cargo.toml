@@ -6,6 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-frank-compress = { path = "../frank-compress", version = "0.2.2" }
+frank-compress = { path = "../frank-compress", version = "0.2.3" }
 serde_json.workspace = true
 thiserror.workspace = true

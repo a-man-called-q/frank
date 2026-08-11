@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 regex.workspace = true
 serde_json.workspace = true
-frank-safeio = { path = "../frank-safeio", version = "0.2.2" }
+frank-safeio = { path = "../frank-safeio", version = "0.2.3" }
 
 [dev-dependencies]
 proptest = "1"
