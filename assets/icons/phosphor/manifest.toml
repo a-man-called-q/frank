@@ -1,0 +1,168 @@
+source = "https://phosphoricons.com/"
+source_url = "https://registry.npmjs.org/@phosphor-icons/core/-/core-2.1.1.tgz"
+package = "@phosphor-icons/core"
+version = "2.1.1"
+weight = "light"
+license = "MIT"
+asset_root = "assets/icons/phosphor/light"
+
+[[icons]]
+local = "app-window.svg"
+upstream = "app-window-light.svg"
+sha256 = "9ea373b34b16fc9de05fc06994e87d11505eb332fca59d61aba82418dd008b5d"
+[[icons]]
+local = "arrow-clockwise.svg"
+upstream = "arrow-clockwise-light.svg"
+sha256 = "5622fda1cd6a4e34233810b7e585119e109bf50013601f4f719deb59d061519d"
+[[icons]]
+local = "arrow-down.svg"
+upstream = "arrow-down-light.svg"
+sha256 = "f05bddad29e8f49bbca166729a48fa1c2289cc51cbcaf5582f8fbe348cc2ce11"
+[[icons]]
+local = "arrow-up.svg"
+upstream = "arrow-up-light.svg"
+sha256 = "c06d325e0f16034a32df2b60379dfa65598b0d2572ff5e7652eb2d1f498ee39f"
+[[icons]]
+local = "bell.svg"
+upstream = "bell-light.svg"
+sha256 = "f75c226ae3ce1512f99a9d1f370c341c31ecd1a49047364a499a66c9cdc03109"
+[[icons]]
+local = "chart-line.svg"
+upstream = "chart-line-light.svg"
+sha256 = "c7f841a96a18508019428c4860b9f3bd7b7a81eb2e948421c9b037fc083ce726"
+[[icons]]
+local = "chat-circle-dots.svg"
+upstream = "chat-circle-dots-light.svg"
+sha256 = "25d56cf3136335ab88c138925761929dfa35cf8ee3f44f96bb3e391f06ec4a14"
+[[icons]]
+local = "chats-circle.svg"
+upstream = "chats-circle-light.svg"
+sha256 = "205480658375e539a8c1d7ee3bfdd701c70d9f411fe7f5881456bd7be124366a"
+[[icons]]
+local = "check.svg"
+upstream = "check-light.svg"
+sha256 = "f9669722a39144a637ee4a1dcfe52e655384baab1b32245b7b0d196727cfa04b"
+[[icons]]
+local = "chevron-down.svg"
+upstream = "caret-down-light.svg"
+sha256 = "f90a5ae97d000696a67c5a7787a78620bb3744648a63b0fe9cdbdc10476fecab"
+[[icons]]
+local = "code.svg"
+upstream = "code-light.svg"
+sha256 = "7e1eafad649a79f5bf381ef23ab697557f8fe44529e4517aea10a3cc589e7bf5"
+[[icons]]
+local = "command.svg"
+upstream = "command-light.svg"
+sha256 = "ede89c6ed404c595cac9f7bc1a7c3e1887163131d707ae542215c5c95e0a6717"
+[[icons]]
+local = "cursor-click.svg"
+upstream = "cursor-click-light.svg"
+sha256 = "3f8fee8cb10fd4ba5255d45ff62db5a21c07f376d5ea025389eb6c19473b2f7f"
+[[icons]]
+local = "dots-three.svg"
+upstream = "dots-three-light.svg"
+sha256 = "00df0c4beb1d8eaea39da61c32749aeebec8da89e4a5feb1253897e57620275b"
+[[icons]]
+local = "folder.svg"
+upstream = "folder-light.svg"
+sha256 = "d616c4b88c133d3569fa40e5488bc2ff17a0c8cc0bfcca61caeba5a5f498efe1"
+[[icons]]
+local = "gear.svg"
+upstream = "gear-light.svg"
+sha256 = "f31ef3e36fb8ffdbdffba0cff464412fe3f903c606e06438129f7a7937b366e8"
+[[icons]]
+local = "house.svg"
+upstream = "house-light.svg"
+sha256 = "490d0a589e421622cdc0bbb511dc6fd6959fbee6c4b7b56229b05f95ae5444ac"
+[[icons]]
+local = "info.svg"
+upstream = "info-light.svg"
+sha256 = "c57885e282dd796185bd330356a96cd2090313b3bedafaf41f97dd304df9c87c"
+[[icons]]
+local = "kanban.svg"
+upstream = "kanban-light.svg"
+sha256 = "2f357e9fd7175c146a283a081625cbcdd1a381a1ef404d4056b48f86f8b3ceae"
+[[icons]]
+local = "lock.svg"
+upstream = "lock-light.svg"
+sha256 = "0ec0e2155dd42cc5fd990234ab806600a5aac0ba992fb4687704cf017a00f7f3"
+[[icons]]
+local = "magnifying-glass.svg"
+upstream = "magnifying-glass-light.svg"
+sha256 = "e24a8c8778901b20b37d025f49c72ebfaa28c5f46d68c6c4fea82fa8f8bf1ee3"
+[[icons]]
+local = "microphone.svg"
+upstream = "microphone-light.svg"
+sha256 = "7809c0448975df9a6943dbd696d86c3706697e228594751a49b29f0d55d4375a"
+[[icons]]
+local = "minus.svg"
+upstream = "minus-light.svg"
+sha256 = "6ae8184346320ed2efc54c34739d56a463f3c441ae1790260957dee18428e4eb"
+[[icons]]
+local = "palette.svg"
+upstream = "palette-light.svg"
+sha256 = "6f4a7e1e8dbb120dc2bb69e2a23925cf0120277171e9ce26a1738a0c90ab7efb"
+[[icons]]
+local = "paper-plane-tilt.svg"
+upstream = "paper-plane-tilt-light.svg"
+sha256 = "17745c9e201fff79646c38185ff2f41b9dbc8d0e3ad3a3ebf35943ae62f9b31e"
+[[icons]]
+local = "paperclip.svg"
+upstream = "paperclip-light.svg"
+sha256 = "e3ed3c96e8e75a641ecf6d97b6a2bcc0cd56ae67ac373425186d6e8b2c87c578"
+[[icons]]
+local = "pencil-simple-line.svg"
+upstream = "pencil-simple-line-light.svg"
+sha256 = "d0a07f41e2c63dca8c07c85e8d43fb370cd70aef5700df3bbfadccfdb43f0052"
+[[icons]]
+local = "plus.svg"
+upstream = "plus-light.svg"
+sha256 = "d924e999d110e1f84c3197dba33206d46fb94cb28a2b53f6ca35217466e3c92e"
+[[icons]]
+local = "robot.svg"
+upstream = "robot-light.svg"
+sha256 = "2973239961fe2bba6d780c732cdaf326c1abdc5d42633c5dcfc098760c017117"
+[[icons]]
+local = "shapes.svg"
+upstream = "shapes-light.svg"
+sha256 = "eb0557007d87fa1f1b8800a322fea07d28d95ff1615350fe543aa81e23b7e22b"
+[[icons]]
+local = "shield-check.svg"
+upstream = "shield-check-light.svg"
+sha256 = "3976993805ad3b2fc3f7f56fc8d64329142441788a20fcf9d647e9ceaf29a8d4"
+[[icons]]
+local = "sidebar-simple.svg"
+upstream = "sidebar-simple-light.svg"
+sha256 = "eb4694ef6ab380723715d77e54958003efd10974ad765989b8ffdf899d03fbcd"
+[[icons]]
+local = "sparkle.svg"
+upstream = "sparkle-light.svg"
+sha256 = "027e2e3b652bb25cce0e0f1ae706720cd684f05ddce4c25497a6133aa2548da5"
+[[icons]]
+local = "square.svg"
+upstream = "square-light.svg"
+sha256 = "9162e0c03d4ca397fc78906d45e217772a798413872dd87d0421db549f096412"
+[[icons]]
+local = "stop.svg"
+upstream = "stop-light.svg"
+sha256 = "79225c449e54870767412420ec4c162788bcdeab06fd4263fb832444b0ec596c"
+[[icons]]
+local = "terminal.svg"
+upstream = "terminal-light.svg"
+sha256 = "e08bb949c665bc46dde68183733a19ac1c2561fc84bb90922d6d8ecc5432648f"
+[[icons]]
+local = "trash.svg"
+upstream = "trash-light.svg"
+sha256 = "66c779b57b990777b9f2d311d5957b19269ccf9f79d73c5eed6d0f6a2aae3370"
+[[icons]]
+local = "user.svg"
+upstream = "user-light.svg"
+sha256 = "b26184abbe006d1874c2cf7bee91e13b807731966c1326b485431fbe3e4d9b57"
+[[icons]]
+local = "warning.svg"
+upstream = "warning-light.svg"
+sha256 = "62ed0d3ff4272a0e975a617a2af99d3e93c6dc0e314c4cb2d82e0a5bae652598"
+[[icons]]
+local = "x.svg"
+upstream = "x-light.svg"
+sha256 = "7f3f44f5e9fdc40d7d8ecaf49c9b2cca95a6f7b944f81f7ae5d8d8bb674d8d91"

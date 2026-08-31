@@ -1,0 +1,1 @@
+{"type":"permission","session_id":"claude-fixture-session","tool_name":"Bash","cwd":"/workspace","reason":"run the configured checks"}

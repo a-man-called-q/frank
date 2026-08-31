@@ -1,0 +1,16 @@
+.dart_tool/
+.packages
+.pub/
+.idea/
+*.iml
+.metadata
+build/
+coverage/
+
+# Flutter platform-generated files are committed only when the desktop target
+# is enabled deliberately.
+ios/
+android/
+web/
+linux/
+windows/

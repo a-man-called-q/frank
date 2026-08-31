@@ -1,0 +1,36 @@
+[package]
+name = "frank-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+frank-agent.workspace = true
+frank-app.workspace = true
+frank-orchestrator.workspace = true
+frank-protocol.workspace = true
+frank-safeio.workspace = true
+frank-store.workspace = true
+axum.workspace = true
+axum-server.workspace = true
+clap.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+rcgen.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "frankd"
+path = "src/main.rs"

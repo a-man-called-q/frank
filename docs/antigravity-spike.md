@@ -31,7 +31,6 @@ level requires re-running the install command. `frank stats` must say that no
 session log is available; it must not report zero as if that were a measured
 result.
 
-<!-- HOLD(M7): this spike cannot be completed from the current macOS workspace
-without the real Antigravity product and a disposable user profile. Do not
-change this document to "verified" or add a target manifest until the checklist
-has been run and the result is attached to the release report. -->
+The checklist remains an explicit pre-target verification task. Do not add a
+target manifest until it has been run against the real product with a
+disposable user profile and attached to the release report.

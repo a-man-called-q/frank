@@ -2,6 +2,27 @@
 
 Deep technical architecture, design decisions, and implementation details for Frank contributors.
 
+## Frank 1.0 agent operations office
+
+Frank 1.0 is a clean-break release: `frankd` is the headless orchestrator on a
+PC/server and `apps/frank_desktop` is a Flutter client on the laptop. Even on
+localhost the client uses the same authenticated HTTPS/WebSocket API; it never
+opens SQLite, a worktree, a provider process, or `frank-app` directly.
+
+```text
+Laptop                                PC / server
+frank_desktop (Flutter office) ──HTTPS/WS──> frankd
+                                              supervisor + workers
+                                              SQLite WAL + worktrees + PTYs
+```
+
+The v1 wire contract is in `frank-protocol`: typed IDs, version negotiation,
+idempotent `CommandEnvelope`, monotonic `EventEnvelope`, bounded payloads,
+pairing/device roles, snapshots, and terminal frames. `frank-store` is the
+SQLite WAL source of truth and writes an append-only JSONL audit outbox in the
+same transaction. `frank-client` reconnects from the last event sequence and
+requests a snapshot when retention has created a gap.
+
 ## Design Philosophy
 
 Frank prioritizes **honest measurement** over performance claims. The original Caveman claimed ~1-1.5k tokens/turn based on file size estimates. Frank measures actual token usage from session JSONL and reports:
@@ -13,15 +34,24 @@ The ledger (`frank-ledger`) is non-negotiable—every other milestone can be dro
 ## Crate Dependency Graph
 
 ```
-frank-cli ──> pack, state, ledger, compress, target, mcp, app
-frank-state ──> frank-pack, frank-safeio
-frank-ledger ──> frank-state, frank-safeio
-frank-target ──> frank-pack, frank-safeio
-frank-mcp ──> frank-compress
-frank-app ──> pack, state, ledger, target, safeio
-frank-gui-core ──> frank-app
-frank-gui ──> frank-app, frank-gui-core, frank-safeio
-frank-pack, frank-compress, frank-safeio ──> (no internal deps)
+backend/crates/frank-cli ──> app, client, protocol, pack, state, ledger, compress, target, mcp
+backend/crates/frank-state ──> frank-pack, frank-safeio
+backend/crates/frank-ledger ──> frank-state, frank-safeio
+backend/crates/frank-target ──> frank-pack, frank-safeio
+backend/crates/frank-mcp ──> frank-compress
+backend/crates/frank-app ──> pack, state, ledger, target, safeio
+backend/crates/frank-protocol ──> (leaves)
+backend/crates/frank-store ──> frank-protocol, frank-safeio
+backend/crates/frank-agent ──> frank-protocol
+backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
+backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio
+backend/crates/frank-client ──> frank-protocol
+backend/crates/frank-agent-mcp ──> frank-client, frank-protocol
+backend/crates/frank-update ──> (leaves)
+backend/crates/frank-updater ──> frank-update
+backend/crates/frank-release-cli ──> frank-update
+backend/crates/frank-pack, frank-compress, frank-safeio ──> (no internal deps)
+apps/frank_desktop ──> protocol gateway (Flutter + Forui + FlowUI + Flame)
 ```
 
 ### Why This Structure?
@@ -34,6 +64,51 @@ frank-pack, frank-compress, frank-safeio ──> (no internal deps)
 Each module has one consumer. Premature splitting adds complexity without isolation benefits.
 
 ## Detailed Crate Responsibilities
+
+### v1 server crates
+
+`frank-server` exposes `/v1/health`, `/v1/handshake`, `/v1/capabilities`, `/v1/pair`,
+`/v1/snapshot`, `/v1/commands`, artifact downloads, and event/terminal WebSocket
+streams. The handshake negotiates the protocol range before a client subscribes
+or mutates state. Pairing secrets are 256-bit, short-lived, and single-use; device
+tokens are hashed and roles are enforced before a command reaches the
+orchestrator.  Non-loopback plaintext binds are rejected.
+
+`frank-orchestrator` owns the legal mission/task/agent transitions, dependency
+DAG validation, four-total/two-per-provider scheduler caps, six-hop mailbox
+deduplication, measured-only hard budgets, approval decisions, and take-control
+leases.  It creates the mission and task branch names but keeps all Git writes
+in the daemon workflow.
+
+`frank-agent` probes the locally logged-in Codex and Claude executables and
+starts structured sessions on demand.  Codex uses its local app-server stdio
+transport; Claude uses documented stream-json/resume/permission events.  A
+provider that is missing or reports an unsupported protocol is disabled with a
+doctor diagnostic rather than screen-scraped.
+
+`frank-agent-mcp` is a local stdio JSON-RPC bridge with a short-lived
+agent/task capability.  Its tool list covers task, broker message, artifact,
+memory proposal, and approval reads; it cannot update another profile, change
+budgets, approve itself, or invoke Git delivery.
+
+`apps/frank_desktop` owns the client-side shell. Its `FrankGateway` abstraction
+keeps fixtures and the future `frank-client` transport interchangeable. The
+current shell renders a permanent sidebar, an Account Executive conversation,
+a Projects drawer, and an empty Flame floor. Live state must arrive through the
+same reconnecting `frank-client` stream and never through direct filesystem or
+database access.
+
+`frank-update` owns manifest validation, Ed25519 detached-signature
+verification, target selection, digest/size checks, and safe staging.
+`frank-updater` is the small process-boundary helper that performs a
+directory-level swap while retaining one previous bundle for health-checked
+rollback. `frank-release-cli` and `scripts/build-update-manifest.sh` are
+release-only tooling; the private signing key is never bundled.
+
+Per-user service descriptors are rendered by `frank-app::service` and consumed
+by the CLI on macOS (LaunchAgent), Linux (`systemd --user`), and Windows
+(Scheduled Task). Activation stays at the CLI boundary so preview and apply use
+the same validated content and can roll back on manager failure.
 
 ### `frank-safeio` - Security Kernel
 
@@ -100,7 +175,7 @@ Ported from `src/hooks/caveman-stats.js` but with actual JSONL token reading.
 
 Compresses Markdown/text while preserving structure. Must be deterministic: same input → same output.
 
-**Validation**: Five immutable fixtures in `crates/frank-compress/tests/fixtures/` from original Caveman. Tests compare against these oracles. **Never edit fixtures to pass tests**.
+**Validation**: Five immutable fixtures in `backend/crates/frank-compress/tests/fixtures/` from original Caveman. Tests compare against these oracles. **Never edit fixtures to pass tests**.
 
 **File classification**: Detects text vs. binary, classifies Markdown structure (headers, code blocks, lists) to guide compression strategy.
 
@@ -160,29 +235,30 @@ Main `frank` binary. Handles argv dispatch and formatting.
 
 Ported from `bin/install.js` CLI surface.
 
-### `frank-app` - Shared Service
+### `frank-app` - Server/CLI Facade
 
-Application service layer used by CLI, hooks, and GUI. Provides unified interface to pack/state/ledger operations.
+`frank-app` owns the legacy pack, state, target, and ledger services that remain
+useful to hooks and local administration.  It is linked by `frank-cli` and the
+headless server only.  The remote GUI never links this facade and cannot access
+its filesystem paths.
 
-New addition (not in original Caveman).
+### `apps/frank_desktop` - Flutter client
 
-### `frank-gui-core` - GUI State & View Layer
+The Flutter package is the only active desktop GUI. `forui` provides the
+navigation primitives, `flow_ui` provides the conversation thread and composer,
+and `flame` owns the reserved floor surface. The current prototype uses
+`FixtureFrankGateway`, which makes the layout testable without a daemon. The
+gateway will later map `frank-client` snapshots, events, and reconnect state to
+the same UI models.
 
-Backend-agnostic core of the desktop control panel: `Model`, `Message`, the pure `reduce()` state machine, and the iced `view()` layer (shell + 4 pages: overview, personas, integrations, settings).
+The shell deliberately keeps the main navigation sidebar persistent and puts
+Projects in a right-side drawer. The first release does not populate the Flame
+floor; it is an integration seam for agent positions, status, and work later.
 
-**Pure reducer, no side effects**: `update()` never builds an `iced::Task` directly. `reduce(&mut Model, Message) -> Effect` is a plain state machine — easy to unit-test and reach 100% mutation coverage on, since every branch lives here. A separate `interpret(Effect, &Platform, &Backend) -> Task<Message>` is a flat match with no logic, generic over a `trait Backend` (the 7 `FrankService` entry points) and a `trait Platform` (tray/autostart/file-picker), which is what keeps `frank-app` and `tray-icon`/`auto-launch`/`rfd` out of the coverage-gated core.
-
-**Testing**: unit tests over `reduce()`, plus `iced_test::simulator` headless UI tests that render the real `view()` output (tiny-skia, no GPU/display) and assert on `.click()`/`.find()`/`.into_messages()`.
-
-New addition (not in original Caveman — replaces the Tauri 2 + React `apps/frank-gui` frontend).
-
-### `frank-gui` - Desktop Binary
-
-The `frank-gui` binary: an `iced::daemon` shell around `frank-gui-core`. Owns everything that needs a real OS event loop and can't be unit-tested — tray icon/menu (`tray-icon` + `muda`), single-instance locking (via a `frank-safeio`-owned `flock`/`LockFileEx` lock, not a third-party lock crate), window lifecycle (`--hidden` launch, close-to-tray, reopen from tray), autostart (`auto-launch`, with macOS `.app`-bundle path resolution), and CLI-path resolution (`frank` ships as a sibling binary in every platform bundle).
-
-Deliberately excluded from the Rust coverage report (`--exclude frank-gui` in `scripts/verify-strict.sh`) — it's a thin platform shell that needs a real tray/event loop to exercise; `scripts/native-smoke.sh` is its acceptance test instead. Packaged via `cargo-packager` (dmg/msi/deb) and `cargo-generate-rpm` (rpm — `cargo-packager` has no `PackageFormat::Rpm` variant).
-
-New addition (not in original Caveman — replaces the Tauri shell `apps/frank-gui/src-tauri`).
+**Testing**: Flutter widget tests cover fixture roster data, initial shell
+rendering, drawer close/reopen, and the empty-floor accessibility label. Native
+desktop tests will add keyboard traversal, VoiceOver/NVDA semantics, tray, and
+single-instance behavior before packaging.
 
 ### `xtask` - Build Tasks
 
@@ -232,7 +308,7 @@ Bad checksum → refuse. No silent fallback.
 
 ### 9. Fixtures Are Immutable
 
-`crates/frank-compress/tests/fixtures/` never edited for test compliance.
+`backend/crates/frank-compress/tests/fixtures/` never edited for test compliance.
 
 ### 10. Ledger is Non-Negotiable
 
@@ -257,42 +333,30 @@ moon run :verify        # Fast: tests + clippy + fmt
 moon run :verify-strict # + coverage + audit + cargo-deny
 ```
 
-### Desktop GUI (iced)
+### Desktop client (Flutter)
 
-Desktop app (optional), native Rust throughout — no Node/pnpm toolchain required anywhere in this repo:
-- Framework: [iced](https://iced.rs) 0.14, `iced::daemon` (tray-first, zero windows by default)
-- Tray: `tray-icon` + `muda`
-- Autostart: `auto-launch`
-- File picker: `rfd`
+`apps/frank_desktop` is intentionally outside the Cargo workspace:
 
-`frank-cli` never links any of these — `frank` and `frank-gui` are separate
-binaries sharing the `frank-app` facade, so hook invocations never pay for
-GPU/windowing startup cost. `scripts/verify-strict.sh` enforces this
-mechanically with a `cargo tree -p frank-cli` check.
+- Framework: Flutter desktop (3.47.1, pinned through Proto)
+- Navigation/components: [Forui](https://forui.dev/)
+- Chat/composer: [FlowUI](https://github.com/StacDev/flow_ui)
+- Floor integration seam: [Flame](https://pub.dev/packages/flame)
+- Local font: Geist, vendored under `apps/frank_desktop/assets/fonts/`
 
 Development:
-```bash
-cargo run --locked -p frank-gui
-```
-
-Release:
-```bash
-moon run release:bundle  # → .dmg / .msi / .deb / .rpm
-```
-
-MVP packages unsigned. Signing tracked.
-
-Verify host-native packages after building them:
 
 ```bash
-FRANK_GUI_BINARY=target/release/frank-gui moon run release:native-smoke
+cd apps/frank_desktop
+proto install
+proto run flutter -- pub get
+proto run flutter -- run -d macos
+proto run flutter -- test
 ```
 
-Validates: hidden launch, single-instance hand-off, clean quit.
-
-**Accessibility**: iced 0.14 has no accessibility tree yet. `frank`, the CLI,
-is the screen-reader-native way to perform every operation the GUI exposes,
-and every installer places both binaries side by side — see `SECURITY.md`.
+The app has no direct database, filesystem, or provider access. A gateway
+interface separates fixture data from the future reconnecting `frank-client`
+adapter. Accessibility (keyboard traversal, VoiceOver, NVDA) is a release gate;
+the CLI remains the screen-reader-first fallback for backend administration.
 
 ## Historical Context
 
@@ -308,10 +372,10 @@ Frank fixes these while maintaining feature parity.
 
 ### What Changed?
 
-**Architecture**: Added `frank-app` service layer, stricter separation. The
-desktop control panel itself moved from Tauri 2 + React onto native Rust +
-iced 0.14 (`frank-gui-core` + `frank-gui`), removing the entire Node/pnpm/
-webview toolchain from the repo.
+**Architecture**: Frank 1.0 adds a headless `frankd` orchestrator and a
+versioned HTTPS/WebSocket boundary. The desktop control panel is now a separate
+Flutter package (`apps/frank_desktop`) with Forui, FlowUI, and Flame, removing
+the old iced/Bevy client from the active workspace.
 
 **Security**: Symlink protection, fail-closed installs, immutable fixtures.
 

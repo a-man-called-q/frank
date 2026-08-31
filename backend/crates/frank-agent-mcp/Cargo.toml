@@ -1,0 +1,21 @@
+[package]
+name = "frank-agent-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+frank-client.workspace = true
+frank-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+getrandom.workspace = true
+hex.workspace = true
+
+[[bin]]
+name = "frank-agent-mcp"
+path = "src/main.rs"

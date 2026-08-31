@@ -6,11 +6,12 @@ Thank you for your interest in contributing to Frank! This guide will help you g
 
 ### Prerequisites
 
-- **Rust**: 1.88 or newer
-- **Proto** (optional): For a pinned Moon 2.4.5 toolchain
+- **Rust**: 1.89 or newer
+- **Flutter/Proto** (optional): Flutter 3.47.1 is pinned in `.prototools` for the desktop client
+- **Proto** (optional): Pins Flutter 3.47.1, Moon 2.4.5, and the repository toolchain
 
-Everything, including the desktop GUI, is native Rust — no Node/pnpm toolchain is
-needed anywhere in this repo.
+The backend is Rust. The desktop client is Flutter and is intentionally isolated
+under `apps/frank_desktop` so the Cargo workspace remains headless.
 
 ### Clone and Build
 
@@ -36,10 +37,13 @@ cargo test --workspace -- --nocapture
 
 ### Development Workflow
 
-For GUI development:
+For Flutter desktop development:
 
 ```bash
-cargo run --locked -p frank-gui
+cd apps/frank_desktop
+proto install
+proto run flutter -- pub get
+proto run flutter -- run -d macos
 ```
 
 ## Before Committing
@@ -97,22 +101,23 @@ Includes coverage, `cargo-deny`/`cargo-audit`, and clean generated output checks
 
 ```
 frank/
-├── crates/           # Rust crates
-│   ├── frank-cli/    # Main binary
-│   ├── frank-pack/   # Persona system
-│   ├── frank-state/  # State machine
-│   ├── frank-ledger/ # Token accounting
-│   ├── frank-compress/ # Compression
-│   ├── frank-target/ # AI integrations
-│   ├── frank-mcp/    # MCP server
-│   ├── frank-safeio/ # Security kernel
-│   ├── frank-app/    # Shared service facade
-│   ├── frank-gui-core/ # iced Model/Message/reduce() + view layer
-│   └── frank-gui/    # Desktop app binary (iced::daemon, tray, autostart)
+├── backend/
+│   ├── crates/       # Headless Rust crates (daemon, client, protocol, CLI)
+│   │   ├── frank-cli/    # Main binary
+│   │   ├── frank-pack/   # Persona system
+│   │   ├── frank-state/  # State machine
+│   │   ├── frank-ledger/ # Token accounting
+│   │   ├── frank-compress/ # Compression
+│   │   ├── frank-target/ # AI integrations
+│   │   ├── frank-mcp/    # MCP server
+│   │   ├── frank-safeio/ # Security kernel
+│   │   ├── ...            # Other backend crates
+│   │   └── xtask/         # Build tasks
+├── apps/
+│   └── frank_desktop/ # Flutter + Forui + FlowUI + Flame client
 ├── packs/            # Persona packs
 │   └── caveman/      # Default pack
 ├── targets/          # AI assistant integrations
-├── xtask/            # Build tasks
 └── docs/             # Documentation
 ```
 
@@ -209,7 +214,7 @@ refactor(compress): simplify markdown parser
 
 #### New Crate
 
-1. Create under `crates/`
+1. Create under `backend/crates/`
 2. Update `Cargo.toml` workspace members
 3. Update dependency graph in `docs/architecture.md`
 4. Add README explaining purpose
@@ -275,14 +280,15 @@ cargo test --doc
 
 ### Test Fixtures
 
-**Critical**: Fixtures in `crates/frank-compress/tests/fixtures/` are **immutable**. They represent the original Caveman's ground truth. Never edit them to make tests pass—fix the code instead.
+**Critical**: Fixtures in `backend/crates/frank-compress/tests/fixtures/` are **immutable**. They represent the original Caveman's ground truth. Never edit them to make tests pass—fix the code instead.
 
-### Smoke Tests
+### Flutter Client Checks
 
-Test packaged binaries:
+When Flutter is installed, run the desktop widget tests from the app directory:
 
 ```bash
-FRANK_GUI_BINARY=target/release/frank-gui moon run release:native-smoke
+cd apps/frank_desktop
+proto run flutter -- test
 ```
 
 ## Documentation

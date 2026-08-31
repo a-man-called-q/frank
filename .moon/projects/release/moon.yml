@@ -43,7 +43,7 @@ tasks:
     inputs:
       - '/Cargo.toml'
       - '/Cargo.lock'
-      - '/crates/**/*'
+      - '/backend/crates/**/*'
       - '/dist/**/*'
       - '/scripts/**/*'
     options:
@@ -59,12 +59,6 @@ tasks:
   smoke:
     command: './scripts/package-smoke.sh'
     deps: ['~:checksums']
-    options:
-      runFromWorkspaceRoot: true
-      cache: false
-
-  native-smoke:
-    command: './scripts/native-smoke.sh'
     options:
       runFromWorkspaceRoot: true
       cache: false

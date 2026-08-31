@@ -10,6 +10,12 @@ bench/results/*.json
 *.lcov
 /mutants.out*
 /target/mutation/
+
+# Local preview bundles, server data, and coverage scratch files.
+/.frank-preview/
+/safeio-cov.json
+/dist/*
+!/dist/.gitkeep
 /dist/SHA256SUMS
 /dist/*.tar.gz
 /dist/*.zip

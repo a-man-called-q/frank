@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88
+          toolchain: 1.89
           targets: ${{ matrix.target }}
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
@@ -50,7 +50,11 @@ jobs:
       # `cross` supplies the aarch64-musl linker inside its pinned container;
       # the remaining targets use the runner's native Cargo toolchain.
       - name: Build
-        run: ${{ matrix.builder }} build --locked --release --target ${{ matrix.target }} -p frank-cli
+        env:
+          # Repository variable contains only the public half. The private
+          # signing key is intentionally unavailable to build jobs.
+          FRANK_UPDATE_PUBLIC_KEY_B64: ${{ vars.FRANK_UPDATE_PUBLIC_KEY_B64 }}
+        run: ${{ matrix.builder }} build --locked --release --target ${{ matrix.target }} -p frank-cli -p frank-server -p frank-updater
       - name: Package
         shell: bash
         run: cargo run --locked --release -p xtask -- dist --target ${{ matrix.target }}
@@ -60,75 +64,6 @@ jobs:
           path: |
             dist/frank-${{ matrix.target }}.tar.gz
             dist/frank-${{ matrix.target }}.zip
-
-  # Desktop packages are built separately from the portable CLI archives.
-  # Non-blocking for regular CI: this workflow only runs on
-  # `workflow_dispatch` or a version tag push, not on every PR/push to main.
-  gui-build:
-    name: GUI ${{ matrix.bundle }} (${{ matrix.runner }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            bundle: dmg
-            gui_target: universal-apple-darwin
-            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
-          - runner: ubuntu-24.04
-            bundle: deb,rpm
-            gui_target: x86_64-unknown-linux-gnu
-            rust_targets: x86_64-unknown-linux-gnu
-          - runner: windows-2022
-            bundle: msi
-            gui_target: x86_64-pc-windows-msvc
-            rust_targets: x86_64-pc-windows-msvc
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.88
-          targets: ${{ matrix.rust_targets }}
-      - name: Install Linux tray build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libgtk-3-dev \
-            libappindicator3-dev \
-            libxdo-dev
-      - name: Install cargo-packager
-        run: cargo install cargo-packager --version 0.11.8 --locked
-      - name: Install cargo-generate-rpm
-        if: contains(matrix.bundle, 'rpm')
-        run: cargo install cargo-generate-rpm --version 0.21.0 --locked
-      - name: Build unsigned desktop package
-        shell: bash
-        env:
-          FRANK_GUI_TARGET: ${{ matrix.gui_target }}
-          FRANK_BUNDLES: ${{ matrix.bundle }}
-        run: ./scripts/build-release.sh
-      - name: Inventory desktop package
-        shell: bash
-        env:
-          FRANK_EXPECT_BUNDLES: ${{ matrix.bundle }}
-        run: |
-          set -euo pipefail
-          # Use the same inventory writer as the final publish job. This is
-          # deliberately broader than the GUI-only glob: a clean checkout may
-          # also contain a portable CLI archive, and package-smoke must verify
-          # every artifact present rather than accidentally ignoring one.
-          cargo run --locked -p xtask -- checksums
-          ./scripts/package-smoke.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frank-gui-${{ matrix.runner }}
-          path: |
-            dist/*.dmg
-            dist/*.msi
-            dist/*.deb
-            dist/*.rpm
 
   release-gate:
     name: release strict gate
@@ -141,13 +76,6 @@ jobs:
       - uses: moonrepo/setup-toolchain@v0
         with:
           auto-install: true
-      - name: Install Linux tray build dependencies for the strict gate
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libgtk-3-dev \
-            libappindicator3-dev \
-            libxdo-dev
       - name: Install pinned verification tools
         run: |
           cargo install cargo-nextest --version 0.9.100 --locked
@@ -163,7 +91,7 @@ jobs:
           ./scripts/mutation-gate.sh
 
   publish:
-    needs: [build, gui-build, release-gate]
+    needs: [build, release-gate]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -177,14 +105,14 @@ jobs:
           set -euo pipefail
           cd dist
           shopt -s nullglob
-          artifacts=( *.tar.gz *.zip *.dmg *.msi *.deb *.rpm )
+          artifacts=( *.tar.gz *.zip )
           ((${#artifacts[@]} > 0)) || { echo 'no release artifacts found' >&2; exit 1; }
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "${artifacts[@]}" | sort -k2 > SHA256SUMS
           else
             shasum -a 256 "${artifacts[@]}" | sort -k2 > SHA256SUMS
           fi
-      - name: Release CLI and installer smoke
+      - name: Release CLI smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -194,22 +122,24 @@ jobs:
           [[ -n "$archive" ]] || { echo 'Linux x86_64 CLI archive is required for release smoke' >&2; exit 1; }
           tar -xzf "$archive" -C "$smoke_root"
           FRANK_SMOKE_BINARY="$smoke_root/frank" FRANK_SMOKE_APPLY=1 ./scripts/package-smoke.sh
-          ./scripts/installer-smoke.sh
-      # HOLD(M6): minisign signing/verification is intentionally not wired
-      # until a repository key and rotation policy are approved. Do not add a
-      # private key directly to this workflow.
+      - name: Generate and sign update manifest
+        shell: bash
+        env:
+          FRANK_UPDATE_PRIVATE_KEY_B64: ${{ secrets.FRANK_UPDATE_PRIVATE_KEY_B64 }}
+          FRANK_UPDATE_PUBLIC_KEY_B64: ${{ vars.FRANK_UPDATE_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          ./scripts/build-update-manifest.sh
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            Unsigned / development build. Verify `SHA256SUMS` before use.
-            Signing, notarization, Authenticode, Linux package signatures, and
-            minisign metadata remain explicitly tracked in `TODO.md`.
+            Frank 1.0 release. OS packages are intentionally unsigned; verify
+            `SHA256SUMS` and the detached Frank update signature before use.
+            Gatekeeper and SmartScreen may show an unsigned-package warning.
           files: |
             dist/*.tar.gz
             dist/*.zip
-            dist/*.dmg
-            dist/*.msi
-            dist/*.deb
-            dist/*.rpm
             dist/SHA256SUMS
+            dist/frank-update-v1.json
+            dist/frank-update-v1.json.minisig

@@ -11,10 +11,10 @@ tasks:
     inputs:
       - '/Cargo.toml'
       - '/Cargo.lock'
-      - '/crates/**/*'
+      - '/backend/crates/**/*'
       - '/packs/**/*'
       - '/targets/**/*'
-      - '/xtask/**/*'
+      - '/backend/xtask/**/*'
     options:
       runFromWorkspaceRoot: true
       cache: false
@@ -24,10 +24,10 @@ tasks:
     inputs:
       - '/Cargo.toml'
       - '/Cargo.lock'
-      - '/crates/**/*'
+      - '/backend/crates/**/*'
       - '/packs/**/*'
       - '/targets/**/*'
-      - '/xtask/**/*'
+      - '/backend/xtask/**/*'
     options:
       runFromWorkspaceRoot: true
       cache: false
@@ -39,10 +39,10 @@ tasks:
       - '/Cargo.toml'
       - '/Cargo.lock'
       - '/.config/nextest.toml'
-      - '/crates/**/*'
+      - '/backend/crates/**/*'
       - '/packs/**/*'
       - '/targets/**/*'
-      - '/xtask/**/*'
+      - '/backend/xtask/**/*'
     options:
       runFromWorkspaceRoot: true
       cache: false
@@ -78,9 +78,30 @@ tasks:
       runFromWorkspaceRoot: true
       cache: false
 
+  remote-check:
+    command: >-
+      cargo check --workspace --locked
+      -p frank-protocol -p frank-store -p frank-agent
+      -p frank-orchestrator -p frank-server -p frank-client
+      -p frank-agent-mcp
+    deps: ['~:format']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
+  remote-test:
+    command: >-
+      cargo test --locked -p frank-protocol -p frank-store -p frank-agent
+      -p frank-orchestrator -p frank-server -p frank-client
+      -p frank-agent-mcp
+    deps: ['~:remote-check']
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
   verify:
     command: 'cargo test --workspace --locked'
-    deps: ['~:format', '~:clippy', '~:doctest', '~:check-packs', '~:lint-targets', '~:architecture-check']
+    deps: ['~:format', '~:clippy', '~:doctest', '~:check-packs', '~:lint-targets', '~:architecture-check', '~:remote-test']
     options:
       runFromWorkspaceRoot: true
       cache: false

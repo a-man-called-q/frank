@@ -1,0 +1,21 @@
+# Vendored by Frank for the development-only Component Gallery.
+# Source: Geist v1.7.2, released by Vercel under SIL OFL 1.1.
+package = "geist-font"
+version = "1.7.2"
+source_url = "https://github.com/vercel/geist-font/releases/tag/v1.7.2"
+license = "SIL Open Font License 1.1"
+license_file = "OFL.txt"
+
+[[font]]
+local = "Geist-Variable.ttf"
+upstream = "fonts/Geist/variable/Geist[wght].ttf"
+family = "Geist"
+variable = true
+sha256 = "73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659"
+
+[[font]]
+local = "GeistMono-Variable.ttf"
+upstream = "fonts/GeistMono/variable/GeistMono[wght].ttf"
+family = "Geist Mono"
+variable = true
+sha256 = "87c2aff9723544a9adaea19d92e42a33705c9723624801b6e0224c2206a6af0d"

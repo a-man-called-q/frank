@@ -1,0 +1,1 @@
+{"type":"result","session_id":"claude-fixture-session","result":"complete","usage":{"input_tokens":13,"output_tokens":9},"stop_reason":"end_turn"}

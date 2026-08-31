@@ -6,7 +6,7 @@ packs (personas) and targets (agent integrations) without forking.
 
 The historical Node.js original was the reference implementation and fixture source
 for this rebuild. The working-tree copy is removed after its required compressor
-fixtures are vendored under `crates/frank-compress/tests/fixtures/`; the history still
+fixtures are vendored under `backend/crates/frank-compress/tests/fixtures/`; the history still
 contains the original when a provenance check is needed.
 
 Full design rationale lives in the approved plan this project was built from. If you
@@ -28,15 +28,24 @@ project could never verify its own central claim.
 ## Architecture
 
 ```
-frank-cli ──> pack, state, ledger, compress, target, mcp
-frank-state ──> frank-pack, frank-safeio
-frank-ledger ──> frank-state, frank-safeio
-frank-target ──> frank-pack, frank-safeio
-frank-mcp ──> frank-compress
-frank-app ──> frank-pack, frank-state, frank-safeio, frank-target, frank-ledger
-frank-gui-core ──> frank-app
-frank-gui ──> frank-app, frank-gui-core, frank-safeio
-frank-pack, frank-compress, frank-safeio ──> (leaves)
+backend/crates/frank-cli ──> app, client, protocol, pack, state, ledger, compress, target, mcp
+backend/crates/frank-state ──> frank-pack, frank-safeio
+backend/crates/frank-ledger ──> frank-state, frank-safeio
+backend/crates/frank-target ──> frank-pack, frank-safeio
+backend/crates/frank-mcp ──> frank-compress
+backend/crates/frank-app ──> frank-pack, frank-state, frank-safeio, frank-target, frank-ledger
+backend/crates/frank-protocol ──> (leaves)
+backend/crates/frank-store ──> frank-protocol, frank-safeio
+backend/crates/frank-agent ──> frank-protocol
+backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
+backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio
+backend/crates/frank-client ──> frank-protocol
+backend/crates/frank-agent-mcp ──> frank-client, frank-protocol
+backend/crates/frank-update ──> (leaves)
+backend/crates/frank-updater ──> frank-update
+backend/crates/frank-release-cli ──> frank-update
+backend/crates/frank-pack, frank-compress, frank-safeio ──> (leaves)
+apps/frank_desktop ──> Flutter + Forui + FlowUI + Flame (future FrankGateway)
 ```
 
 | Crate | Responsibility | Ported from (historical Caveman source) |
@@ -48,18 +57,32 @@ frank-pack, frank-compress, frank-safeio ──> (leaves)
 | `frank-compress` | Deterministic compressor, validator, file classifier | `src/mcp-servers/caveman-shrink/compress.js`, `skills/caveman-compress/scripts/{detect,validate}.py` |
 | `frank-target` | Target schema, detection, install planning, JSONC/settings merge, marker fences | `bin/install.js`, `bin/lib/{settings,openclaw}.js` |
 | `frank-mcp` | stdio proxy, two std threads | `src/mcp-servers/caveman-shrink/index.js` |
-| `frank-cli` | binary `frank` — argv dispatch, formatting | `bin/install.js` CLI surface |
-| `frank-app` | Facade shared by every frontend: settings, flag-state, prepare/apply boundary for confirmation-based UIs | *n/a — Caveman had no GUI; built for the desktop control panel* |
-| `frank-gui-core` | `Model`/`Message`/`reduce()` state machine + iced view layer, backend-agnostic | *n/a — replaces the Tauri 2 + React `apps/frank-gui` frontend* |
-| `frank-gui` | binary `frank-gui` — `iced::daemon` shell: tray, single-instance lock, window lifecycle, autostart | *n/a — replaces the Tauri shell `apps/frank-gui/src-tauri`* |
+| `frank-protocol` | Versioned wire DTOs, typed IDs, command/event envelopes, API errors, capabilities, terminal frames | *n/a — v1 remote contract* |
+| `frank-store` | SQLite WAL source of truth, migrations, idempotency, event log/outbox, audit JSONL exporter | *n/a — v1 persistence* |
+| `frank-agent` | Codex/Claude structured runtime adapters, lifecycle, usage telemetry, shell boundary | *n/a — v1 providers* |
+| `frank-orchestrator` | Mission/task DAG, scheduler, mailbox, approvals, budgets, leases, delivery invariants | *n/a — v1 orchestrator* |
+| `frank-server` | `frankd` authenticated HTTPS/WebSocket API, pairing, fan-out, artifacts, terminals | *n/a — v1 daemon* |
+| `frank-client` | Reconnecting HTTPS/WebSocket client, certificate pinning, snapshot/event streams | *n/a — v1 remote client* |
+| `frank-agent-mcp` | Local authenticated task-scoped MCP bridge for provider sessions | *n/a — v1 provider bridge* |
+| `frank-cli` | binary `frank` — hook fast path, local engine, remote pairing/admin | `bin/install.js` CLI surface |
+| `frank-app` | Server-side facade for legacy pack/state/target/ledger operations and v1 paths | *n/a — v1 server facade* |
+| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, and future Flame floor | *n/a — v1 client migration* |
+| `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — v1 updater contract* |
+| `frank-updater` | Small helper binary for verified bundle swap, restart and rollback boundary | *n/a — v1 updater helper* |
+| `frank-release-cli` | Release manifest signing/verification and artifact inventory tooling | *n/a — release tooling* |
 | `xtask` | `build-packs`, `checksums`, `lint-targets`, `dist` | `.github/workflows/sync-skill.yml` |
 
-**`frank-gui` migrated off Tauri 2 + React onto native Rust + iced 0.14** (tray via
-`tray-icon`/`muda`, single-instance via a `frank-safeio` file lock). `frank` itself
-never links GUI dependencies — `frank-cli` and `frank-gui` are separate binaries over
-the shared `frank-app` facade, both installed together by every platform bundle.
-`frank` remains the accessible surface: iced has no accessibility tree today, so the
-CLI is the screen-reader-native way to perform every operation the GUI exposes.
+**Frank 1.0 is a clean break.** `frankd` is headless and owns SQLite, provider
+processes, PTYs, worktrees, Git writes, and the global event sequence. The Flutter
+desktop app is always a remote client (including localhost) and never reaches
+`frank-app`, the database, or a project filesystem directly. The first Flutter
+milestone uses local fixtures behind `FrankGateway`; the next milestone swaps in
+the reconnecting `frank-client` transport. The CLI remains available for
+screen-reader-first operation and automation.
+
+Service descriptors are rendered by `frank-app::service` and applied by the
+CLI; updater code is isolated in `frank-update`/`frank-updater` so daemon and
+GUI do not invent separate signing or rollback paths.
 
 **Deliberately not split further:** no `frank-core` grab bag — `Level`/`LevelId` live
 in `frank-pack` because levels are a pack concept. The JSONC parser, marker-fence
@@ -95,18 +118,24 @@ consumer, splitting buys nothing.
   (the historical installer’s checksum branch) is the most serious defect found in the original
   — do not reintroduce it.
 - **Historical fixtures are immutable.** The compressor oracle and five original
-  Markdown inputs live under `crates/frank-compress/tests/fixtures/`; do not edit
+  Markdown inputs live under `backend/crates/frank-compress/tests/fixtures/`; do not edit
   them to make a differential test pass.
 - **Never cut the ledger (M3) to save schedule.** Every other milestone is
   droppable in a pinch; the ledger is the reason this project exists instead of
   being a faster version of the same unverified claim.
 
-## Milestones
+## Frank 1.0 checkpoints
 
-M0 skeleton+safety kernel → M1 state machine → M2 Claude Code installer (**v0.1**) →
-M3 ledger → M4 deterministic compressor → M5 declarative targets + Codex →
-M6 distribution → M7 Antigravity + third-party packs. See the plan doc for demo
-criteria per milestone.
+1. Refresh Graphify and lock dependency boundaries.
+2. Protocol/store/server skeleton: WAL, migrations, pairing, TLS, events, `frankd`.
+3. Reconnecting client and remote-only GUI backend.
+4. Projects, persistent agents, missions, DAG tasks, broker, approvals, budgets, memory.
+5. Structured Codex/Claude adapters, scoped MCP, crash recovery and fake-provider tests.
+6. Worktrees, checks, supervisor acceptance, squash merge, push, draft PR delivery.
+7. Flutter floor/board/wizards/settings, terminal lease, pixel-art lab, notifications, tray.
+8. Per-user service installers, packages, docs, Graphify boundary query, full E2E gates.
+
+No v1 package is released between checkpoints; 0.2.x data/config remains untouched.
 
 ## Verification
 

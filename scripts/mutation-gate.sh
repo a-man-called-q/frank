@@ -25,27 +25,15 @@ command -v cargo-mutants >/dev/null 2>&1 || {
 mutation_scope=()
 case "$(uname -s)" in
   Darwin|Linux)
-    # The Windows backend is deliberately a placeholder until Windows CI
-    # exists; mutating cfg(windows) source on Unix produces survivors that no
-    # Unix test can execute.
+    # The Windows backend is validated by the native Windows job; mutating
+    # cfg(windows) source on Unix produces survivors that no Unix test can
+    # execute.
     mutation_scope+=(--exclude '**/windows.rs')
     ;;
   MINGW*|MSYS*|CYGWIN*)
     mutation_scope+=(--exclude '**/unix.rs')
     ;;
 esac
-
-# crates/frank-gui is the platform shell -- tray/window lifecycle/
-# single-instance glue that needs a real event loop and OS tray to exercise,
-# covered by scripts/native-smoke.sh instead. Its own reducer/model logic
-# lives in frank-gui-core and stays fully mutated below.
-mutation_scope+=(--exclude 'crates/frank-gui/src/**')
-# Widget layout/styling code (padding, spacing, which container wraps which)
-# produces mutants no test can meaningfully distinguish from the original --
-# see the plan's "Styling" note. reducer.rs/model.rs/message.rs/i18n.rs stay
-# fully mutated.
-mutation_scope+=(--exclude 'crates/frank-gui-core/src/pages/**')
-mutation_scope+=(--exclude 'crates/frank-gui-core/src/view.rs')
 
 mutation_command=(cargo mutants --workspace)
 mutation_command+=("${mutation_scope[@]}")

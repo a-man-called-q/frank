@@ -58,18 +58,12 @@ version, and digest. Every hook recompiles and verifies the selected copy. If
 the copy is missing or changed, the hook emits nothing and exits zero; normal
 commands report the error instead of silently switching personas.
 
-## Held work
+## Remote sources
 
-<!-- HOLD(M7): remote sources need a deliberately reviewed downloader, proxy/
-certificate policy, and end-to-end network tests. They are not accepted as a
-local path by accident. -->
-
-`github:owner/repo@v1.2.0` and HTTPS sources are intentionally reported as
-`HOLD(M7)` for now. The local lifecycle is complete and testable; remote
-registry/download support should be added only with checksum/signature policy
-and a CI test matrix.
-
-<!-- HOLD(M7): runtime activation has been implemented for local packs. -->
+`github:owner/repo@v1.2.0` and HTTPS sources are intentionally disabled in v1.
+Remote registry/download support needs a separately reviewed
+checksum/signature, proxy, and certificate policy with a native CI matrix.
+Local pack activation is the supported production path.
 
 Third-party packs may use only manifest data and Markdown. Keep activation
 patterns narrow, include a budget, and add a benchmark entry only when the

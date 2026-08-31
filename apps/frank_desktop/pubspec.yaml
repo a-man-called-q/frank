@@ -1,0 +1,37 @@
+name: frank_desktop
+description: Flutter desktop client prototype for the Frank agent operations office.
+publish_to: none
+version: 1.0.0-dev.1
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flame: 1.38.2
+  flow_ui: 0.2.0
+  forui: 0.25.0
+  material_ui: 1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+
+flutter:
+  uses-material-design: true
+  config:
+    # Keep the macOS host on Flutter's classic framework integration for now.
+    # SPM remains a future packaging choice once the release pipeline is ready.
+    enable-swift-package-manager: false
+  assets:
+    - assets/fonts/
+
+  fonts:
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist-Variable.ttf
+    - family: GeistMono
+      fonts:
+        - asset: assets/fonts/GeistMono-Variable.ttf

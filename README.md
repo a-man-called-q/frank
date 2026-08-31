@@ -8,6 +8,11 @@
 
 Meet **Frank** — your friendly, nerdily precise Frankenstein monster of an AI persona engine and prompt compressor. Stitched together from high-performance Rust crates, Frank stands guard between you and your AI coding assistants (like Claude Code, Codex, and Cline) to optimize context windows, enforce honest token tracking, and switch persona packs with lightning speed!
 
+Frank 1.0 adds an agent operations office: `frankd` runs the supervisor,
+workers, SQLite, worktrees, terminals, and Git workflow on a PC/server while the
+Flutter desktop client will connect over authenticated HTTPS + WebSocket. The
+client and daemon are always separate processes, even on localhost.
+
 ---
 
 ## 🟢 What is Frank?
@@ -32,8 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/a-man-called-q/frank/main/dist/inst
 
 ### Build From Source
 
-Requirements: Rust 1.88 or newer. That's it — the desktop control panel is native
-Rust too, so no Node/pnpm toolchain is needed to build or run any part of Frank.
+Requirements for the backend: Rust 1.89 or newer. The desktop prototype uses the
+Flutter 3.47.1 toolchain pinned through Proto and lives under `apps/frank_desktop`.
 
 ```sh
 git clone https://github.com/a-man-called-q/frank.git
@@ -42,18 +47,46 @@ cargo build --release -p frank-cli
 ./target/release/frank --help
 ```
 
-### 🖥️ Desktop Control Panel
+### 🖥️ Desktop Agent Office
 
-Frank includes an optional, sleek desktop tray app, built with [iced](https://iced.rs) — no Electron, no WebView, no bundled browser runtime. Note: Frank's CLI and lifecycle hooks run 100% standalone without needing the desktop app running.
-
-To launch the desktop GUI in development mode:
+The first client milestone is a Flutter desktop shell using [Forui](https://forui.dev/)
+for navigation, [FlowUI](https://github.com/StacDev/flow_ui) for the chat/composer,
+and [Flame](https://pub.dev/packages/flame) for the reserved floor surface. It
+currently runs against local fixtures so the information architecture can settle
+before we wire the live reconnecting transport.
 
 ```sh
-cargo run --locked -p frank-gui
+cd apps/frank_desktop
+proto install
+proto run flutter -- pub get
+proto run flutter -- run -d macos
 ```
 
-The CLI (`frank`) is Frank's screen-reader-native surface: iced has no accessibility
-tree yet, so anything the GUI can do, `frank` can do too.
+The shell has a permanent main sidebar, an Account Executive conversation in the
+center, a right-side Projects drawer, and an intentionally empty floor. The CLI
+(`frank`) remains available for screen-reader-first operation and automation.
+
+### 🌐 Remote Frank 1.0
+
+Start the headless daemon on the machine that owns your projects:
+
+```sh
+cargo run --release -p frank-server --bin frankd -- --bind 127.0.0.1:37465
+```
+
+Issue a one-time pairing ticket on that machine, then enter the printed address,
+secret, and certificate fingerprint in the desktop client once live transport is
+enabled:
+
+```sh
+frank server pair --role owner --address https://127.0.0.1:37465
+```
+
+Use `--insecure-local` only for deterministic local development without a TLS
+certificate; non-loopback plaintext is always rejected.  After pairing, the
+GUI can switch between saved servers, resume event streams after disconnects,
+and manage projects, persistent agents, missions, approvals, terminals, and
+draft-PR delivery without transporting provider API keys.
 
 ---
 

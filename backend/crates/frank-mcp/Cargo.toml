@@ -1,0 +1,11 @@
+[package]
+name = "frank-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+frank-compress = { path = "../frank-compress", version = "1.0.0" }
+serde_json.workspace = true
+thiserror.workspace = true

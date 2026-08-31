@@ -1,0 +1,1 @@
+{"method":"item/commandExecution/requestApproval","params":{"operation":"shell","reason":"run checks","cwd":"/worktree"}}

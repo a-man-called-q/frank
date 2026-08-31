@@ -4,98 +4,58 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
-# Renamed from FRANK_SIDECAR_TARGET: there is no separate "sidecar" concept
-# anymore (see the frank-gui -> iced migration plan) -- frank and frank-gui
-# are just two binaries built for the same target and bundled together.
-target="${FRANK_GUI_TARGET:-}"
+# The Rust side now ships as a headless backend. The Flutter desktop client is
+# built separately from apps/frank_desktop, so this script only prepares the
+# backend binaries consumed by `xtask dist`.
+target="${FRANK_TARGET:-}"
 if [[ -z "$target" ]]; then
   target="$(rustc -vV | awk '$1 == "host:" { print $2 }')"
 fi
 [[ -n "$target" ]] || { echo 'unable to determine Rust host target' >&2; exit 2; }
 
+packages=(-p frank-cli -p frank-server -p frank-updater)
+
 if [[ "$target" == 'universal-apple-darwin' ]]; then
-  [[ "$(uname -s)" == 'Darwin' ]] || { echo 'universal macOS builds require macOS' >&2; exit 2; }
-  cargo build --locked --release -p frank-cli -p frank-gui --target x86_64-apple-darwin
-  cargo build --locked --release -p frank-cli -p frank-gui --target aarch64-apple-darwin
+  [[ "$(uname -s)" == 'Darwin' ]] || {
+    echo 'universal macOS builds require macOS' >&2
+    exit 2
+  }
+  cargo build --locked --release "${packages[@]}" --target x86_64-apple-darwin
+  cargo build --locked --release "${packages[@]}" --target aarch64-apple-darwin
   mkdir -p "$root/target/release"
-  for binary in frank frank-gui; do
+  for binary in frank frankd frank-updater; do
     x86="$root/target/x86_64-apple-darwin/release/$binary"
     arm="$root/target/aarch64-apple-darwin/release/$binary"
-    [[ -f "$x86" && -f "$arm" ]] || { echo "missing architecture-specific $binary" >&2; exit 1; }
+    [[ -f "$x86" && -f "$arm" ]] || {
+      echo "missing architecture-specific $binary" >&2
+      exit 1
+    }
     lipo -create "$x86" "$arm" -output "$root/target/release/$binary"
     chmod 0755 "$root/target/release/$binary"
   done
-  printf 'built universal frank + frank-gui\n'
+  printf 'built universal backend binaries for macOS\n'
 else
-  cargo build --locked --release -p frank-cli -p frank-gui --target "$target"
-  # cargo-packager's `binaries` list in crates/frank-gui/Cargo.toml points at
-  # the fixed, target-less `target/release/` path (matching how every other
-  # cargo invocation in this repo already works) rather than a per-target
-  # path, so an explicit `--target` build has to be copied there too. Cargo
-  # uses the per-target directory even when the target equals the host.
+  cargo build --locked --release "${packages[@]}" --target "$target"
   mkdir -p "$root/target/release"
-  for binary in frank frank-gui; do
-    src="$root/target/$target/release/$binary"
+  suffix=""
+  [[ "$target" == *windows* ]] && suffix='.exe'
+  for binary in frank frankd frank-updater; do
+    src="$root/target/$target/release/$binary$suffix"
     [[ -f "$src" ]] || { echo "missing target binary: $src" >&2; exit 1; }
-    install -m 0755 "$src" "$root/target/release/$binary"
+    install -m 0755 "$src" "$root/target/release/$binary$suffix"
   done
 fi
 
-if [[ "${FRANK_SKIP_GUI:-0}" == "1" ]]; then
-  printf 'release build prerequisites complete (GUI packaging skipped)\n'
-  exit 0
-fi
-
-command -v cargo-packager >/dev/null 2>&1 || {
-  echo 'cargo-packager is required (cargo install cargo-packager --locked)' >&2
-  exit 2
-}
-
-mkdir -p "$root/dist"
-
-bundles="${FRANK_BUNDLES:-}"
-if [[ -z "$bundles" ]]; then
-  case "$(uname -s)" in
-    Darwin) bundles='dmg' ;;
-    Linux) bundles='deb,rpm' ;;
-    MINGW*|MSYS*|CYGWIN*) bundles='msi' ;;
-    *) echo 'set FRANK_BUNDLES for this platform' >&2; exit 2 ;;
-  esac
-fi
-
-IFS=',' read -r -a bundle_kinds <<< "$bundles"
-packager_formats=()
-want_rpm=0
-for kind in "${bundle_kinds[@]}"; do
-  case "$kind" in
-    dmg|deb) packager_formats+=("$kind") ;;
-    msi) packager_formats+=(wix) ;;
-    rpm)
-      # cargo-packager's PackageFormat has no Rpm variant (verified against
-      # its own source during M-6) -- cargo-generate-rpm builds it
-      # separately below instead.
-      want_rpm=1
-      ;;
-    *) echo "unsupported bundle kind: $kind" >&2; exit 2 ;;
-  esac
-done
-
-if ((${#packager_formats[@]} > 0)); then
-  formats_arg=$(IFS=,; echo "${packager_formats[*]}")
-  cargo packager --release --formats "$formats_arg" -p frank-gui
-fi
-
-if ((want_rpm)); then
-  command -v cargo-generate-rpm >/dev/null 2>&1 || {
-    echo 'cargo-generate-rpm is required for rpm (cargo install cargo-generate-rpm --locked)' >&2
+if [[ "${FRANK_BUILD_FLUTTER:-0}" == '1' ]]; then
+  command -v flutter >/dev/null 2>&1 || {
+    echo 'FRANK_BUILD_FLUTTER=1 requires Flutter on PATH' >&2
     exit 2
   }
-  cargo generate-rpm -p crates/frank-gui
-  shopt -s nullglob
-  rpms=("$root/target/generate-rpm/"*.rpm)
-  shopt -u nullglob
-  ((${#rpms[@]} > 0)) || { echo 'cargo-generate-rpm produced no .rpm file' >&2; exit 1; }
-  cp -f "${rpms[@]}" "$root/dist/"
+  (
+    cd apps/frank_desktop
+    flutter pub get
+    flutter build macos --release
+  )
 fi
 
-printf 'release build complete: %s\n' "$bundles"
+printf 'backend release build complete for %s\n' "$target"

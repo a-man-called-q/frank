@@ -10,9 +10,9 @@ tasks:
       - '/Cargo.toml'
       - '/Cargo.lock'
       - '/.config/**/*'
-      - '/crates/**/*'
+      - '/backend/crates/**/*'
       - '/scripts/**/*'
-      - '/xtask/**/*'
+      - '/backend/xtask/**/*'
     options:
       runFromWorkspaceRoot: true
       cache: false

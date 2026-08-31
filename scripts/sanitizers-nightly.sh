@@ -23,9 +23,8 @@ rustup run nightly rustc --version >/dev/null 2>&1 || {
 }
 
 # Keep the sanitizer scope on the pure Rust correctness/security boundary. The
-# native frank-gui host is exercised by its platform smoke jobs (native-smoke.sh)
-# and pulls in GUI system libraries (iced/wgpu/tray-icon) unrelated to
-# sanitizer coverage.
+# Flutter client is validated by its own desktop test workflow and is not part
+# of the Cargo sanitizer matrix.
 target="x86_64-unknown-linux-gnu"
 packages=(
   frank-safeio

@@ -1,9 +1,8 @@
 #![no_main]
 
-// Renamed from `tauri_payloads`: these are `frank-app`'s desktop-adapter
-// payload types, not something specific to Tauri -- the frank-gui -> iced
-// migration didn't change what needs fuzzing here, just which GUI toolkit
-// constructs these values. `PackOperation` is fuzzed alongside the other two
+// These are `frank-app`'s desktop-adapter payload types. The desktop client is
+// a separate Flutter package and does not change what needs fuzzing here.
+// `PackOperation` is fuzzed alongside the other two
 // now: it's the one payload type through which the GUI supplies a
 // filesystem path (`PackOperation::Add { source: PathBuf, .. }`), and it was
 // missing from the original three-type coverage.

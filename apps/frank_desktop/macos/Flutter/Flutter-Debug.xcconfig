@@ -1,0 +1,6 @@
+#include "ephemeral/Flutter-Generated.xcconfig"
+
+// Flutter's classic macOS host still emits FlutterMacOS.framework into
+// the per-configuration build products directory. Keep that framework visible
+// to Swift compilation when Xcode does not inherit the generated search path.
+FRAMEWORK_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/../build/macos/Build/Products/$(CONFIGURATION)

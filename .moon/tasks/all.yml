@@ -12,8 +12,8 @@ tasks:
     inputs:
       - '/Cargo.toml'
       - '/Cargo.lock'
-      - '/crates/**/*.rs'
-      - '/xtask/**/*.rs'
+      - '/backend/crates/**/*.rs'
+      - '/backend/xtask/**/*.rs'
     options:
       runFromWorkspaceRoot: true
       cache: false

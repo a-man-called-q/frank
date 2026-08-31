@@ -9,12 +9,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-frank-app = { path = "../crates/frank-app" }
-frank-compress = { path = "../crates/frank-compress" }
-frank-ledger = { path = "../crates/frank-ledger" }
-frank-pack = { path = "../crates/frank-pack" }
-frank-state = { path = "../crates/frank-state" }
-frank-target = { path = "../crates/frank-target" }
+frank-app = { path = "../backend/crates/frank-app" }
+frank-compress = { path = "../backend/crates/frank-compress" }
+frank-ledger = { path = "../backend/crates/frank-ledger" }
+frank-pack = { path = "../backend/crates/frank-pack" }
+frank-state = { path = "../backend/crates/frank-state" }
+frank-target = { path = "../backend/crates/frank-target" }
 serde_json = "1"
 toml = "0.8"
 

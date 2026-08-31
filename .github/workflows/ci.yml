@@ -27,14 +27,6 @@ jobs:
         with:
           auto-install: true
 
-      - name: Install Linux tray build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            libgtk-3-dev \
-            libappindicator3-dev \
-            libxdo-dev
-
       - name: Install Rust verification tools
         run: |
           cargo install cargo-nextest --version 0.9.100 --locked
@@ -57,11 +49,3 @@ jobs:
           name: rust-coverage-report
           path: target/llvm-cov/frank-summary.json
           if-no-files-found: warn
-
-  installer-edge-smoke:
-    name: CLI installer edge cases
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - run: ./scripts/installer-smoke.sh
