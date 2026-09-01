@@ -46,6 +46,15 @@ proto run flutter -- pub get
 proto run flutter -- run -d macos
 ```
 
+From the repository root, the same client workflow is available through Moon:
+
+```bash
+moon run frank-desktop:run --interactive
+moon run frank-desktop:analyze
+moon run frank-desktop:test
+moon run frank-desktop:build
+```
+
 ## Before Committing
 
 Every commit must pass these checks:

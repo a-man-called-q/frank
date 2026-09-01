@@ -49,3 +49,37 @@ jobs:
           name: rust-coverage-report
           path: target/llvm-cov/frank-summary.json
           if-no-files-found: warn
+
+  frank-desktop-analyze:
+    name: frank-desktop:analyze
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned proto/Moon
+        uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+
+      - name: Analyze Flutter desktop
+        run: moon run frank-desktop:analyze
+
+  frank-desktop-test:
+    name: frank-desktop:test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned proto/Moon
+        uses: moonrepo/setup-toolchain@v0
+        with:
+          auto-install: true
+
+      - name: Test Flutter desktop
+        run: moon run frank-desktop:test

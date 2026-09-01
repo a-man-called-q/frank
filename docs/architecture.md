@@ -93,10 +93,11 @@ budgets, approve itself, or invoke Git delivery.
 
 `apps/frank_desktop` owns the client-side shell. Its `FrankGateway` abstraction
 keeps fixtures and the future `frank-client` transport interchangeable. The
-current shell renders a permanent sidebar, an Account Executive conversation,
-a Projects drawer, and an empty Flame floor. Live state must arrive through the
-same reconnecting `frank-client` stream and never through direct filesystem or
-database access.
+current shell renders a persistent off-canvas work inbox, an Account Executive
+conversation, and an empty Flame floor. Shell, inbox, and chat state are
+isolated in feature BLoCs; the root coordinator is the only place that
+synchronizes their context. Live state must arrive through the same reconnecting
+`frank-client` stream and never through direct filesystem or database access.
 
 `frank-update` owns manifest validation, Ed25519 detached-signature
 verification, target selection, digest/size checks, and safe staging.
@@ -251,12 +252,20 @@ and `flame` owns the reserved floor surface. The current prototype uses
 gateway will later map `frank-client` snapshots, events, and reconnect state to
 the same UI models.
 
-The shell deliberately keeps the main navigation sidebar persistent and puts
-Projects in a right-side drawer. The first release does not populate the Flame
-floor; it is an integration seam for agent positions, status, and work later.
+The shell is a desktop-only, persistent fixed-width off-canvas navigation sidebar
+with a minimum supported window width of 880px. Desktop users can hide it
+completely so the main surface becomes full width. Its work inbox projects
+missions into Needs attention, Pinned, Draft, Active, and Completed shelves,
+with client-local scope, search, and pin ordering preferences. The first release
+does not populate the Flame floor; it is an integration seam for agent
+positions, status, and work later.
 
-**Testing**: Flutter widget tests cover fixture roster data, initial shell
-rendering, drawer close/reopen, and the empty-floor accessibility label. Native
+**Testing**: Flutter widget tests cover fixture roster data, desktop off-canvas
+collapse, fixed-width minimum layout, work-inbox search/scope/pinning,
+navigation, mission-row actions, and the empty-floor accessibility label.
+Feature BLoC tests cover loading, preference restore/fallback, navigation, and
+streaming cancellation;
+focused goldens protect the main shell states. Native
 desktop tests will add keyboard traversal, VoiceOver/NVDA semantics, tray, and
 single-instance behavior before packaging.
 

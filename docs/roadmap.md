@@ -9,10 +9,12 @@ data remains in place and is not migrated automatically.
 - [x] Move Cargo crates and `xtask` under `backend/`.
 - [x] Remove iced/wgpu/Bevy GUI dependencies from the active workspace.
 - [x] Add a Flutter desktop package at `apps/frank_desktop`.
-- [x] Add a permanent Forui main sidebar.
+- [x] Add a desktop-only, persistent, fixed-width Forui off-canvas sidebar with a minimum 880px window width.
 - [x] Add a central Account Executive conversation using FlowUI.
-- [x] Add a right-side Projects drawer with agency fixtures.
+- [x] Add an operational work inbox with mission shelves, scope, search, and pinning.
 - [x] Reserve an empty Flame floor surface.
+- [x] Add semantic Lucide icon registry and native macOS titlebar integration.
+- [x] Persist client-only sidebar visibility, scope, and pinned order.
 - [x] Add local gateway fixtures and widget tests.
 - [x] Run `proto run flutter` checks with Flutter 3.47.1.
 - [x] Build the macOS debug bundle from the Flutter desktop scaffold.

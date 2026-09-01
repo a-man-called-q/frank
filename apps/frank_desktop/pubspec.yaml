@@ -12,9 +12,12 @@ dependencies:
   flame: 1.38.2
   flow_ui: 0.2.0
   forui: 0.25.0
+  flutter_bloc: 9.1.1
   material_ui: 1.1.0
+  shared_preferences: 2.5.5
 
 dev_dependencies:
+  bloc_test: 10.0.0
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
@@ -26,12 +29,10 @@ flutter:
     # SPM remains a future packaging choice once the release pipeline is ready.
     enable-swift-package-manager: false
   assets:
-    - assets/fonts/
+    - assets/branding/frank-logo.png
+    - assets/fonts/Geist-Variable.ttf
 
   fonts:
-    - family: Geist
-      fonts:
-        - asset: assets/fonts/Geist-Variable.ttf
     - family: GeistMono
       fonts:
         - asset: assets/fonts/GeistMono-Variable.ttf

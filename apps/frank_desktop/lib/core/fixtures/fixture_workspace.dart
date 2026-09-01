@@ -39,7 +39,27 @@ class FixtureFrankGateway implements FrankGateway {
     ),
   ];
 
-  static const _projects = <OfficeProject>[
+  static const _northstarMessages = <OfficeMessage>[
+    OfficeMessage(
+      id: 'northstar-welcome',
+      role: ChatRole.assistant,
+      text:
+          'Hi, I’m Maya, your Account Executive. Tell me what your team needs and I’ll turn it into a clear engagement for the office.',
+    ),
+    OfficeMessage(
+      id: 'northstar-brief',
+      role: ChatRole.user,
+      text: 'I need a usable inventory workflow for a small logistics team.',
+    ),
+    OfficeMessage(
+      id: 'northstar-brief-reply',
+      role: ChatRole.assistant,
+      text:
+          'I’ve opened Northstar Inventory as a working brief. I can bring in a system analyst first, then staff the build once we agree on the scope.',
+    ),
+  ];
+
+  static final _projects = <OfficeProject>[
     OfficeProject(
       id: 'northstar-inventory',
       name: 'Northstar Inventory',
@@ -48,6 +68,32 @@ class FixtureFrankGateway implements FrankGateway {
       progress: 0.62,
       team: ['Budi Santoso', 'Nia Alvarez'],
       summary: 'Warehouse inventory and replenishment dashboard.',
+      messages: _northstarMessages,
+      missions: [
+        OfficeMission(
+          id: 'northstar-discovery',
+          title: 'Map warehouse intake',
+          status: MissionStatus.active,
+          updatedAt: DateTime.utc(2026, 8, 31, 15, 20),
+          assignedAgentIds: const ['analyst-budi'],
+          pendingApprovalCount: 1,
+          messages: [
+            OfficeMessage(
+              id: 'northstar-discovery-welcome',
+              role: ChatRole.assistant,
+              text:
+                  'I’ll map the warehouse intake flow first so the team can agree on the smallest useful workflow.',
+            ),
+          ],
+        ),
+        OfficeMission(
+          id: 'northstar-dashboard',
+          title: 'Design replenishment dashboard',
+          status: MissionStatus.planned,
+          updatedAt: DateTime.utc(2026, 8, 29, 10, 30),
+          messages: [],
+        ),
+      ],
     ),
     OfficeProject(
       id: 'meridian-finance',
@@ -57,6 +103,30 @@ class FixtureFrankGateway implements FrankGateway {
       progress: 0.18,
       team: ['Maya Chen', 'Dimas Pratama'],
       summary: 'A lightweight finance operations workspace.',
+      messages: [
+        OfficeMessage(
+          id: 'meridian-welcome',
+          role: ChatRole.assistant,
+          text:
+              'I can help turn Meridian’s finance needs into a focused project brief.',
+        ),
+      ],
+      missions: [
+        OfficeMission(
+          id: 'meridian-intake',
+          title: 'Define finance workflow',
+          status: MissionStatus.planned,
+          updatedAt: DateTime.utc(2026, 8, 27, 9, 10),
+          messages: [],
+        ),
+        OfficeMission(
+          id: 'meridian-controls',
+          title: 'Review approval controls',
+          status: MissionStatus.blocked,
+          updatedAt: DateTime.utc(2026, 8, 30, 13, 45),
+          messages: [],
+        ),
+      ],
     ),
     OfficeProject(
       id: 'atlas-handoff',
@@ -66,43 +136,54 @@ class FixtureFrankGateway implements FrankGateway {
       progress: 0.84,
       team: ['Budi Santoso', 'Dimas Pratama'],
       summary: 'Documentation and delivery readiness review.',
+      messages: [
+        OfficeMessage(
+          id: 'atlas-welcome',
+          role: ChatRole.assistant,
+          text:
+              'Atlas is in review. I can help close the remaining delivery and documentation gaps.',
+        ),
+      ],
+      missions: [
+        OfficeMission(
+          id: 'atlas-readiness',
+          title: 'Review delivery readiness',
+          status: MissionStatus.complete,
+          updatedAt: DateTime.utc(2026, 8, 26, 16, 5),
+          assignedAgentIds: const ['accountant-dimas'],
+          messages: [
+            OfficeMessage(
+              id: 'atlas-readiness-welcome',
+              role: ChatRole.assistant,
+              text:
+                  'Let’s review the final handoff checklist and surface anything that still needs an owner.',
+            ),
+          ],
+        ),
+      ],
     ),
   ];
 
   @override
   Future<OfficeWorkspace> loadWorkspace() async {
     await Future<void>.delayed(const Duration(milliseconds: 180));
-    return const OfficeWorkspace(
+    return OfficeWorkspace(
       name: 'Frank Agency',
       projects: _projects,
       employees: _employees,
       accountExecutive: _ae,
-      messages: [
-        OfficeMessage(
-          id: 'welcome',
-          role: ChatRole.assistant,
-          text:
-              'Hi, I’m Maya, your Account Executive. Tell me what your team needs and I’ll turn it into a clear engagement for the office.',
-        ),
-        OfficeMessage(
-          id: 'brief',
-          role: ChatRole.user,
-          text: 'I need a usable inventory workflow for a small logistics team.',
-        ),
-        OfficeMessage(
-          id: 'brief-reply',
-          role: ChatRole.assistant,
-          text:
-              'I’ve opened Northstar Inventory as a working brief. I can bring in a system analyst first, then staff the build once we agree on the scope.',
-        ),
-      ],
     );
   }
 
   @override
-  Stream<String> replyTo(String text, {required String projectId}) async* {
-    const response = [
-      'I’ll turn that into a brief for the office. ',
+  Stream<String> replyTo(
+    String text, {
+    required String projectId,
+    String? missionId,
+  }) async* {
+    final subject = missionId == null ? 'the project brief' : 'that mission';
+    final response = [
+      'I’ll turn that into a clear plan for $subject. ',
       'First I’ll clarify the outcome, then I’ll suggest the smallest team needed. ',
       'You can approve the plan before anyone starts delivery.',
     ];

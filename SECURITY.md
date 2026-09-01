@@ -16,7 +16,7 @@ in-memory fixtures only.
 The Flutter shell is responsible for keyboard navigation and platform
 semantics (including VoiceOver on macOS and NVDA on Windows). Accessibility is a
 release gate for every interactive surface: the permanent sidebar, Projects
-drawer, chat thread, composer, streaming state, and future Flame floor. The CLI
+tree, chat thread, composer, streaming state, and future Flame floor. The CLI
 remains the screen-reader-first fallback for administration and automation.
 
 ## Data and transport

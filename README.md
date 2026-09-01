@@ -62,9 +62,20 @@ proto run flutter -- pub get
 proto run flutter -- run -d macos
 ```
 
-The shell has a permanent main sidebar, an Account Executive conversation in the
-center, a right-side Projects drawer, and an intentionally empty floor. The CLI
-(`frank`) remains available for screen-reader-first operation and automation.
+From the repository root, Moon provides the equivalent task targets:
+
+```sh
+moon run frank-desktop:run --interactive
+```
+
+Use `moon run frank-desktop:analyze`, `moon run frank-desktop:test`, or
+`moon run frank-desktop:build` for the non-persistent checks.
+
+The shell has a desktop-only, fixed-width off-canvas sidebar with Office/Projects
+navigation and project missions, a floating Account Executive conversation, and
+an intentionally empty floor. The minimum supported window width is 880px; the
+sidebar can be hidden to give the main surface the full width. The CLI (`frank`)
+remains available for screen-reader-first operation and automation.
 
 ### 🌐 Remote Frank 1.0
 

@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:forui/forui.dart';
 
 import '../core/fixtures/fixture_workspace.dart';
+import '../core/gateway/frank_gateway.dart';
 import '../features/shell/office_shell.dart';
 import 'theme.dart';
 
 class FrankApp extends StatelessWidget {
-  const FrankApp({super.key});
+  const FrankApp({this.gateway, super.key});
+
+  final FrankGateway? gateway;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +32,7 @@ class FrankApp extends StatelessWidget {
           child: FTooltipGroup(child: child ?? const SizedBox.shrink()),
         );
       },
-      home: OfficeShell(gateway: FixtureFrankGateway()),
+      home: OfficeShell(gateway: gateway ?? FixtureFrankGateway()),
     );
   }
 }

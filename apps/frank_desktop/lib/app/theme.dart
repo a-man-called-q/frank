@@ -1,5 +1,13 @@
 import 'package:flutter/material.dart';
 
+abstract final class FrankTypography {
+  /// Use the macOS system UI face to match Codex's native text rendering.
+  /// Other platforms fall back to Forui's bundled Inter font.
+  static const uiFontFamily = '.AppleSystemUIFont';
+  static const uiFontFallback = ['packages/forui/Inter'];
+  static const monoFontFamily = 'GeistMono';
+}
+
 ThemeData buildFrankTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
   final scheme = ColorScheme.fromSeed(
@@ -7,12 +15,38 @@ ThemeData buildFrankTheme(Brightness brightness) {
     brightness: brightness,
     surface: dark ? const Color(0xFF101113) : const Color(0xFFF7F7F4),
   );
+  final immediateButtonStyle = ButtonStyle(
+    overlayColor: WidgetStateProperty.resolveWith((states) {
+      if (states.contains(WidgetState.pressed)) return Colors.transparent;
+      if (states.contains(WidgetState.focused)) {
+        return scheme.primary.withValues(alpha: 0.10);
+      }
+      if (states.contains(WidgetState.hovered)) {
+        return scheme.onSurface.withValues(alpha: 0.08);
+      }
+      return Colors.transparent;
+    }),
+    splashFactory: NoSplash.splashFactory,
+    animationDuration: Duration.zero,
+  );
 
   return ThemeData(
     brightness: brightness,
     colorScheme: scheme,
     useMaterial3: true,
-    fontFamily: 'Geist',
+    // Frank is a desktop-first surface. Pointer clicks should feel immediate,
+    // without Material's expanding splash or pressed-state wash.
+    splashFactory: NoSplash.splashFactory,
+    splashColor: Colors.transparent,
+    highlightColor: Colors.transparent,
+    iconButtonTheme: IconButtonThemeData(style: immediateButtonStyle),
+    textButtonTheme: TextButtonThemeData(style: immediateButtonStyle),
+    filledButtonTheme: FilledButtonThemeData(style: immediateButtonStyle),
+    elevatedButtonTheme: ElevatedButtonThemeData(style: immediateButtonStyle),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: immediateButtonStyle),
+    menuButtonTheme: MenuButtonThemeData(style: immediateButtonStyle),
+    fontFamily: FrankTypography.uiFontFamily,
+    fontFamilyFallback: FrankTypography.uiFontFallback,
     scaffoldBackgroundColor: dark
         ? const Color(0xFF101113)
         : const Color(0xFFF7F7F4),
