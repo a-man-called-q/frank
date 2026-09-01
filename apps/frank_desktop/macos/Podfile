@@ -1,0 +1,84 @@
+platform :osx, '12.0'
+
+require 'fileutils'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'ephemeral', 'Flutter-Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure \"flutter pub get\" is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Flutter-Generated.xcconfig, then run \"flutter pub get\""
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_macos_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+
+  flutter_install_all_macos_pods File.dirname(File.realpath(__FILE__))
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  application_path = File.dirname(File.realpath(__FILE__))
+  framework_wrappers = {
+    :debug => File.expand_path(File.join('Flutter', 'ephemeral', 'flutter-engine', 'debug', 'FlutterMacOS.framework'), application_path),
+    :release => File.expand_path(File.join('Flutter', 'ephemeral', 'flutter-engine', 'release', 'FlutterMacOS.framework'), application_path),
+  }
+  engine_frameworks = {
+    :debug => File.expand_path(File.join(flutter_root, 'bin', 'cache', 'artifacts', 'engine', 'darwin-x64',
+      'FlutterMacOS.xcframework', 'macos-arm64_x86_64', 'FlutterMacOS.framework')),
+    :release => File.expand_path(File.join(flutter_root, 'bin', 'cache', 'artifacts', 'engine', 'darwin-x64-release',
+      'FlutterMacOS.xcframework', 'macos-arm64_x86_64', 'FlutterMacOS.framework')),
+  }
+
+  # Flutter 3.47.1 ships the macOS engine as a versioned framework without
+  # the root-level framework symlinks that Clang/Swift expects. Keep the
+  # wrapper inside generated `ephemeral` output and point only plugin targets
+  # at it; using the app build-products directory here creates an Xcode cycle
+  # with Flutter Assemble.
+  framework_wrappers.each do |configuration, wrapper_root|
+    FileUtils.rm_rf(wrapper_root)
+    FileUtils.mkdir_p(File.join(wrapper_root, 'Versions'))
+    FileUtils.ln_sf(File.join(engine_frameworks[configuration], 'Versions', 'A'),
+      File.join(wrapper_root, 'Versions', 'A'))
+    FileUtils.ln_sf('A', File.join(wrapper_root, 'Versions', 'Current'))
+    %w[FlutterMacOS Headers Modules Resources].each do |entry|
+      FileUtils.ln_sf(File.join('Versions', 'Current', entry), File.join(wrapper_root, entry))
+    end
+  end
+
+  installer.pods_project.targets.each do |target|
+    flutter_additional_macos_build_settings(target)
+
+    next if target.name == 'FlutterMacOS'
+
+    target.build_configurations.each do |build_configuration|
+      framework_search_paths = build_configuration.build_settings['FRAMEWORK_SEARCH_PATHS'].to_s
+      next unless framework_search_paths.include?('FlutterMacOS.xcframework')
+
+      configuration = build_configuration.type == :debug ? :debug : :release
+      wrapper_parent = File.dirname(framework_wrappers[configuration])
+      build_configuration.build_settings['FRAMEWORK_SEARCH_PATHS'] =
+        "\"#{wrapper_parent}\" #{framework_search_paths}"
+    end
+  end
+end

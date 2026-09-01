@@ -1,0 +1,55 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'unknown'
+stack: 'frontend'
+
+tasks:
+  get:
+    command: 'proto run flutter -- pub get'
+    inputs:
+      - '/.prototools'
+      - '/apps/frank_desktop/.flutter-version'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  analyze:
+    command: 'proto run flutter -- analyze'
+    inputs:
+      - '/apps/frank_desktop/analysis_options.yaml'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/test/**/*'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  test:
+    command: 'proto run flutter -- test --reporter compact'
+    inputs:
+      - '/apps/frank_desktop/analysis_options.yaml'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/test/**/*'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  build:
+    command: 'proto run flutter -- build macos --debug'
+    inputs:
+      - '/apps/frank_desktop/macos/**/*'
+      - '/apps/frank_desktop/assets/**/*'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  run:
+    command: 'proto run flutter -- run -d macos'
+    options:
+      cache: false
+      persistent: true
+      runInCI: false
