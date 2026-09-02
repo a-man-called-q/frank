@@ -494,27 +494,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('project and model selectors switch in one click', (
-    tester,
-  ) async {
-    _setWindow(tester);
-    await _pumpApp(tester);
-    await _openProjects(tester);
-
-    await tester.tap(find.text('All projects'));
-    await tester.pump();
-    expect(find.text('Local Frank Pack'), findsNothing);
-
-    await tester.tap(find.text('Gemini 3.7 Flash High'));
-    await tester.pump();
-    expect(find.text('Local Frank Pack'), findsOneWidget);
-
-    await tester.tap(find.text('All projects'));
-    await tester.pump();
-    expect(find.text('Local Frank Pack'), findsNothing);
-    expect(find.text('Atlas Handoff'), findsWidgets);
-  });
-
   testWidgets('Forui action popovers switch with selectors in one click', (
     tester,
   ) async {
@@ -557,18 +536,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('chat composer exposes the floor reset side panel', (
-    tester,
-  ) async {
+  testWidgets('floor reset stays outside the chat composer', (tester) async {
     _setWindow(tester);
     await _pumpApp(tester);
     await _openProjects(tester);
 
-    final resetButton = find.byKey(
-      const ValueKey('composer-reset-view-button'),
-    );
+    final resetButton = find.byKey(const ValueKey('floor-reset-view-button'));
     expect(resetButton, findsOneWidget);
     expect(find.bySemanticsLabel('Reset floor view'), findsOneWidget);
+    expect(
+      tester
+          .getRect(resetButton)
+          .overlaps(tester.getRect(find.byType(FocusableComposer))),
+      isFalse,
+    );
     // The headless test host has no GPU scene, so the action stays visible but
     // disabled until the real scene reports readiness.
     expect(tester.widget<IconButton>(resetButton).onPressed, isNull);

@@ -3,32 +3,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/features/chat/presentation/composer/base_composer.dart';
 
 void main() {
-  testWidgets('BaseComposer renders all provided slots correctly', (
+  testWidgets('BaseComposer renders editor, attachment, and toolbar slots', (
     tester,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: BaseComposer(
-            header: const Text('Header Slot'),
             attachmentPreview: const Text('Attachment Preview Slot'),
             input: const Text('Input Slot'),
-            leadingActions: const [Text('Leading 1'), Text('Leading 2')],
-            trailingActions: const [Text('Trailing 1'), Text('Trailing 2')],
-            footer: const Text('Footer Slot'),
+            toolbarLeading: const Text('Context Slot'),
+            toolbarTrailing: const Text('Action Slot'),
           ),
         ),
       ),
     );
 
-    expect(find.text('Header Slot'), findsOneWidget);
     expect(find.text('Attachment Preview Slot'), findsOneWidget);
     expect(find.text('Input Slot'), findsOneWidget);
-    expect(find.text('Leading 1'), findsOneWidget);
-    expect(find.text('Leading 2'), findsOneWidget);
-    expect(find.text('Trailing 1'), findsOneWidget);
-    expect(find.text('Trailing 2'), findsOneWidget);
-    expect(find.text('Footer Slot'), findsOneWidget);
+    expect(find.text('Context Slot'), findsOneWidget);
+    expect(find.text('Action Slot'), findsOneWidget);
   });
 
   testWidgets('Tapping BaseComposer container requests focus on focusNode', (
@@ -61,5 +55,33 @@ void main() {
     expect(tappedBackground, isTrue);
 
     focusNode.dispose();
+  });
+
+  testWidgets('BaseComposer exposes a stable focus-aware surface', (
+    tester,
+  ) async {
+    final focusNode = FocusNode(debugLabel: 'focus-aware-surface');
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: BaseComposer(
+            focusNode: focusNode,
+            input: TextField(focusNode: focusNode),
+          ),
+        ),
+      ),
+    );
+
+    final surface = find.byKey(const ValueKey('composer-surface'));
+    expect(surface, findsOneWidget);
+    final resting = tester.widget<AnimatedContainer>(surface).decoration;
+
+    focusNode.requestFocus();
+    await tester.pump();
+
+    final focused = tester.widget<AnimatedContainer>(surface).decoration;
+    expect(focused, isNot(resting));
   });
 }

@@ -28,7 +28,7 @@ void main() {
   );
 
   testWidgets(
-    'FrankComposer renders header, model selector, footer and input',
+    'FrankComposer renders live context, environment, and input without a model picker',
     (tester) async {
       await tester.pumpWidget(
         MaterialApp(
@@ -39,17 +39,15 @@ void main() {
               onStop: () {},
               executive: employee,
               project: project,
-              showHeader: true,
-              showFooter: true,
             ),
           ),
         ),
       );
 
-      expect(find.text('frank engine'), findsOneWidget);
-      expect(find.text('Gemini 3.7 Flash High'), findsOneWidget);
+      expect(find.text('Maya · Frank Engine'), findsOneWidget);
       expect(find.text('Local'), findsOneWidget);
-      expect(find.text('Maya Chen'), findsOneWidget);
+      expect(find.textContaining('Gemini'), findsNothing);
+      expect(find.byTooltip('Start voice dictation'), findsNothing);
       expect(find.bySemanticsLabel('Message Maya'), findsOneWidget);
       expect(find.bySemanticsLabel('Send message'), findsOneWidget);
     },
@@ -173,9 +171,37 @@ void main() {
     expect(stopped, isTrue);
   });
 
-  testWidgets('Model selector dropdown allows picking a new model', (
+  testWidgets('mission context replaces project context in the toolbar', (
     tester,
   ) async {
+    final mission = OfficeMission(
+      id: 'composer-mission',
+      title: 'Polish the desktop composer',
+      status: MissionStatus.active,
+      updatedAt: DateTime.utc(2026, 9, 2),
+      messages: const [],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: FrankComposer(
+            generating: false,
+            onSend: (_) {},
+            onStop: () {},
+            executive: employee,
+            project: project,
+            mission: mission,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Maya · Polish the desktop composer'), findsOneWidget);
+    expect(find.text('Maya · Frank Engine'), findsNothing);
+  });
+
+  testWidgets('composer grows with a multiline prompt', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -190,116 +216,12 @@ void main() {
       ),
     );
 
-    expect(find.text('Gemini 3.7 Flash High'), findsOneWidget);
-
-    await tester.tap(find.text('Gemini 3.7 Flash High'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Claude 3.7 Sonnet'), findsOneWidget);
-    expect(find.text('Codex 5.3'), findsOneWidget);
-
-    await tester.tap(find.text('Claude 3.7 Sonnet'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Claude 3.7 Sonnet Thinking'), findsOneWidget);
-  });
-
-  testWidgets(
-    'reset view side accessory invokes callback without focusing input',
-    (tester) async {
-      final focusNode = FocusNode(debugLabel: 'reset-view-test-focus');
-      addTearDown(focusNode.dispose);
-      var resetCount = 0;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FrankComposer(
-              focusNode: focusNode,
-              generating: false,
-              onSend: (_) {},
-              onStop: () {},
-              onResetView: () => resetCount += 1,
-              resetViewEnabled: true,
-            ),
-          ),
-        ),
-      );
-
-      final resetButton = find.byKey(
-        const ValueKey('composer-reset-view-button'),
-      );
-      expect(resetButton, findsOneWidget);
-      expect(tester.getSize(resetButton), const Size(44, 44));
-      expect(find.bySemanticsLabel('Reset floor view'), findsOneWidget);
-
-      await tester.tap(resetButton);
-      await tester.pump();
-
-      expect(resetCount, 1);
-      expect(focusNode.hasFocus, isFalse);
-    },
-  );
-
-  testWidgets(
-    'reset view side accessory stays visible but disabled at center',
-    (tester) async {
-      var resetCount = 0;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FrankComposer(
-              generating: false,
-              onSend: (_) {},
-              onStop: () {},
-              onResetView: () => resetCount += 1,
-            ),
-          ),
-        ),
-      );
-
-      final resetButton = tester.widget<IconButton>(
-        find.byKey(const ValueKey('composer-reset-view-button')),
-      );
-      expect(resetButton.onPressed, isNull);
-      await tester.tap(
-        find.byKey(const ValueKey('composer-reset-view-button')),
-      );
-      await tester.pump();
-      expect(resetCount, 0);
-    },
-  );
-
-  testWidgets('reset view side panel follows a growing composer', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FrankComposer(
-            generating: false,
-            onSend: (_) {},
-            onStop: () {},
-            onResetView: () {},
-            resetViewEnabled: true,
-          ),
-        ),
-      ),
-    );
-
     final composer = find.byType(BaseComposer);
     final textField = find.byType(TextField);
     final initialHeight = tester.getSize(composer).height;
     await tester.enterText(textField, 'one\ntwo\nthree\nfour\nfive');
     await tester.pump();
 
-    final composerRect = tester.getRect(composer);
-    final resetRect = tester.getRect(
-      find.byKey(const ValueKey('composer-reset-view-button')),
-    );
-    expect(composerRect.height, greaterThan(initialHeight));
-    expect(resetRect.height, 44);
-    expect(resetRect.top, greaterThanOrEqualTo(composerRect.top));
-    expect(resetRect.bottom, lessThanOrEqualTo(composerRect.bottom));
+    expect(tester.getSize(composer).height, greaterThan(initialHeight));
   });
 }

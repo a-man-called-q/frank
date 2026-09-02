@@ -7,11 +7,12 @@ import 'package:material_ui/material_ui.dart' as mui;
 import '../../app/icons.dart';
 import '../../app/theme.dart';
 import '../../core/models/workspace_models.dart';
+import '../floor/floor_view_reset_button.dart';
 import '../floor/office_scene_floor.dart';
 import 'presentation/focusable_composer.dart';
 import 'presentation/flow_message_mapper.dart';
 
-class AccountExecutiveChat extends StatelessWidget {
+class AccountExecutiveChat extends StatefulWidget {
   const AccountExecutiveChat({
     required this.executive,
     required this.project,
@@ -34,9 +35,35 @@ class AccountExecutiveChat extends StatelessWidget {
   final VoidCallback onStop;
 
   @override
+  State<AccountExecutiveChat> createState() => _AccountExecutiveChatState();
+}
+
+class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
+  late final OfficeSceneController _sceneController = OfficeSceneController();
+
+  @override
+  void didUpdateWidget(covariant AccountExecutiveChat oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final contextChanged =
+        oldWidget.project.id != widget.project.id ||
+        oldWidget.mission?.id != widget.mission?.id ||
+        oldWidget.officeView != widget.officeView;
+    if (contextChanged) {
+      _sceneController.reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _sceneController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
+      explicitChildNodes: true,
       label: _conversationLabel,
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -48,8 +75,8 @@ class AccountExecutiveChat extends StatelessWidget {
               : 640.0;
           final railWidth = math.min(760.0, math.max(1.0, availableWidth - 32));
           final railHeight = math.min(
-            480.0,
-            math.max(170.0, availableHeight * 0.44),
+            560.0,
+            math.max(260.0, availableHeight * 0.50),
           );
           final showConversationRail =
               availableWidth >= 360 && availableHeight >= 340;
@@ -57,7 +84,20 @@ class AccountExecutiveChat extends StatelessWidget {
           return Stack(
             fit: StackFit.expand,
             children: [
-              const Positioned.fill(child: OfficeSceneFloor()),
+              Positioned.fill(
+                child: OfficeSceneFloor(controller: _sceneController),
+              ),
+              Positioned(
+                top: 64,
+                right: 16,
+                child: AnimatedBuilder(
+                  animation: _sceneController,
+                  builder: (context, child) => FloorViewResetButton(
+                    enabled: _sceneController.canReset,
+                    onPressed: _sceneController.reset,
+                  ),
+                ),
+              ),
               if (showConversationRail)
                 Positioned.fill(
                   child: Align(
@@ -68,14 +108,14 @@ class AccountExecutiveChat extends StatelessWidget {
                         width: railWidth,
                         height: railHeight,
                         child: _ConversationRail(
-                          executive: executive,
-                          project: project,
-                          mission: mission,
-                          officeView: officeView,
-                          messages: messages,
-                          generating: generating,
-                          onSend: onSend,
-                          onStop: onStop,
+                          executive: widget.executive,
+                          project: widget.project,
+                          mission: widget.mission,
+                          officeView: widget.officeView,
+                          messages: widget.messages,
+                          generating: widget.generating,
+                          onSend: widget.onSend,
+                          onStop: widget.onStop,
                         ),
                       ),
                     ),
@@ -87,9 +127,9 @@ class AccountExecutiveChat extends StatelessWidget {
                   right: 16,
                   bottom: 16,
                   child: _CompactChatHint(
-                    executive: executive,
-                    project: project,
-                    mission: mission,
+                    executive: widget.executive,
+                    project: widget.project,
+                    mission: widget.mission,
                   ),
                 ),
             ],
@@ -100,8 +140,10 @@ class AccountExecutiveChat extends StatelessWidget {
   }
 
   String get _conversationLabel {
-    final contextLabel = mission == null ? project.name : mission!.title;
-    return 'Conversation with ${executive.name} for $contextLabel';
+    final contextLabel = widget.mission == null
+        ? widget.project.name
+        : widget.mission!.title;
+    return 'Conversation with ${widget.executive.name} for $contextLabel';
   }
 }
 
@@ -164,6 +206,7 @@ class _ConversationRail extends StatelessWidget {
     return Localizations(
       locale: const Locale('en', 'US'),
       delegates: const [
+        DefaultMaterialLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
         mui.DefaultMaterialLocalizations.delegate,
       ],
@@ -172,17 +215,7 @@ class _ConversationRail extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: _ContextChip(
-                executive: executive,
-                project: project,
-                mission: mission,
-                officeView: officeView,
-              ),
-            ),
             if (!officeView && project.missions.isEmpty) ...[
-              const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerLeft,
                 child: Semantics(
@@ -195,7 +228,6 @@ class _ConversationRail extends StatelessWidget {
                 ),
               ),
             ],
-            const SizedBox(height: 8),
             Expanded(
               child: FlowChatView(
                 // The rail owns the empty state so the floor is never
@@ -234,6 +266,9 @@ class _ConversationRail extends StatelessWidget {
                   generating: generating,
                   onSend: onSend,
                   onStop: onStop,
+                  executive: executive,
+                  project: project,
+                  mission: mission,
                 ),
                 maxContentWidth: 760,
                 padding: EdgeInsets.zero,
@@ -241,63 +276,6 @@ class _ConversationRail extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _ContextChip extends StatelessWidget {
-  const _ContextChip({
-    required this.executive,
-    required this.project,
-    required this.mission,
-    required this.officeView,
-  });
-
-  final OfficeEmployee executive;
-  final OfficeProject project;
-  final OfficeMission? mission;
-  final bool officeView;
-
-  @override
-  Widget build(BuildContext context) {
-    final shortExecutiveName = executive.name.split(' ').first;
-    final title = officeView || mission == null
-        ? '$shortExecutiveName · ${project.name}'
-        : '${project.name} · ${mission!.title} · $shortExecutiveName';
-    return Container(
-      constraints: const BoxConstraints(maxWidth: 560),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: FrankColors.panel.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: FrankColors.border),
-        boxShadow: const [
-          BoxShadow(color: Colors.black38, blurRadius: 14, spreadRadius: -5),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 10,
-            backgroundColor: Color(executive.color),
-            child: Text(
-              executive.initials,
-              style: const TextStyle(color: Color(0xFF17191C), fontSize: 7),
-            ),
-          ),
-          const SizedBox(width: 7),
-          Flexible(
-            child: Text(
-              title,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: FrankColors.ink, fontSize: 11),
-            ),
-          ),
-          const SizedBox(width: 7),
-          const Icon(FrankIcons.circle, size: 6, color: FrankColors.green),
-        ],
       ),
     );
   }

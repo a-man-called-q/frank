@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flow_ui/flow_ui.dart';
+import 'package:frank_desktop/core/models/workspace_models.dart';
+
+import 'composer/frank_composer.dart';
 
 /// Presentation-only composer boundary.
 ///
@@ -10,12 +12,18 @@ class FocusableComposer extends StatefulWidget {
     required this.generating,
     required this.onSend,
     required this.onStop,
+    required this.executive,
+    required this.project,
+    required this.mission,
     super.key,
   });
 
   final bool generating;
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
+  final OfficeEmployee executive;
+  final OfficeProject project;
+  final OfficeMission? mission;
 
   @override
   State<FocusableComposer> createState() => _FocusableComposerState();
@@ -32,20 +40,14 @@ class _FocusableComposerState extends State<FocusableComposer> {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      container: true,
-      label: 'Message Maya',
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: (_) => _focusNode.requestFocus(),
-        child: FlowComposer(
-          focusNode: _focusNode,
-          placeholder: 'Brief Maya about what your company needs…',
-          isStreaming: widget.generating,
-          onSend: widget.onSend,
-          onStop: widget.onStop,
-        ),
-      ),
+    return FrankComposer(
+      focusNode: _focusNode,
+      generating: widget.generating,
+      onSend: widget.onSend,
+      onStop: widget.onStop,
+      executive: widget.executive,
+      project: widget.project,
+      mission: widget.mission,
     );
   }
 }
