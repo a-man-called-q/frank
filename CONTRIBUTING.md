@@ -7,7 +7,7 @@ Thank you for your interest in contributing to Frank! This guide will help you g
 ### Prerequisites
 
 - **Rust**: 1.89 or newer
-- **Flutter/Proto** (optional): Flutter 3.47.1 is pinned in `.prototools` for the desktop client
+- **Flutter/Proto** (optional): Flutter 3.47.1 is pinned in `.prototools` for the desktop client; macOS uses Flutter GPU
 - **Proto** (optional): Pins Flutter 3.47.1, Moon 2.4.5, and the repository toolchain
 
 The backend is Rust. The desktop client is Flutter and is intentionally isolated
@@ -53,7 +53,19 @@ moon run frank-desktop:run --interactive
 moon run frank-desktop:analyze
 moon run frank-desktop:test
 moon run frank-desktop:build
+moon run frank-desktop:scene-smoke
 ```
+
+The desktop floor uses the exact `flutter_scene: 0.23.0` pre-1.0 pin and
+requires Flutter GPU on macOS. Run `dart run flutter_scene:init --no-skills`
+when setting up a new checkout; keep source `.glb`/`.fscene`/`.fmat` files under
+`assets/` and never commit compiled files under `flutter_scene_generated/`.
+Plain `flutter test` checks the deterministic loading/error placeholder only;
+`scene-smoke` is the render proof because it runs the app on a macOS GPU.
+
+When upgrading `flutter_scene`, update the exact version, run `pub get`, rerun
+`dart run flutter_scene:init --no-skills` to migrate the hook, inspect generated
+asset diffs, then rerun analyzer, Flutter tests, macOS build, and scene smoke.
 
 ## Before Committing
 
@@ -123,7 +135,7 @@ frank/
 │   │   ├── ...            # Other backend crates
 │   │   └── xtask/         # Build tasks
 ├── apps/
-│   └── frank_desktop/ # Flutter + Forui + FlowUI + Flame client
+│   └── frank_desktop/ # Flutter + Forui + FlowUI + flutter_scene client
 ├── packs/            # Persona packs
 │   └── caveman/      # Default pack
 ├── targets/          # AI assistant integrations

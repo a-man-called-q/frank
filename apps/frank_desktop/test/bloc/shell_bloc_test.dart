@@ -10,6 +10,41 @@ import '../support/fake_gateway.dart';
 
 void main() {
   late FakeGateway retryGateway;
+
+  test('Office defaults to Organization', () {
+    const state = ShellState();
+    expect(state.activeView, WorkspaceView.office);
+    expect(state.officeSection, OfficeSection.organization);
+    expect(OfficeSection.values.map((section) => section.label), [
+      'Organization',
+      'Team',
+      'Ledger',
+      'Taskboard',
+      'Journal',
+    ]);
+  });
+
+  blocTest<ShellBloc, ShellState>(
+    'Office sections are typed and returning from Projects resets Organization',
+    build: () => ShellBloc(gateway: FakeGateway()),
+    act: (bloc) {
+      bloc.add(const ShellOfficeSectionSelected(OfficeSection.journal));
+      bloc.add(const ShellViewSelected(WorkspaceView.projects));
+      bloc.add(const ShellViewSelected(WorkspaceView.office));
+    },
+    expect: () => [
+      predicate<ShellState>(
+        (state) => state.officeSection == OfficeSection.journal,
+      ),
+      predicate<ShellState>(
+        (state) => state.activeView == WorkspaceView.projects,
+      ),
+      predicate<ShellState>(
+        (state) => state.officeSection == OfficeSection.organization,
+      ),
+    ],
+  );
+
   test(
     'shell destination cannot represent settings and a workspace view at once',
     () {

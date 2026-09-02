@@ -14,7 +14,9 @@ sealed class ShellDestination {
 }
 
 final class OfficeDestination extends ShellDestination {
-  const OfficeDestination();
+  const OfficeDestination([this.section = OfficeSection.organization]);
+
+  final OfficeSection section;
 }
 
 final class ProjectsDestination extends ShellDestination {
@@ -63,6 +65,11 @@ class ShellState {
 
   SettingsSection? get settingsSection => switch (destination) {
     SettingsDestination(:final section) => section,
+    _ => null,
+  };
+
+  OfficeSection? get officeSection => switch (destination) {
+    OfficeDestination(:final section) => section,
     _ => null,
   };
 
@@ -123,6 +130,12 @@ final class ShellViewSelected extends ShellEvent {
   final WorkspaceView view;
 }
 
+final class ShellOfficeSectionSelected extends ShellEvent {
+  const ShellOfficeSectionSelected(this.section);
+
+  final OfficeSection section;
+}
+
 final class ShellSettingsOpened extends ShellEvent {
   const ShellSettingsOpened();
 }
@@ -163,6 +176,7 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
     on<ShellStarted>((_, emit) => _loadWorkspace(emit));
     on<ShellRetryRequested>((_, emit) => _loadWorkspace(emit));
     on<ShellViewSelected>(_selectView);
+    on<ShellOfficeSectionSelected>(_selectOfficeSection);
     on<ShellSettingsOpened>(_openSettings);
     on<ShellSettingsSelected>(_selectSettings);
     on<ShellSidebarToggled>(_toggleSidebar);
@@ -245,6 +259,18 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
       WorkspaceView.projects => const ProjectsDestination(),
     };
     emit(state.copyWith(destination: destination, clearError: true));
+  }
+
+  void _selectOfficeSection(
+    ShellOfficeSectionSelected event,
+    Emitter<ShellState> emit,
+  ) {
+    emit(
+      state.copyWith(
+        destination: OfficeDestination(event.section),
+        clearError: true,
+      ),
+    );
   }
 
   void _openSettings(ShellSettingsOpened event, Emitter<ShellState> emit) {

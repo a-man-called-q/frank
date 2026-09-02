@@ -133,6 +133,135 @@ void main() {
     expect(aboveItem.bottom, lessThanOrEqualTo(aboveTrigger.top));
   });
 
+  testWidgets('clicking another select switches menus in one click', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(600, 400));
+    final firstKey = GlobalKey();
+    final secondKey = GlobalKey();
+
+    await tester.pumpWidget(
+      _menuHost(
+        child: Stack(
+          children: [
+            Positioned(
+              left: 20,
+              top: 20,
+              child: FrankDesktopSelect<String>(
+                value: 'first',
+                options: const [
+                  FrankDesktopSelectOption(
+                    value: 'first',
+                    label: 'First option',
+                  ),
+                  FrankDesktopSelectOption(
+                    value: 'first-other',
+                    label: 'First other option',
+                  ),
+                ],
+                onChanged: _select,
+                child: SizedBox(
+                  key: firstKey,
+                  width: 120,
+                  height: 32,
+                  child: const ColoredBox(color: Colors.blue),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 320,
+              top: 20,
+              child: FrankDesktopSelect<String>(
+                value: 'second',
+                options: const [
+                  FrankDesktopSelectOption(
+                    value: 'second',
+                    label: 'Second option',
+                  ),
+                  FrankDesktopSelectOption(
+                    value: 'second-other',
+                    label: 'Second other option',
+                  ),
+                ],
+                onChanged: _select,
+                child: SizedBox(
+                  key: secondKey,
+                  width: 120,
+                  height: 32,
+                  child: const ColoredBox(color: Colors.green),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(firstKey));
+    await tester.pump();
+    expect(find.text('First other option'), findsOneWidget);
+
+    await tester.tap(find.byKey(secondKey));
+    await tester.pump();
+    expect(find.text('First other option'), findsNothing);
+    expect(find.text('Second other option'), findsOneWidget);
+  });
+
+  testWidgets('outside tap dismisses while activating the underlying trigger', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(600, 400));
+    final selectKey = GlobalKey();
+    var activated = false;
+
+    await tester.pumpWidget(
+      _menuHost(
+        child: Stack(
+          children: [
+            Positioned(
+              left: 20,
+              top: 20,
+              child: FrankDesktopSelect<String>(
+                value: 'value',
+                options: const [
+                  FrankDesktopSelectOption(value: 'value', label: 'Value'),
+                  FrankDesktopSelectOption(
+                    value: 'other',
+                    label: 'Other option',
+                  ),
+                ],
+                onChanged: _select,
+                child: SizedBox(
+                  key: selectKey,
+                  width: 120,
+                  height: 32,
+                  child: const ColoredBox(color: Colors.blue),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 20,
+              top: 120,
+              child: ElevatedButton(
+                onPressed: () => activated = true,
+                child: const Text('Underlying action'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(selectKey));
+    await tester.pump();
+    expect(find.text('Other option'), findsOneWidget);
+
+    await tester.tap(find.text('Underlying action'));
+    await tester.pump();
+    expect(activated, isTrue);
+    expect(find.text('Other option'), findsNothing);
+  });
+
   testWidgets('outside tap dismisses and restores trigger focus', (
     tester,
   ) async {
@@ -170,6 +299,63 @@ void main() {
     await tester.pump();
     expect(find.text('Action'), findsNothing);
     expect(focusNode.hasFocus, isTrue);
+  });
+
+  testWidgets('scroll dismissal closes menus without restoring trigger focus', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(400, 300));
+    final focusNode = FocusNode(debugLabel: 'desktop-menu-trigger');
+    final scrollController = ScrollController();
+    addTearDown(focusNode.dispose);
+    addTearDown(scrollController.dispose);
+    final triggerKey = GlobalKey();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: FrankDesktopMenuDismissScope(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              child: Column(
+                children: [
+                  const SizedBox(height: 24),
+                  FrankDesktopMenu(
+                    openOnTap: true,
+                    returnFocusNode: focusNode,
+                    groups: const [
+                      FrankMenuGroup([
+                        FrankMenuItem(label: 'Action', onPressed: _noop),
+                      ]),
+                    ],
+                    child: Focus(
+                      focusNode: focusNode,
+                      child: SizedBox(
+                        key: triggerKey,
+                        width: 120,
+                        height: 32,
+                        child: const ColoredBox(color: Colors.blue),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 600),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(triggerKey));
+    await tester.pump();
+    expect(find.text('Action'), findsOneWidget);
+
+    scrollController.jumpTo(100);
+    await tester.pump();
+    expect(find.text('Action'), findsNothing);
+    expect(focusNode.hasFocus, isFalse);
   });
 }
 

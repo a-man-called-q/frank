@@ -12,7 +12,7 @@ data remains in place and is not migrated automatically.
 - [x] Add a desktop-only, persistent, fixed-width Forui off-canvas sidebar with a minimum 880px window width.
 - [x] Add a central Account Executive conversation using FlowUI.
 - [x] Add an operational work inbox with mission shelves, scope, search, and pinning.
-- [x] Reserve an empty Flame floor surface.
+- [x] Add a procedural stylized low-poly 3D `flutter_scene` floor foundation.
 - [x] Add semantic Lucide icon registry and native macOS titlebar integration.
 - [x] Persist client-only sidebar visibility, scope, and pinned order.
 - [x] Add local gateway fixtures and widget tests.
@@ -29,7 +29,8 @@ data remains in place and is not migrated automatically.
       flows to the Account Executive conversation.
 - [ ] Add Team, Activity, Ledger, and Settings surfaces behind the existing
       sidebar destinations.
-- [ ] Populate the Flame floor with agents, desks, status, and project work.
+- [ ] Populate the `flutter_scene` floor with agents, desks, status, selection,
+      physics, and project work.
 - [ ] Add tray, single-instance, reconnect, and desktop update flows with
       VoiceOver/NVDA acceptance tests.
 - [ ] Publish Flutter desktop packages alongside portable backend archives.

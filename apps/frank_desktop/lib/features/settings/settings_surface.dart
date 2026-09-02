@@ -108,7 +108,7 @@ class SettingsPlaceholderCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(icon, color: FrankColors.amber),
+          Icon(icon, color: FrankColors.aubergine),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
@@ -134,7 +134,7 @@ class ProjectsSettingsCard extends StatelessWidget {
       children: [
         const Text(
           'Active Projects',
-          style: TextStyle(color: FrankColors.amber, fontSize: 13),
+          style: TextStyle(color: FrankColors.aubergine, fontSize: 13),
         ),
         const SizedBox(height: 8),
         Container(
@@ -180,7 +180,7 @@ class ProjectsSettingsCard extends StatelessWidget {
         const SizedBox(height: 24),
         const Text(
           'Archived Projects',
-          style: TextStyle(color: FrankColors.amber, fontSize: 13),
+          style: TextStyle(color: FrankColors.aubergine, fontSize: 13),
         ),
         const SizedBox(height: 8),
         Container(
@@ -192,7 +192,7 @@ class ProjectsSettingsCard extends StatelessWidget {
           ),
           child: const Row(
             children: [
-              Icon(FrankIcons.archive, color: FrankColors.amber),
+              Icon(FrankIcons.archive, color: FrankColors.aubergine),
               SizedBox(width: 14),
               Expanded(
                 child: Text(

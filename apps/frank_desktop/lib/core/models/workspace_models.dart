@@ -1,5 +1,35 @@
 enum WorkspaceView { office, projects }
 
+/// The operational areas available from the Office view.
+///
+/// Office sections are intentionally separate from [WorkspaceView]. The
+/// segmented control chooses the broad workspace destination, while this
+/// value chooses the current Office area without introducing a conversation
+/// context.
+enum OfficeSection { organization, team, ledger, taskboard, journal }
+
+extension OfficeSectionMetadata on OfficeSection {
+  String get label => switch (this) {
+    OfficeSection.organization => 'Organization',
+    OfficeSection.team => 'Team',
+    OfficeSection.ledger => 'Ledger',
+    OfficeSection.taskboard => 'Taskboard',
+    OfficeSection.journal => 'Journal',
+  };
+
+  String get description => switch (this) {
+    OfficeSection.organization =>
+      'Configure agents, connections, and taskboard assignments.',
+    OfficeSection.team =>
+      'Configure each agent’s provider, model, prompt, identity, and role.',
+    OfficeSection.ledger =>
+      'Review input/output token usage and totals by agent.',
+    OfficeSection.taskboard => 'Track project tasks in a Kanban board.',
+    OfficeSection.journal =>
+      'Review operational events globally or by agent and project.',
+  };
+}
+
 enum SettingsSection { projects, team, activity, ledger }
 
 enum ProjectStatus { planning, active, review, delivered }

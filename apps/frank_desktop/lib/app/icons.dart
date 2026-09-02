@@ -42,7 +42,15 @@ abstract final class FrankIcons {
   static const play = FLucideIcons.play;
   static const filter = FLucideIcons.filter;
   static const chevronDown = FLucideIcons.chevronDown;
+  static const chevronUp = FLucideIcons.chevronUp;
   static const chevronRight = FLucideIcons.chevronRight;
+  static const mic = FLucideIcons.mic;
+  static const arrowUp = FLucideIcons.arrowUp;
+  static const square = FLucideIcons.square;
+  static const monitor = FLucideIcons.monitor;
+  static const bot = FLucideIcons.bot;
+  static const paperclip = FLucideIcons.paperclip;
+  static const recenter = FLucideIcons.crosshair;
 }
 
 /// Keeps icon-bearing APIs readable at call sites that need an explicit type.

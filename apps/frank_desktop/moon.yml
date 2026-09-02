@@ -11,15 +11,20 @@ tasks:
       - '/apps/frank_desktop/.flutter-version'
       - '/apps/frank_desktop/pubspec.yaml'
       - '/apps/frank_desktop/pubspec.lock'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
     options:
       cache: false
 
   analyze:
     command: 'proto run flutter -- analyze'
+    deps: ['~:get']
     inputs:
       - '/apps/frank_desktop/analysis_options.yaml'
       - '/apps/frank_desktop/lib/**/*'
       - '/apps/frank_desktop/test/**/*'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
       - '/apps/frank_desktop/pubspec.yaml'
       - '/apps/frank_desktop/pubspec.lock'
     options:
@@ -27,10 +32,13 @@ tasks:
 
   test:
     command: 'proto run flutter -- test --reporter compact'
+    deps: ['~:get']
     inputs:
       - '/apps/frank_desktop/analysis_options.yaml'
       - '/apps/frank_desktop/lib/**/*'
       - '/apps/frank_desktop/test/**/*'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
       - '/apps/frank_desktop/pubspec.yaml'
       - '/apps/frank_desktop/pubspec.lock'
     options:
@@ -38,9 +46,27 @@ tasks:
 
   build:
     command: 'proto run flutter -- build macos --debug'
+    deps: ['~:get']
     inputs:
       - '/apps/frank_desktop/macos/**/*'
       - '/apps/frank_desktop/assets/**/*'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  scene-smoke:
+    command: 'proto run flutter -- test integration_test/office_scene_smoke_test.dart -d macos --reporter compact'
+    deps: ['~:get']
+    inputs:
+      - '/apps/frank_desktop/macos/**/*'
+      - '/apps/frank_desktop/assets/**/*'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
+      - '/apps/frank_desktop/integration_test/**/*'
       - '/apps/frank_desktop/lib/**/*'
       - '/apps/frank_desktop/pubspec.yaml'
       - '/apps/frank_desktop/pubspec.lock'

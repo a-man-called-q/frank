@@ -45,7 +45,7 @@ backend/crates/frank-update ──> (leaves)
 backend/crates/frank-updater ──> frank-update
 backend/crates/frank-release-cli ──> frank-update
 backend/crates/frank-pack, frank-compress, frank-safeio ──> (leaves)
-apps/frank_desktop ──> Flutter + Forui + FlowUI + Flame (future FrankGateway)
+apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene (future FrankGateway)
 ```
 
 | Crate | Responsibility | Ported from (historical Caveman source) |
@@ -66,7 +66,7 @@ apps/frank_desktop ──> Flutter + Forui + FlowUI + Flame (future FrankGateway
 | `frank-agent-mcp` | Local authenticated task-scoped MCP bridge for provider sessions | *n/a — v1 provider bridge* |
 | `frank-cli` | binary `frank` — hook fast path, local engine, remote pairing/admin | `bin/install.js` CLI surface |
 | `frank-app` | Server-side facade for legacy pack/state/target/ledger operations and v1 paths | *n/a — v1 server facade* |
-| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, and future Flame floor | *n/a — v1 client migration* |
+| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, and static stylized 3D `flutter_scene` floor | *n/a — v1 client migration* |
 | `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — v1 updater contract* |
 | `frank-updater` | Small helper binary for verified bundle swap, restart and rollback boundary | *n/a — v1 updater helper* |
 | `frank-release-cli` | Release manifest signing/verification and artifact inventory tooling | *n/a — release tooling* |
@@ -83,6 +83,23 @@ screen-reader-first operation and automation.
 Service descriptors are rendered by `frank-app::service` and applied by the
 CLI; updater code is isolated in `frank-update`/`frank-updater` so daemon and
 GUI do not invent separate signing or rollback paths.
+
+### Flutter scene contract
+
+The desktop floor is a stylized low-poly 3D foundation implemented with the
+exact pre-1.0 dependency `flutter_scene: 0.23.0` and direct `vector_math`.
+`FLTEnableFlutterGPU=true` is permanent in the macOS host. The floor awaits
+`Scene.initializeStaticResources()` before constructing its retained scene and
+orthographic camera; `SceneView` is wrapped in `IgnorePointer`, and GPU failure
+must show a retryable nonfatal fallback while chat remains usable.
+
+The official `dart run flutter_scene:init --no-skills` setup owns
+`apps/frank_desktop/hook/build.dart`, the `flutter_scene_generated/` asset entry,
+and its generated-output `.gitignore`. Track future `.glb`/`.fscene`/`.fmat`
+sources under `assets/`, never compiled output. Headless Flutter tests assert
+the deterministic placeholder and semantics; `moon run frank-desktop:scene-smoke`
+is the macOS render gate. The current room has no agents, desks, selection,
+status mapping, physics, or live gateway integration.
 
 **Deliberately not split further:** no `frank-core` grab bag — `Level`/`LevelId` live
 in `frank-pack` because levels are a pack concept. The JSONC parser, marker-fence
@@ -132,7 +149,7 @@ consumer, splitting buys nothing.
 4. Projects, persistent agents, missions, DAG tasks, broker, approvals, budgets, memory.
 5. Structured Codex/Claude adapters, scoped MCP, crash recovery and fake-provider tests.
 6. Worktrees, checks, supervisor acceptance, squash merge, push, draft PR delivery.
-7. Flutter floor/board/wizards/settings, terminal lease, pixel-art lab, notifications, tray.
+7. Flutter floor/board/wizards/settings, terminal lease, 3D scene/asset lab, notifications, tray.
 8. Per-user service installers, packages, docs, Graphify boundary query, full E2E gates.
 
 No v1 package is released between checkpoints; 0.2.x data/config remains untouched.

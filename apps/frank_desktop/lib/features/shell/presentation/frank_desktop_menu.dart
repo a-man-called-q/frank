@@ -12,6 +12,7 @@ class FrankMenuItem {
     this.icon,
     this.onPressed,
     this.shortcut,
+    this.badge,
     this.checked = false,
     this.enabled = true,
     this.hasSubmenu = false,
@@ -22,6 +23,7 @@ class FrankMenuItem {
   final IconData? icon;
   final VoidCallback? onPressed;
   final String? shortcut;
+  final String? badge;
   final bool checked;
   final bool enabled;
   final bool hasSubmenu;
@@ -45,6 +47,122 @@ class FrankDesktopMenuController {
   void open() => _openCallback?.call();
 
   void close() => _closeCallback?.call();
+}
+
+/// Coordinates transient menus and tooltips throughout the desktop shell.
+///
+/// Menu surfaces are inserted into the nearest overlay, so this scope keeps a
+/// small registry of active surfaces across the sidebar, workspace, and
+/// composer. A newly opened surface claims the registry slot and dismisses
+/// the previous owner without stealing focus from the new trigger.
+class FrankDesktopMenuDismissScope extends StatefulWidget {
+  const FrankDesktopMenuDismissScope({required this.child, super.key});
+
+  final Widget child;
+
+  /// Dismiss all registered desktop menus and Material tooltips below the
+  /// nearest scope. The focus-restoration switch is false for scroll-driven
+  /// dismissal so requesting focus cannot pull the row back into view.
+  static void dismissAll(BuildContext context, {bool restoreFocus = true}) {
+    context
+        .findAncestorStateOfType<_FrankDesktopMenuDismissScopeState>()
+        ?._dismissAll(restoreFocus: restoreFocus);
+    Tooltip.dismissAllToolTips();
+  }
+
+  /// Registers a menu implemented by another overlay system, such as Forui.
+  ///
+  /// The registration is active until [release] is called. The dismiss
+  /// callback is intentionally parameterless because external menus do not
+  /// own Frank's trigger-focus restoration policy.
+  static void register(
+    BuildContext context,
+    Object owner,
+    VoidCallback dismiss,
+  ) {
+    context
+        .findAncestorStateOfType<_FrankDesktopMenuDismissScopeState>()
+        ?._claim(owner, (_) => dismiss());
+  }
+
+  /// Releases an external menu registration.
+  static void release(BuildContext context, Object owner) {
+    context
+        .findAncestorStateOfType<_FrankDesktopMenuDismissScopeState>()
+        ?._release(owner);
+  }
+
+  static _FrankDesktopMenuDismissScopeState? _stateOf(BuildContext context) =>
+      context.findAncestorStateOfType<_FrankDesktopMenuDismissScopeState>();
+
+  @override
+  State<FrankDesktopMenuDismissScope> createState() =>
+      _FrankDesktopMenuDismissScopeState();
+}
+
+class _FrankDesktopMenuDismissScopeState
+    extends State<FrankDesktopMenuDismissScope>
+    with WidgetsBindingObserver {
+  final Map<Object, void Function(bool restoreFocus)> _activeMenus =
+      <Object, void Function(bool restoreFocus)>{};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  void _claim(Object owner, void Function(bool restoreFocus) dismiss) {
+    for (final entry in List<MapEntry<Object, void Function(bool)>>.of(
+      _activeMenus.entries,
+    )) {
+      if (entry.key == owner) continue;
+      _activeMenus.remove(entry.key);
+      entry.value(false);
+    }
+    _activeMenus[owner] = dismiss;
+  }
+
+  void _release(Object owner) {
+    _activeMenus.remove(owner);
+  }
+
+  void _dismissAll({required bool restoreFocus}) {
+    for (final dismiss in List<void Function(bool)>.of(_activeMenus.values)) {
+      dismiss(restoreFocus);
+    }
+  }
+
+  @override
+  void didChangeMetrics() {
+    // A window resize can move an anchored surface out of the viewport without
+    // producing a scroll notification. Close it before the next layout paints.
+    _dismissAll(restoreFocus: false);
+    Tooltip.dismissAllToolTips();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification.metrics.axis == Axis.vertical &&
+              (notification is ScrollStartNotification ||
+                  notification is ScrollUpdateNotification ||
+                  notification is OverscrollNotification ||
+                  notification is ScrollMetricsNotification)) {
+            _dismissAll(restoreFocus: false);
+            Tooltip.dismissAllToolTips();
+          }
+          return false;
+        },
+        child: widget.child,
+      );
 }
 
 class FrankDesktopMenu extends StatefulWidget {
@@ -81,7 +199,9 @@ class _FrankDesktopMenuState extends State<FrankDesktopMenu> {
   static const _gap = 6.0;
   static const _viewportMargin = 8.0;
   OverlayEntry? _entry;
+  _FrankDesktopMenuDismissScopeState? _dismissScope;
   final GlobalKey _anchorKey = GlobalKey();
+  final Object _regionId = Object();
 
   bool get _isOpen => _entry != null;
 
@@ -104,7 +224,22 @@ class _FrankDesktopMenuState extends State<FrankDesktopMenu> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scope = FrankDesktopMenuDismissScope._stateOf(context);
+    if (identical(scope, _dismissScope)) return;
+    _dismissScope?._release(this);
+    _dismissScope = scope;
+    if (_entry != null) {
+      _dismissScope?._claim(this, (restoreFocus) {
+        _close(restoreFocus: restoreFocus);
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _dismissScope?._release(this);
     widget.controller?._openCallback = null;
     widget.controller?._closeCallback = null;
     _entry?.remove();
@@ -123,10 +258,13 @@ class _FrankDesktopMenuState extends State<FrankDesktopMenu> {
         child: child,
       );
     }
-    return Listener(
-      key: _anchorKey,
-      behavior: HitTestBehavior.translucent,
-      child: child,
+    return TapRegion(
+      groupId: _regionId,
+      child: Listener(
+        key: _anchorKey,
+        behavior: HitTestBehavior.translucent,
+        child: child,
+      ),
     );
   }
 
@@ -156,25 +294,28 @@ class _FrankDesktopMenuState extends State<FrankDesktopMenu> {
       overlay.size,
     );
 
+    _dismissScope?._claim(this, (restoreFocus) {
+      _close(restoreFocus: restoreFocus);
+    });
+
     final entry = OverlayEntry(
       builder: (context) => Stack(
+        clipBehavior: Clip.none,
         children: [
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _close,
-              child: const SizedBox.expand(),
-            ),
-          ),
           Positioned(
             left: placement.left,
             top: placement.top,
             width: menuWidth,
-            child: _FrankDesktopMenuSurface(
-              groups: widget.groups,
-              maxHeight: placement.maxHeight,
-              semanticsLabel: widget.semanticsLabel,
-              onClose: _close,
+            child: TapRegion(
+              groupId: _regionId,
+              onTapOutside: (_) => _close(),
+              child: _FrankDesktopMenuSurface(
+                groups: widget.groups,
+                maxHeight: placement.maxHeight,
+                kind: widget.kind,
+                semanticsLabel: widget.semanticsLabel,
+                onClose: _close,
+              ),
             ),
           ),
         ],
@@ -184,13 +325,14 @@ class _FrankDesktopMenuState extends State<FrankDesktopMenu> {
     Overlay.of(context).insert(entry);
   }
 
-  void _close() {
+  void _close({bool restoreFocus = true}) {
     final entry = _entry;
     if (entry == null) return;
     _entry = null;
+    _dismissScope?._release(this);
     entry.remove();
     entry.dispose();
-    if (mounted) widget.returnFocusNode?.requestFocus();
+    if (restoreFocus && mounted) widget.returnFocusNode?.requestFocus();
   }
 
   double get _estimatedHeight {
@@ -356,12 +498,14 @@ class _FrankDesktopMenuSurface extends StatefulWidget {
   const _FrankDesktopMenuSurface({
     required this.groups,
     required this.maxHeight,
+    required this.kind,
     required this.onClose,
     this.semanticsLabel,
   });
 
   final List<FrankMenuGroup> groups;
   final double maxHeight;
+  final FrankDesktopMenuKind kind;
   final VoidCallback onClose;
   final String? semanticsLabel;
 
@@ -509,10 +653,18 @@ class _FrankDesktopMenuSurfaceState extends State<_FrankDesktopMenuSurface> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: item.isEnabled
-                          ? FrankColors.ink
-                          : FrankColors.muted,
+                      color: !item.isEnabled
+                          ? FrankColors.muted
+                          : widget.kind == FrankDesktopMenuKind.select &&
+                                !item.checked
+                          ? FrankColors.muted
+                          : FrankColors.ink,
                       fontSize: 12,
+                      fontWeight:
+                          widget.kind == FrankDesktopMenuKind.select &&
+                              item.checked
+                          ? FontWeight.w600
+                          : FontWeight.normal,
                     ),
                   ),
                 ),
@@ -523,6 +675,31 @@ class _FrankDesktopMenuSurfaceState extends State<_FrankDesktopMenuSurface> {
                     style: const TextStyle(
                       color: FrankColors.muted,
                       fontSize: 11,
+                    ),
+                  ),
+                ],
+                if (item.badge != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: item.checked
+                          ? FrankColors.aubergine.withValues(alpha: 0.18)
+                          : FrankColors.panel,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      item.badge!,
+                      style: TextStyle(
+                        color: item.checked
+                            ? FrankColors.aubergine
+                            : FrankColors.muted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
@@ -605,6 +782,8 @@ class FrankDesktopSelect<T> extends StatefulWidget {
     required this.onChanged,
     required this.child,
     this.semanticsLabel,
+    this.matchTriggerWidth = true,
+    this.menuWidth = 248,
     super.key,
   });
 
@@ -613,16 +792,23 @@ class FrankDesktopSelect<T> extends StatefulWidget {
   final ValueChanged<T> onChanged;
   final Widget child;
   final String? semanticsLabel;
+  final bool matchTriggerWidth;
+  final double menuWidth;
 
   @override
   State<FrankDesktopSelect<T>> createState() => _FrankDesktopSelectState<T>();
 }
 
 class FrankDesktopSelectOption<T> {
-  const FrankDesktopSelectOption({required this.value, required this.label});
+  const FrankDesktopSelectOption({
+    required this.value,
+    required this.label,
+    this.badge,
+  });
 
   final T value;
   final String label;
+  final String? badge;
 }
 
 class _FrankDesktopSelectState<T> extends State<FrankDesktopSelect<T>> {
@@ -656,7 +842,8 @@ class _FrankDesktopSelectState<T> extends State<FrankDesktopSelect<T>> {
       child: FrankDesktopMenu(
         controller: _controller,
         kind: FrankDesktopMenuKind.select,
-        matchTriggerWidth: true,
+        width: widget.menuWidth,
+        matchTriggerWidth: widget.matchTriggerWidth,
         openOnTap: true,
         returnFocusNode: _focusNode,
         groups: [
@@ -664,6 +851,7 @@ class _FrankDesktopSelectState<T> extends State<FrankDesktopSelect<T>> {
             for (final option in widget.options)
               FrankMenuItem(
                 label: option.label,
+                badge: option.badge,
                 checked: option.value == widget.value,
                 onPressed: () => widget.onChanged(option.value),
               ),

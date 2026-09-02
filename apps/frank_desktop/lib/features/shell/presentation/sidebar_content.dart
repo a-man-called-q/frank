@@ -5,10 +5,12 @@ class MainSidebarContent extends StatelessWidget {
 
   const MainSidebarContent({
     this.width = SidebarLayout.defaultWidth,
+    this.nativeSidebarEffect = false,
     required this.isFullscreen,
     required this.workspace,
     required this.workspaceName,
     required this.activeView,
+    required this.officeSection,
     required this.settingsSection,
     required this.projects,
     required this.selectedProjectId,
@@ -17,7 +19,10 @@ class MainSidebarContent extends StatelessWidget {
     required this.projectScope,
     required this.pinnedMissionIds,
     required this.searchFocusNode,
+    this.onToggleSidebar,
+    this.onDoubleTap,
     required this.onSelectView,
+    required this.onSelectOfficeSection,
     required this.onOpenSettings,
     required this.onSelectSettings,
     required this.onToggleProject,
@@ -37,10 +42,12 @@ class MainSidebarContent extends StatelessWidget {
   });
 
   final double width;
+  final bool nativeSidebarEffect;
   final OfficeWorkspace workspace;
   final bool isFullscreen;
   final String workspaceName;
   final WorkspaceView? activeView;
+  final OfficeSection officeSection;
   final SettingsSection? settingsSection;
   final List<OfficeProject> projects;
   final String? selectedProjectId;
@@ -49,7 +56,10 @@ class MainSidebarContent extends StatelessWidget {
   final String? projectScope;
   final List<String> pinnedMissionIds;
   final FocusNode searchFocusNode;
+  final VoidCallback? onToggleSidebar;
+  final VoidCallback? onDoubleTap;
   final ValueChanged<WorkspaceView> onSelectView;
+  final ValueChanged<OfficeSection> onSelectOfficeSection;
   final ValueChanged<SettingsSection> onOpenSettings;
   final ValueChanged<SettingsSection> onSelectSettings;
   final ValueChanged<String> onToggleProject;
@@ -68,14 +78,21 @@ class MainSidebarContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final content = settingsSection != null
-        ? <Widget>[
-            _SettingsNavigation(
-              selected: settingsSection!,
-              onSelect: onSelectSettings,
-            ),
-          ]
-        : const <Widget>[];
+    final content = switch (activeView) {
+      WorkspaceView.office => <Widget>[
+        _OfficeNavigation(
+          selected: officeSection,
+          onSelect: onSelectOfficeSection,
+        ),
+      ],
+      WorkspaceView.projects => const <Widget>[],
+      null => <Widget>[
+        _SettingsNavigation(
+          selected: settingsSection!,
+          onSelect: onSelectSettings,
+        ),
+      ],
+    };
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -84,7 +101,7 @@ class MainSidebarContent extends StatelessWidget {
         // There is no useful room for the inbox below the traffic-light/header
         // chrome. Hiding its scrollable body keeps tiny windows free of
         // a RenderFlex overflow while the shell remains navigable.
-        final inbox = settingsSection == null && !shortHeight
+        final inbox = activeView == WorkspaceView.projects && !shortHeight
             ? WorkInboxPane(
                 workspace: workspace,
                 selectedProjectId: selectedProjectId,
@@ -103,50 +120,47 @@ class MainSidebarContent extends StatelessWidget {
                 onArchiveMission: onArchiveMission,
               )
             : null;
-        return Container(
-          width: width,
-          decoration: const BoxDecoration(
-            color: FrankColors.panel,
-            border: Border(right: BorderSide(color: FrankColors.border)),
-          ),
-          child: inbox == null
-              ? FSidebar(
-                  style: FSidebarStyleDelta.delta(
-                    constraints: BoxConstraints.tightFor(width: width),
-                  ),
-                  header: _SidebarHeader(
-                    dense: shortHeight,
-                    isFullscreen: isFullscreen,
-                    workspaceName: workspaceName,
-                    activeView: activeView,
-                    onSelectView: onSelectView,
-                  ),
-                  children: content,
-                  footer: _SidebarFooter(
-                    dense: shortHeight,
-                    settingsOpen: settingsSection != null,
-                    onOpenSettings: () => onOpenSettings(SettingsSection.team),
-                  ),
-                )
-              : FSidebar.raw(
-                  style: FSidebarStyleDelta.delta(
-                    constraints: BoxConstraints.tightFor(width: width),
-                  ),
-                  header: _SidebarHeader(
-                    dense: shortHeight,
-                    isFullscreen: isFullscreen,
-                    workspaceName: workspaceName,
-                    activeView: activeView,
-                    onSelectView: onSelectView,
-                  ),
-                  child: inbox,
-                  footer: _SidebarFooter(
-                    dense: shortHeight,
-                    settingsOpen: settingsSection != null,
-                    onOpenSettings: () => onOpenSettings(SettingsSection.team),
-                  ),
+        final sidebar = inbox == null
+            ? FSidebar(
+                style: _frankSidebarStyle(
+                  width,
+                  nativeSidebarEffect: nativeSidebarEffect,
                 ),
-        );
+                header: _SidebarHeader(
+                  dense: shortHeight,
+                  isFullscreen: isFullscreen,
+                  workspaceName: workspaceName,
+                  activeView: activeView,
+                  onSelectView: onSelectView,
+                ),
+                children: content,
+                footer: _SidebarFooter(
+                  dense: shortHeight,
+                  settingsOpen: settingsSection != null,
+                  onOpenSettings: () => onOpenSettings(SettingsSection.team),
+                ),
+              )
+            : FSidebar.raw(
+                style: _frankSidebarStyle(
+                  width,
+                  nativeSidebarEffect: nativeSidebarEffect,
+                ),
+                header: _SidebarHeader(
+                  dense: shortHeight,
+                  isFullscreen: isFullscreen,
+                  workspaceName: workspaceName,
+                  activeView: activeView,
+                  onSelectView: onSelectView,
+                ),
+                child: inbox,
+                footer: _SidebarFooter(
+                  dense: shortHeight,
+                  settingsOpen: settingsSection != null,
+                  onOpenSettings: () => onOpenSettings(SettingsSection.team),
+                ),
+              );
+
+        return SizedBox(width: width, child: sidebar);
       },
     );
   }
@@ -172,9 +186,7 @@ class _SidebarHeader extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         dense ? 8 : 12,
-        Theme.of(context).platform == TargetPlatform.macOS
-            ? (isFullscreen ? (dense ? 10 : 12) : (dense ? 24 : 30))
-            : (dense ? 6 : 14),
+        dense ? 34 : 38,
         10,
         dense ? 6 : 8,
       ),
@@ -352,7 +364,9 @@ class _ToggleSegmentState extends State<_ToggleSegment> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: Tooltip(
-          message: label,
+          message: widget.view == WorkspaceView.office
+              ? 'Open Office view to see the workspace floor'
+              : 'Open Projects view to browse projects and tasks',
           child: Semantics(
             button: true,
             toggled: widget.selected,
@@ -599,6 +613,9 @@ class _ProjectTreeState extends State<_ProjectTree>
     with TickerProviderStateMixin {
   late final FocusNode _focusNode;
   late final FPopoverController _actionsController;
+  late final FPopoverController _contextMenuController;
+  final Object _actionsMenuOwner = Object();
+  final Object _contextMenuOwner = Object();
   bool _hovered = false;
   bool _focused = false;
   bool _actionsOpen = false;
@@ -620,28 +637,59 @@ class _ProjectTreeState extends State<_ProjectTree>
     super.initState();
     _focusNode = FocusNode(debugLabel: 'Project ${widget.project.name}');
     _actionsController = FPopoverController(vsync: this);
+    _contextMenuController = FPopoverController(vsync: this);
     _actionsController.addListener(_handleActionsChanged);
   }
 
   @override
   void dispose() {
+    FrankDesktopMenuDismissScope.release(context, _actionsMenuOwner);
+    FrankDesktopMenuDismissScope.release(context, _contextMenuOwner);
     _actionsController.removeListener(_handleActionsChanged);
     _actionsController.dispose();
+    _contextMenuController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   void _handleActionsChanged() {
     final open = _actionsController.status.isForwardOrCompleted;
+    if (open) {
+      FrankDesktopMenuDismissScope.register(
+        context,
+        _actionsMenuOwner,
+        () => unawaited(_actionsController.hide(animated: false)),
+      );
+    } else {
+      FrankDesktopMenuDismissScope.release(context, _actionsMenuOwner);
+    }
     if (open != _actionsOpen && mounted) {
       setState(() => _actionsOpen = open);
     }
   }
 
   void _handleContextMenuChanged(bool open) {
+    if (open) {
+      FrankDesktopMenuDismissScope.register(
+        context,
+        _contextMenuOwner,
+        () => unawaited(_contextMenuController.hide(animated: false)),
+      );
+    } else {
+      FrankDesktopMenuDismissScope.release(context, _contextMenuOwner);
+    }
     if (open != _contextMenuOpen && mounted) {
       setState(() => _contextMenuOpen = open);
     }
+  }
+
+  void _toggleActions() {
+    if (_actionsController.status.isForwardOrCompleted) {
+      unawaited(_actionsController.hide());
+      return;
+    }
+    FrankDesktopMenuDismissScope.dismissAll(context, restoreFocus: false);
+    unawaited(_actionsController.show());
   }
 
   void _selectProject() {
@@ -657,7 +705,7 @@ class _ProjectTreeState extends State<_ProjectTree>
         (event.logicalKey == LogicalKeyboardKey.f10 &&
             HardwareKeyboard.instance.isShiftPressed);
     if (contextMenuPressed) {
-      unawaited(_actionsController.show());
+      _toggleActions();
       return KeyEventResult.handled;
     }
 
@@ -757,7 +805,7 @@ class _ProjectTreeState extends State<_ProjectTree>
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
             child: IconButton(
-              onPressed: controller.toggle,
+              onPressed: _toggleActions,
               tooltip: 'Project actions for ${widget.project.name}',
               icon: const Icon(FrankIcons.more, size: 17),
               color: _projectSelected ? FrankColors.ink : FrankColors.muted,
@@ -777,7 +825,6 @@ class _ProjectTreeState extends State<_ProjectTree>
       selected: _projectSelected,
       hovered: _hovered,
       menuOpen: _actionsOpen || _contextMenuOpen,
-      focused: _focused && widget.inputModality.keyboard,
       onPointerDown: widget.inputModality.pointerDown,
       onTap: _selectProject,
       prefix: Icon(
@@ -862,6 +909,7 @@ class _ProjectTreeState extends State<_ProjectTree>
               onExit: (_) => setState(() => _hovered = false),
               child: FContextMenu.tiles(
                 control: FPopoverControl.managed(
+                  controller: _contextMenuController,
                   onChange: _handleContextMenuChanged,
                 ),
                 intrinsicWidth: false,
@@ -890,7 +938,7 @@ class _ProjectTreeState extends State<_ProjectTree>
                               vertical: 7,
                             ),
                             child: Text(
-                              'No missions yet',
+                              'No tasks yet',
                               style: TextStyle(
                                 color: FrankColors.muted,
                                 fontSize: 14,
@@ -957,7 +1005,7 @@ class _ProjectTreeState extends State<_ProjectTree>
             duration: const Duration(milliseconds: 120),
             child: IconButton(
               onPressed: widget.onCreateMission,
-              tooltip: 'Create mission in ${widget.project.name}',
+              tooltip: 'Create a new task in ${widget.project.name}',
               icon: const Icon(FrankIcons.editNote, size: 16),
               padding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
@@ -1025,6 +1073,9 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
     with TickerProviderStateMixin {
   late final FocusNode _focusNode;
   late final FPopoverController _actionsController;
+  late final FPopoverController _contextMenuController;
+  final Object _actionsMenuOwner = Object();
+  final Object _contextMenuOwner = Object();
   bool _hovered = false;
   bool _focused = false;
   bool _actionsOpen = false;
@@ -1042,28 +1093,59 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
     super.initState();
     _focusNode = FocusNode(debugLabel: 'Mission ${widget.mission.title}');
     _actionsController = FPopoverController(vsync: this);
+    _contextMenuController = FPopoverController(vsync: this);
     _actionsController.addListener(_handleActionsChanged);
   }
 
   @override
   void dispose() {
+    FrankDesktopMenuDismissScope.release(context, _actionsMenuOwner);
+    FrankDesktopMenuDismissScope.release(context, _contextMenuOwner);
     _actionsController.removeListener(_handleActionsChanged);
     _actionsController.dispose();
+    _contextMenuController.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
   void _handleActionsChanged() {
     final open = _actionsController.status.isForwardOrCompleted;
+    if (open) {
+      FrankDesktopMenuDismissScope.register(
+        context,
+        _actionsMenuOwner,
+        () => unawaited(_actionsController.hide(animated: false)),
+      );
+    } else {
+      FrankDesktopMenuDismissScope.release(context, _actionsMenuOwner);
+    }
     if (open != _actionsOpen && mounted) {
       setState(() => _actionsOpen = open);
     }
   }
 
   void _handleContextMenuChanged(bool open) {
+    if (open) {
+      FrankDesktopMenuDismissScope.register(
+        context,
+        _contextMenuOwner,
+        () => unawaited(_contextMenuController.hide(animated: false)),
+      );
+    } else {
+      FrankDesktopMenuDismissScope.release(context, _contextMenuOwner);
+    }
     if (open != _contextMenuOpen && mounted) {
       setState(() => _contextMenuOpen = open);
     }
+  }
+
+  void _toggleActions() {
+    if (_actionsController.status.isForwardOrCompleted) {
+      unawaited(_actionsController.hide());
+      return;
+    }
+    FrankDesktopMenuDismissScope.dismissAll(context, restoreFocus: false);
+    unawaited(_actionsController.show());
   }
 
   void _selectMission() {
@@ -1079,7 +1161,7 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
         (event.logicalKey == LogicalKeyboardKey.f10 &&
             HardwareKeyboard.instance.isShiftPressed);
     if (contextMenuPressed) {
-      unawaited(_actionsController.show());
+      _toggleActions();
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.enter ||
@@ -1105,14 +1187,14 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
             key: const ValueKey('mission-action-pin'),
             title: _frankMenuTitle('Pin'),
             prefix: const Icon(FrankIcons.pin, size: 16),
-            semanticsLabel: 'Pin mission',
+            semanticsLabel: 'Pin task',
             onPress: invoke(widget.onPin),
           ),
           FTile(
             key: const ValueKey('mission-action-rename'),
             title: _frankMenuTitle('Rename'),
             prefix: const Icon(FrankIcons.edit, size: 16),
-            semanticsLabel: 'Rename mission',
+            semanticsLabel: 'Rename task',
             onPress: invoke(widget.onRename),
           ),
         ],
@@ -1123,9 +1205,9 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
         children: [
           FTile(
             key: const ValueKey('mission-action-archive'),
-            title: _frankMenuTitle('Archive mission'),
+            title: _frankMenuTitle('Archive task'),
             prefix: const Icon(FrankIcons.archive, size: 16),
-            semanticsLabel: 'Archive mission',
+            semanticsLabel: 'Archive task',
             onPress: invoke(widget.onArchive),
           ),
         ],
@@ -1145,8 +1227,8 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
             child: IconButton(
-              onPressed: controller.toggle,
-              tooltip: 'Mission actions for ${widget.mission.title}',
+              onPressed: _toggleActions,
+              tooltip: 'Task actions for ${widget.mission.title}',
               icon: const Icon(FrankIcons.more, size: 16),
               color: widget.selected ? FrankColors.ink : FrankColors.muted,
               padding: EdgeInsets.zero,
@@ -1165,7 +1247,6 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
       selected: widget.selected,
       hovered: _hovered,
       menuOpen: _actionsOpen || _contextMenuOpen,
-      focused: _focused && widget.inputModality.keyboard,
       onPointerDown: widget.inputModality.pointerDown,
       onTap: _selectMission,
       label: Semantics(
@@ -1215,7 +1296,7 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
       offset: Offset.zero,
       overflow: FPortalOverflow.flip,
       onTapHide: widget.inputModality.pointerDown,
-      semanticsLabel: 'Mission actions for ${widget.mission.title}',
+      semanticsLabel: 'Task actions for ${widget.mission.title}',
       child: const SizedBox.shrink(),
       builder: (_, controller, _) => _missionRow(controller),
     );
@@ -1234,7 +1315,7 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
             duration: const Duration(milliseconds: 120),
             child: IconButton(
               onPressed: widget.onPin,
-              tooltip: 'Pin ${widget.mission.title}',
+              tooltip: 'Pin task ${widget.mission.title} to the pinned list',
               icon: const Icon(FrankIcons.pin, size: 16),
               padding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
@@ -1261,6 +1342,7 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
           onExit: (_) => setState(() => _hovered = false),
           child: FContextMenu.tiles(
             control: FPopoverControl.managed(
+              controller: _contextMenuController,
               onChange: _handleContextMenuChanged,
             ),
             intrinsicWidth: false,
@@ -1281,14 +1363,13 @@ class _MissionTreeRowState extends State<_MissionTreeRow>
 /// Shared interaction surface for project and mission rows.
 ///
 /// The row-specific popover/menu remains in each row widget; this primitive
-/// owns the common hover, focus ring, tap target, and 32px geometry.
+/// owns the common hover, keyboard focus state, tap target, and 32px geometry.
 class InteractiveTreeRow extends StatelessWidget {
   const InteractiveTreeRow({
     super.key,
     required this.selected,
     required this.hovered,
     required this.menuOpen,
-    required this.focused,
     required this.onPointerDown,
     required this.onTap,
     this.prefix,
@@ -1299,7 +1380,6 @@ class InteractiveTreeRow extends StatelessWidget {
   final bool selected;
   final bool hovered;
   final bool menuOpen;
-  final bool focused;
   final VoidCallback onPointerDown;
   final VoidCallback onTap;
   final Widget? prefix;
@@ -1318,12 +1398,7 @@ class InteractiveTreeRow extends StatelessWidget {
 
     return Material(
       color: background,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: focused
-            ? const BorderSide(color: FrankColors.amber)
-            : BorderSide.none,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTapDown: (_) => onPointerDown(),
@@ -1353,6 +1428,40 @@ class InteractiveTreeRow extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OfficeNavigation extends StatelessWidget {
+  const _OfficeNavigation({required this.selected, required this.onSelect});
+
+  final OfficeSection selected;
+  final ValueChanged<OfficeSection> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return FSidebarGroup(
+      key: const ValueKey('office-navigation'),
+      style: _frankOfficeNavigationStyle,
+      label: const Text('Office'),
+      children: [
+        for (final section in OfficeSection.values)
+          FSidebarItem(
+            key: ValueKey('office-section-${section.name}'),
+            selected: selected == section,
+            icon: Icon(_iconFor(section), size: 16),
+            label: Text(section.label),
+            onPress: () => onSelect(section),
+          ),
+      ],
+    );
+  }
+
+  IconData _iconFor(OfficeSection section) => switch (section) {
+    OfficeSection.organization => FrankIcons.gitBranch,
+    OfficeSection.team => FrankIcons.users,
+    OfficeSection.ledger => FrankIcons.ledger,
+    OfficeSection.taskboard => FrankIcons.dashboard,
+    OfficeSection.journal => FrankIcons.activity,
+  };
 }
 
 class _SettingsNavigation extends StatelessWidget {
@@ -1424,11 +1533,11 @@ class _SidebarFooter extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onOpenSettings,
-            tooltip: settingsOpen ? 'Settings' : 'Settings',
+            tooltip: 'Open workspace settings',
             icon: Icon(
               FrankIcons.settings,
               size: 18,
-              color: settingsOpen ? FrankColors.amber : null,
+              color: settingsOpen ? FrankColors.aubergine : null,
             ),
             padding: dense ? EdgeInsets.zero : null,
             visualDensity: dense ? VisualDensity.compact : null,
@@ -1474,8 +1583,11 @@ class FrankLogo extends StatelessWidget {
             width: size,
             height: size,
             alignment: Alignment.center,
-            color: FrankColors.amber.withValues(alpha: 0.14),
-            child: const Text('F', style: TextStyle(color: FrankColors.amber)),
+            color: FrankColors.aubergine.withValues(alpha: 0.14),
+            child: const Text(
+              'F',
+              style: TextStyle(color: FrankColors.aubergine),
+            ),
           );
         },
       ),

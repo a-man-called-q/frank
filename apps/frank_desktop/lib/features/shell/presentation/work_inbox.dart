@@ -121,8 +121,8 @@ class _WorkInboxPaneState extends State<WorkInboxPane> {
                   const SizedBox(width: 6),
                   Tooltip(
                     message: scopeProject == null
-                        ? 'Select a project before creating a mission'
-                        : 'Create mission in ${scopeProject.name}',
+                        ? 'Select a project to enable task creation'
+                        : 'Create a new task in ${scopeProject.name}',
                     child: IconButton(
                       onPressed: scopeProject == null
                           ? null
@@ -278,10 +278,10 @@ class _SearchField extends StatelessWidget {
                 ? null
                 : Semantics(
                     button: true,
-                    label: 'Clear search',
+                    label: 'Clear the workspace search',
                     child: IconButton(
                       onPressed: onClear,
-                      tooltip: 'Clear search',
+                      tooltip: 'Clear the workspace search',
                       icon: const Icon(FrankIcons.close, size: 15),
                       color: FrankColors.muted,
                       visualDensity: VisualDensity.compact,
@@ -303,7 +303,7 @@ class _SearchField extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: FrankColors.amber),
+              borderSide: const BorderSide(color: FrankColors.border),
             ),
           ),
         ),
@@ -407,7 +407,7 @@ class _ShelfList extends StatelessWidget {
     if (groups.isEmpty) {
       return const Center(
         child: Text(
-          'No missions yet',
+          'No tasks yet',
           style: TextStyle(color: FrankColors.muted, fontSize: 12),
         ),
       );
@@ -439,32 +439,214 @@ class _ShelfList extends StatelessWidget {
   }
 }
 
-class _WorkInboxScrollRegion extends StatelessWidget {
+class _WorkInboxScrollRegion extends StatefulWidget {
   const _WorkInboxScrollRegion({required this.controller, required this.child});
 
   final ScrollController controller;
   final Widget child;
 
   @override
+  State<_WorkInboxScrollRegion> createState() => _WorkInboxScrollRegionState();
+}
+
+class _WorkInboxScrollRegionState extends State<_WorkInboxScrollRegion> {
+  static const _edgeFadeExtent = 22.0;
+  static const _edgeFadeActivationExtent = 10.0;
+  double _topFadeStrength = 0;
+  double _bottomFadeStrength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleControllerChange);
+    _scheduleControllerSync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WorkInboxScrollRegion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller == widget.controller) return;
+    oldWidget.controller.removeListener(_handleControllerChange);
+    widget.controller.addListener(_handleControllerChange);
+    _scheduleControllerSync();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerChange);
+    super.dispose();
+  }
+
+  void _handleControllerChange() {
+    if (!mounted || !widget.controller.hasClients) return;
+    _syncFromMetrics(widget.controller.position);
+  }
+
+  void _syncFromController() {
+    if (!mounted || !widget.controller.hasClients) return;
+    _syncFromMetrics(widget.controller.position);
+  }
+
+  void _scheduleControllerSync() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!widget.controller.hasClients ||
+          !widget.controller.position.hasContentDimensions) {
+        // RawScrollbar attaches its controller after the first layout pass in
+        // some hosts, and ScrollPosition receives content dimensions after
+        // attachment. Retry on the next frame so an initially scrollable list
+        // still exposes its directional edge fade without user input.
+        _scheduleControllerSync();
+        return;
+      }
+      _syncFromController();
+    });
+  }
+
+  void _syncFromMetrics(ScrollMetrics metrics) {
+    final topDistance = (metrics.pixels - metrics.minScrollExtent).clamp(
+      0.0,
+      _edgeFadeActivationExtent,
+    );
+    final bottomDistance = (metrics.maxScrollExtent - metrics.pixels).clamp(
+      0.0,
+      _edgeFadeActivationExtent,
+    );
+    final topStrength = _smoothStep(topDistance / _edgeFadeActivationExtent);
+    final bottomStrength = _smoothStep(
+      bottomDistance / _edgeFadeActivationExtent,
+    );
+    if ((topStrength - _topFadeStrength).abs() < 0.001 &&
+        (bottomStrength - _bottomFadeStrength).abs() < 0.001) {
+      return;
+    }
+    setState(() {
+      _topFadeStrength = topStrength;
+      _bottomFadeStrength = bottomStrength;
+    });
+  }
+
+  double _smoothStep(double value) {
+    final t = value.clamp(0.0, 1.0);
+    return t * t * (3 - 2 * t);
+  }
+
+  bool _handleNotification(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification is ScrollStartNotification ||
+        notification is ScrollUpdateNotification ||
+        notification is OverscrollNotification ||
+        notification is ScrollMetricsNotification) {
+      FrankDesktopMenuDismissScope.dismissAll(context, restoreFocus: false);
+    }
+    _syncFromMetrics(notification.metrics);
+    if (notification is ScrollMetricsNotification) {
+      // Content dimensions can be reported before the sliver finishes its
+      // layout pass. Recheck on the following frame so the initial bottom
+      // fade reflects the settled maxScrollExtent without requiring a drag.
+      _scheduleControllerSync();
+    }
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-      child: RawScrollbar(
-        controller: controller,
-        thumbVisibility: false,
-        trackVisibility: false,
-        thickness: 3,
-        radius: const Radius.circular(999),
-        thumbColor: FrankColors.muted.withValues(alpha: 0.42),
-        minThumbLength: 32,
-        fadeDuration: const Duration(milliseconds: 150),
-        timeToFade: const Duration(milliseconds: 600),
-        mainAxisMargin: 4,
-        crossAxisMargin: 2,
-        interactive: true,
-        child: child,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _handleNotification,
+        child: RawScrollbar(
+          controller: widget.controller,
+          thumbVisibility: false,
+          trackVisibility: false,
+          thickness: 3,
+          radius: const Radius.circular(999),
+          thumbColor: FrankColors.muted.withValues(alpha: 0.42),
+          minThumbLength: 32,
+          fadeDuration: const Duration(milliseconds: 150),
+          timeToFade: const Duration(milliseconds: 600),
+          mainAxisMargin: 4,
+          crossAxisMargin: 2,
+          interactive: true,
+          // Fade the list pixels themselves instead of painting a dark panel
+          // over them. Keeping the masks inside the scrollbar's content child
+          // leaves its thumb crisp and fully interactive.
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _ScrollEdgeFadeMask(
+                topStrength: _topFadeStrength,
+                bottomStrength: _bottomFadeStrength,
+                extent: _edgeFadeExtent,
+                child: widget.child,
+              ),
+            ],
+          ),
+        ),
       ),
     );
+  }
+}
+
+class _ScrollEdgeFadeMask extends StatelessWidget {
+  const _ScrollEdgeFadeMask({
+    required this.topStrength,
+    required this.bottomStrength,
+    required this.extent,
+    required this.child,
+  });
+
+  final double topStrength;
+  final double bottomStrength;
+  final double extent;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ShaderMask(
+      key: const ValueKey('work-inbox-edge-fade-mask'),
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) {
+        final fadeExtent = bounds.height == 0
+            ? 0.5
+            : (extent / bounds.height).clamp(0.0, 0.5);
+        final top = _fadeColor(topStrength);
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            top,
+            _fadeColor(topStrength, 0.12),
+            _fadeColor(topStrength, 0.5),
+            _fadeColor(topStrength, 0.88),
+            Colors.white,
+            Colors.white,
+            _fadeColor(bottomStrength, 0.88),
+            _fadeColor(bottomStrength, 0.5),
+            _fadeColor(bottomStrength, 0.12),
+            _fadeColor(bottomStrength),
+          ],
+          stops: [
+            0,
+            fadeExtent * 0.24,
+            fadeExtent * 0.50,
+            fadeExtent * 0.76,
+            fadeExtent,
+            1 - fadeExtent,
+            1 - fadeExtent * 0.76,
+            1 - fadeExtent * 0.50,
+            1 - fadeExtent * 0.24,
+            1,
+          ],
+        ).createShader(bounds);
+      },
+      child: child,
+    );
+  }
+
+  Color _fadeColor(double strength, [double visibleAlpha = 0]) {
+    final alpha = 1 - strength * (1 - visibleAlpha);
+    return Colors.white.withValues(alpha: alpha);
   }
 }
 
@@ -741,7 +923,7 @@ class _MissionRowState extends State<_MissionRow> {
               controller: _menuController,
               openOnSecondaryTap: true,
               returnFocusNode: _rowFocusNode,
-              semanticsLabel: 'Mission actions for ${mission.title}',
+              semanticsLabel: 'Task actions for ${mission.title}',
               width: 150,
               groups: [
                 FrankMenuGroup([
@@ -783,8 +965,9 @@ class _MissionRowState extends State<_MissionRow> {
                             children: [
                               Text(
                                 mission.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                                softWrap: true,
+                                overflow: TextOverflow.fade,
                                 style: TextStyle(
                                   color: widget.selected
                                       ? FrankColors.ink
@@ -796,7 +979,7 @@ class _MissionRowState extends State<_MissionRow> {
                               Text(
                                 metadata,
                                 maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                overflow: TextOverflow.fade,
                                 style: const TextStyle(
                                   color: FrankColors.muted,
                                   fontSize: 10,
@@ -882,13 +1065,13 @@ class _MissionActions extends StatelessWidget {
             child: IconButton(
               onPressed: onTogglePinned,
               tooltip: entry.pinned
-                  ? 'Unpin ${mission.title}'
-                  : 'Pin ${mission.title}',
+                  ? 'Unpin task ${mission.title} from the pinned list'
+                  : 'Pin task ${mission.title} to the pinned list',
               icon: Icon(
                 FrankIcons.pin,
                 size: 14,
                 color: entry.pinned
-                    ? FrankColors.amber
+                    ? FrankColors.aubergine
                     : FrankColors.muted.withValues(alpha: 0.6),
               ),
               padding: EdgeInsets.zero,
@@ -901,10 +1084,10 @@ class _MissionActions extends StatelessWidget {
             height: 28,
             child: Semantics(
               button: true,
-              label: 'Mission actions for ${mission.title}',
+              label: 'Task actions for ${mission.title}',
               child: IconButton(
                 onPressed: onOpenMenu,
-                tooltip: 'Actions for ${mission.title}',
+                tooltip: 'Open actions for ${mission.title}',
                 icon: const Icon(FrankIcons.more, size: 15),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints.tightFor(
@@ -941,12 +1124,15 @@ class _PassiveMissionSignals extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 5),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: FrankColors.amberSoft,
+              color: FrankColors.warningAmberSoft,
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               '${mission.pendingApprovalCount}',
-              style: const TextStyle(color: FrankColors.amber, fontSize: 10),
+              style: const TextStyle(
+                color: FrankColors.warningAmber,
+                fontSize: 10,
+              ),
             ),
           ),
         ),
@@ -959,7 +1145,11 @@ class _PassiveMissionSignals extends StatelessWidget {
           container: true,
           label: 'Pinned position ${entry.pinnedPosition ?? 'unknown'}',
           excludeSemantics: true,
-          child: const Icon(FrankIcons.pin, size: 14, color: FrankColors.amber),
+          child: const Icon(
+            FrankIcons.pin,
+            size: 14,
+            color: FrankColors.aubergine,
+          ),
         ),
       );
     }

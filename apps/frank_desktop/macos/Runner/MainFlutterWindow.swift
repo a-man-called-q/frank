@@ -1,15 +1,19 @@
 import Cocoa
 import FlutterMacOS
+import macos_window_utils
 
 class MainFlutterWindow: NSWindow, FlutterStreamHandler {
   private var fullscreenEventSink: FlutterEventSink?
   private var fullscreenObservers: [NSObjectProtocol] = []
 
   override func awakeFromNib() {
-    let flutterViewController = FlutterViewController()
+    let macOSWindowUtilsViewController = MacOSWindowUtilsViewController()
+    let flutterViewController = macOSWindowUtilsViewController.flutterViewController
     let windowFrame = self.frame
-    self.contentViewController = flutterViewController
+    self.contentViewController = macOSWindowUtilsViewController
     self.setFrame(windowFrame, display: true)
+
+    MainFlutterWindowManipulator.start(mainFlutterWindow: self)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 

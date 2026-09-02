@@ -9,18 +9,25 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flame: 1.38.2
+  flutter_gpu:
+    sdk: flutter
+  hooks: 2.0.0
+  macos_window_utils: 1.9.1
+  flutter_scene: 0.23.0
   flow_ui: 0.2.0
   forui: 0.25.0
   flutter_bloc: 9.1.1
   material_ui: 1.1.0
   shared_preferences: 2.5.5
+  vector_math: 2.4.2
 
 dev_dependencies:
   bloc_test: 10.0.0
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true
@@ -31,6 +38,7 @@ flutter:
   assets:
     - assets/branding/frank-logo.png
     - assets/fonts/Geist-Variable.ttf
+    - flutter_scene_generated/
 
   fonts:
     - family: GeistMono

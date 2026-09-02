@@ -25,10 +25,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.bySemanticsLabel('Office view'), findsOneWidget);
-    expect(find.text('OFFICE FLOOR · EMPTY FOR NOW'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp(r'Office floor (loading|unavailable)')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('an empty injected workspace stays in the empty state', (
+  testWidgets('an empty injected workspace opens Organization safely', (
     tester,
   ) async {
     _setDesktopSize(tester);
@@ -42,7 +45,7 @@ void main() {
         role: 'Account Executive',
         status: 'Available',
         initials: 'MC',
-        color: 0xFFE2A84B,
+        color: 0xFF9A68A5,
       ),
     );
     await tester.pumpWidget(
@@ -50,7 +53,11 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(find.text('No projects yet'), findsOneWidget);
+    expect(find.text('Organization'), findsWidgets);
+    expect(
+      find.text('Configure agents, connections, and taskboard assignments.'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Frank Agency'), findsNothing);
   });
 }

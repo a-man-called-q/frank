@@ -7,7 +7,7 @@ import 'package:material_ui/material_ui.dart' as mui;
 import '../../app/icons.dart';
 import '../../app/theme.dart';
 import '../../core/models/workspace_models.dart';
-import '../floor/empty_office_floor.dart';
+import '../floor/office_scene_floor.dart';
 import 'presentation/focusable_composer.dart';
 import 'presentation/flow_message_mapper.dart';
 
@@ -57,7 +57,7 @@ class AccountExecutiveChat extends StatelessWidget {
           return Stack(
             fit: StackFit.expand,
             children: [
-              const Positioned.fill(child: EmptyOfficeFloor()),
+              const Positioned.fill(child: OfficeSceneFloor()),
               if (showConversationRail)
                 Positioned.fill(
                   child: Align(

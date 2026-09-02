@@ -11,6 +11,7 @@ import '../../core/models/workspace_models.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
 import 'bloc/shell_bloc.dart';
+import 'presentation/frank_desktop_menu.dart';
 import 'presentation/work_inbox.dart';
 import 'sidebar_layout.dart';
 
@@ -19,7 +20,14 @@ part 'presentation/sidebar_content.dart';
 const _treeMissionInkOpacity = 0.76;
 const _treeSelectedInkOpacity = 0.92;
 
+const _frankNoFocusOutline = FFocusedOutlineStyle(
+  color: Colors.transparent,
+  borderRadius: BorderRadius.zero,
+  spacing: 0,
+);
+
 final _frankMenuTileStyle = FTileStyleDelta.delta(
+  focusedOutlineStyle: () => _frankNoFocusOutline,
   padding: EdgeInsetsGeometryDelta.value(EdgeInsets.zero),
   contentStyle: FItemContentStyleDelta.delta(
     suffixedPadding: EdgeInsetsGeometryDelta.value(
@@ -56,6 +64,106 @@ final _frankMenuStyle = FPopoverMenuStyleDelta.delta(
     tileStyles: FVariantsDelta.delta([
       FVariantOperation.all(_frankMenuTileStyle),
     ]),
+  ),
+);
+
+// Office navigation uses the same quiet, compact visual language as the
+// project inbox. Keep this style scoped to the Office group so the Settings
+// navigation can retain its existing Forui treatment until it gets its own
+// design pass.
+final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
+  padding: const EdgeInsetsDelta.value(EdgeInsets.symmetric(horizontal: 12)),
+  headerPadding: const EdgeInsetsGeometryDelta.value(
+    EdgeInsets.fromLTRB(4, 0, 4, 2),
+  ),
+  labelStyle: const TextStyleDelta.value(
+    TextStyle(
+      fontFamily: FrankTypography.uiFontFamily,
+      fontFamilyFallback: FrankTypography.uiFontFallback,
+      color: FrankColors.muted,
+      fontSize: 12,
+      fontWeight: FontWeight.w400,
+      height: 16 / 12,
+    ),
+  ),
+  childrenSpacing: 4,
+  itemStyle: FSidebarItemStyleDelta.delta(
+    textStyle: FVariantsDelta.delta([
+      FVariantOperation.all(
+        TextStyleDelta.delta(
+          fontFamily: FrankTypography.uiFontFamily,
+          fontFamilyFallback: FrankTypography.uiFontFallback,
+          color: FrankColors.muted,
+          fontSize: 12,
+          fontWeight: FontWeight.w400,
+          height: 16 / 12,
+        ),
+      ),
+      FVariantOperation.exact(
+        {FTappableVariant.selected},
+        TextStyleDelta.delta(color: FrankColors.ink),
+      ),
+    ]),
+    iconSpacing: 8,
+    iconStyle: FVariantsDelta.delta([
+      FVariantOperation.all(
+        IconThemeDataDelta.delta(color: FrankColors.muted, size: 16),
+      ),
+      FVariantOperation.exact(
+        {FTappableVariant.selected},
+        IconThemeDataDelta.delta(color: FrankColors.ink),
+      ),
+    ]),
+    padding: const EdgeInsetsGeometryDelta.value(
+      EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+    ),
+    borderRadius: BorderRadius.circular(7),
+    backgroundColor: FVariantsValueDelta.delta([
+      FVariantValueDeltaOperation.all(Colors.transparent),
+      FVariantValueDeltaOperation.exact(
+        {FTappableVariant.hovered},
+        FrankColors.ink.withValues(alpha: 0.06),
+      ),
+      FVariantValueDeltaOperation.exact(
+        {FTappableVariant.selected},
+        FrankColors.ink.withValues(alpha: 0.08),
+      ),
+      FVariantValueDeltaOperation.exact(
+        {FTappableVariant.pressed},
+        FrankColors.ink.withValues(alpha: 0.08),
+      ),
+    ]),
+    focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
+      color: Colors.transparent,
+      spacing: 0,
+    ),
+  ),
+);
+
+FSidebarStyleDelta _frankSidebarStyle(
+  double width, {
+  required bool nativeSidebarEffect,
+}) => FSidebarStyleDelta.delta(
+  constraints: BoxConstraints.tightFor(width: width),
+  decoration: DecorationDelta.value(
+    BoxDecoration(
+      color: nativeSidebarEffect
+          ? FrankColors.sidebarGlass
+          : FrankColors.sidebarSolid,
+      border: Border(right: BorderSide(color: FrankColors.border)),
+    ),
+  ),
+  groupStyle: FSidebarGroupStyleDelta.delta(
+    focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
+      color: Colors.transparent,
+      spacing: 0,
+    ),
+    itemStyle: FSidebarItemStyleDelta.delta(
+      focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
+        color: Colors.transparent,
+        spacing: 0,
+      ),
+    ),
   ),
 );
 
@@ -102,12 +210,14 @@ class MainSidebar extends StatelessWidget {
     required this.searchFocusNode,
     required this.isFullscreen,
     this.width,
+    this.nativeSidebarEffect = false,
     super.key,
   });
 
   final FocusNode searchFocusNode;
   final bool isFullscreen;
   final double? width;
+  final bool nativeSidebarEffect;
 
   @override
   Widget build(BuildContext context) {
@@ -141,10 +251,12 @@ class MainSidebar extends StatelessWidget {
         builder: (context, _) {
           return MainSidebarContent(
             width: sidebarWidth,
+            nativeSidebarEffect: nativeSidebarEffect,
             isFullscreen: isFullscreen,
             workspace: workspace,
             workspaceName: workspace.name,
             activeView: shell.activeView,
+            officeSection: shell.officeSection ?? OfficeSection.organization,
             settingsSection: shell.settingsSection,
             projects: projectsState.projects,
             selectedProjectId: projectsState.selectedProjectId,
@@ -159,6 +271,9 @@ class MainSidebar extends StatelessWidget {
                 context.read<ProjectsBloc>().add(const ProjectsViewEntered());
               }
             },
+            onSelectOfficeSection: (section) => context.read<ShellBloc>().add(
+              ShellOfficeSectionSelected(section),
+            ),
             onOpenSettings: (_) {
               context.read<ShellBloc>().add(const ShellSettingsOpened());
             },
@@ -301,10 +416,10 @@ class MainSidebar extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => ProjectConfirmationDialog(
-        title: 'Archive mission?',
+        title: 'Archive task?',
         message:
-            '“${mission.title}” will move to the archived mission list when mission actions are connected.',
-        confirmLabel: 'Archive mission',
+            '“${mission.title}” will move to the archived task list when task actions are connected.',
+        confirmLabel: 'Archive task',
       ),
     );
     if (!context.mounted || confirmed != true) return;

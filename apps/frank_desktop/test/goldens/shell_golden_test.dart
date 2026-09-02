@@ -31,7 +31,7 @@ void main() {
     await _pumpShell(tester);
     expect(FrankIcons.search.fontFamily, 'ForuiLucideIcons');
     expect(FrankIcons.search.fontPackage, 'forui_assets');
-    expect(find.byIcon(FrankIcons.search), findsWidgets);
+    expect(find.byIcon(FrankIcons.dashboard), findsWidgets);
     await expectLater(
       find.byKey(const ValueKey('golden-root')),
       matchesGoldenFile('goldens/office.png'),
@@ -40,6 +40,7 @@ void main() {
 
   testWidgets('attention inbox golden', (tester) async {
     await _pumpShell(tester);
+    await _openProjects(tester);
     await expectLater(
       find.byKey(const ValueKey('golden-root')),
       matchesGoldenFile('goldens/attention-inbox.png'),
@@ -48,7 +49,7 @@ void main() {
 
   testWidgets('hidden sidebar full-width golden', (tester) async {
     await _pumpShell(tester);
-    await tester.tap(find.byTooltip('Hide sidebar'));
+    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
     await expectLater(
@@ -59,7 +60,7 @@ void main() {
 
   testWidgets('Settings shell golden', (tester) async {
     await _pumpShell(tester);
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Open workspace settings'));
     await tester.pump(const Duration(milliseconds: 220));
     await expectLater(
       find.byKey(const ValueKey('golden-root')),
@@ -69,6 +70,7 @@ void main() {
 
   testWidgets('search results golden', (tester) async {
     await _pumpShell(tester);
+    await _openProjects(tester);
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
     await expectLater(
@@ -82,6 +84,7 @@ void main() {
       tester,
       gateway: FakeGateway(workspace: _completedWorkspace()),
     );
+    await _openProjects(tester);
     await tester.tap(find.text('Show all 6'));
     await tester.pump();
     await expectLater(
@@ -90,12 +93,13 @@ void main() {
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
-  testWidgets('scrolled work inbox overlay scrollbar golden', (tester) async {
+  testWidgets('scrolled work inbox alpha fade golden', (tester) async {
     await _pumpShell(
       tester,
       gateway: FakeGateway(workspace: _scrollableWorkspace()),
       size: const ui.Size(880, 640),
     );
+    await _openProjects(tester);
     await tester.runAsync(
       () => precacheImage(
         const AssetImage('assets/branding/frank-logo.png'),
@@ -147,6 +151,11 @@ Future<void> _pumpShell(
   await tester.pump(const Duration(milliseconds: 500));
 }
 
+Future<void> _openProjects(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel('Projects view'));
+  await tester.pump(const Duration(milliseconds: 220));
+}
+
 Finder _searchField() => find.byWidgetPredicate(
   (widget) =>
       widget is TextField && widget.decoration?.hintText == 'Search workspace',
@@ -159,7 +168,7 @@ OfficeWorkspace _completedWorkspace() {
     role: 'Account Executive',
     status: 'Available',
     initials: 'MC',
-    color: 0xFFE2A84B,
+    color: 0xFF9A68A5,
   );
   final project = OfficeProject(
     id: 'completed-project',
@@ -196,7 +205,7 @@ OfficeWorkspace _scrollableWorkspace() {
     role: 'Account Executive',
     status: 'Available',
     initials: 'MC',
-    color: 0xFFE2A84B,
+    color: 0xFF9A68A5,
   );
   final project = OfficeProject(
     id: 'scrollable-project',

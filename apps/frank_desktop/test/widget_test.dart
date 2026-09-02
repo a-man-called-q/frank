@@ -1,10 +1,13 @@
-import 'package:flame/game.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
-import 'package:frank_desktop/features/floor/empty_office_floor.dart';
+import 'package:frank_desktop/features/chat/presentation/focusable_composer.dart';
+import 'package:frank_desktop/features/floor/office_scene_floor.dart';
 import 'package:frank_desktop/features/shell/main_sidebar.dart';
 
 void main() {
@@ -19,7 +22,7 @@ void main() {
     expect(workspace.projects.first.missions.first.pendingApprovalCount, 1);
   });
 
-  testWidgets('office shell renders the inbox, context bar, and floor', (
+  testWidgets('office shell renders operational navigation and floor', (
     tester,
   ) async {
     _setWindow(tester);
@@ -27,18 +30,145 @@ void main() {
 
     expect(find.bySemanticsLabel('Office view'), findsOneWidget);
     expect(find.bySemanticsLabel('Projects view'), findsOneWidget);
-    expect(find.byTooltip('Hide sidebar'), findsOneWidget);
+    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
     expect(
       tester.getSize(find.bySemanticsLabel('Workspace view')).width,
       greaterThan(180),
     );
-    expect(find.text('Office'), findsOneWidget);
+    expect(find.text('Office'), findsWidgets);
     expect(find.text('Projects'), findsOneWidget);
-    expect(find.text('Needs attention'), findsWidgets);
-    expect(find.text('Draft'), findsOneWidget);
-    expect(find.text('OFFICE FLOOR · EMPTY FOR NOW'), findsOneWidget);
+    expect(find.text('Organization'), findsWidgets);
+    expect(find.text('Team'), findsOneWidget);
+    expect(find.text('Ledger'), findsOneWidget);
+    expect(find.text('Taskboard'), findsOneWidget);
+    expect(find.text('Journal'), findsOneWidget);
+    expect(
+      tester
+          .widget<FSidebarItem>(
+            find.byKey(const ValueKey('office-section-organization')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(
+      find.text('Configure agents, connections, and taskboard assignments.'),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('mission-shelf-scroll-view')),
+      findsNothing,
+    );
+    expect(
+      find.bySemanticsLabel(RegExp(r'Office floor (loading|unavailable)')),
+      findsOneWidget,
+    );
     expect(find.bySemanticsLabel('Frank'), findsOneWidget);
-    expect(find.bySemanticsLabel('Message Maya'), findsOneWidget);
+    expect(find.byType(FocusableComposer), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('office sections navigate and Office resets to Organization', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+
+    for (final section in ['team', 'ledger', 'taskboard', 'journal']) {
+      await tester.tap(find.byKey(ValueKey('office-section-$section')));
+      await tester.pump();
+      expect(
+        find.byKey(ValueKey('office-section-surface-$section')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FSidebarItem>(
+              find.byKey(ValueKey('office-section-$section')),
+            )
+            .selected,
+        isTrue,
+      );
+    }
+
+    await _openProjects(tester);
+    expect(
+      find.byKey(const ValueKey('mission-shelf-scroll-view')),
+      findsOneWidget,
+    );
+    await tester.tap(find.bySemanticsLabel('Office view'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('office-section-surface-organization')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('office glass keeps the scene mounted between sections', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+
+    final stage = find.byKey(const ValueKey('office-scene-stage'));
+    final stageElement = tester.element(stage);
+    final filter = tester.widget<ImageFiltered>(
+      find.byKey(const ValueKey('office-scene-image-filter')),
+    );
+    expect(filter.enabled, isTrue);
+    expect(
+      tester.getRect(find.byKey(const ValueKey('office-section-content-host'))),
+      tester.getRect(find.byKey(const ValueKey('main-surface'))),
+    );
+    expect(
+      find.byKey(const ValueKey('office-section-content-organization')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('office-section-team')));
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(identical(stageElement, tester.element(stage)), isTrue);
+    expect(
+      find.byKey(const ValueKey('office-section-content-team')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('office-section-ledger')));
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(identical(stageElement, tester.element(stage)), isTrue);
+    expect(
+      find.byKey(const ValueKey('office-section-content-ledger')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reduced motion makes Office section changes immediate', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: const FrankApp(),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    final switcher = tester.widget<AnimatedSwitcher>(
+      find.byKey(const ValueKey('office-section-content-switcher')),
+    );
+    expect(switcher.duration, Duration.zero);
+    expect(switcher.reverseDuration, Duration.zero);
+
+    await tester.tap(find.byKey(const ValueKey('office-section-team')));
+    // Forui's tappable semantics finish their press lifecycle on a short
+    // timer. Drain it so the reduced-motion assertion does not leave a
+    // pending callback when the widget tree is disposed.
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      find.byKey(const ValueKey('office-section-content-team')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -48,29 +178,67 @@ void main() {
     _setWindow(tester);
     await _pumpApp(tester);
 
-    final floor = find.byType(EmptyOfficeFloor);
-    final gameWidget = find.byWidgetPredicate(
-      (widget) => widget is GameWidget<EmptyOfficeGame>,
-    );
-    final gameBefore = tester
-        .widget<GameWidget<EmptyOfficeGame>>(gameWidget)
-        .game;
+    final floor = find.byType(OfficeSceneFloor);
+    final floorElement = tester.element(floor);
     final openRect = tester.getRect(find.byKey(const ValueKey('main-surface')));
 
-    await tester.tap(find.byTooltip('Hide sidebar'));
+    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
 
     final closedRect = tester.getRect(
       find.byKey(const ValueKey('main-surface')),
     );
-    expect(find.byTooltip('Show sidebar'), findsOneWidget);
+    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
     expect(closedRect.width, greaterThan(openRect.width + 200));
-    expect(tester.widget<EmptyOfficeFloor>(floor), isNotNull);
-    final gameAfter = tester
-        .widget<GameWidget<EmptyOfficeGame>>(gameWidget)
-        .game;
-    expect(identical(gameBefore, gameAfter), isTrue);
+    expect(tester.widget<OfficeSceneFloor>(floor), isNotNull);
+    expect(identical(floorElement, tester.element(floor)), isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('office floor keeps a deterministic loading placeholder', (
+    tester,
+  ) async {
+    final resources = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OfficeSceneFloor(initializeResources: () => resources.future),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.bySemanticsLabel('Stylized 3D office floor'), findsOneWidget);
+    expect(find.bySemanticsLabel('Office floor loading'), findsOneWidget);
+    expect(find.text('OFFICE SCENE · INITIALIZING'), findsOneWidget);
+    expect(find.byKey(const ValueKey('office-scene-view')), findsNothing);
+  });
+
+  testWidgets('office floor exposes a retryable GPU error', (tester) async {
+    var attempts = 0;
+
+    Future<void> failToInitialize() async {
+      attempts += 1;
+      throw StateError('GPU unavailable in test');
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OfficeSceneFloor(initializeResources: failToInitialize),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.bySemanticsLabel('Office floor unavailable'), findsOneWidget);
+    expect(find.text('3D FLOOR UNAVAILABLE'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+    expect(attempts, 1);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump();
+    expect(attempts, 2);
+    expect(find.bySemanticsLabel('Office floor unavailable'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -80,7 +248,7 @@ void main() {
     _setWindow(tester, const Size(880, 640));
     await _pumpApp(tester);
 
-    expect(find.byTooltip('Hide sidebar'), findsOneWidget);
+    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
     expect(find.bySemanticsLabel('Resize sidebar'), findsOneWidget);
     expect(find.bySemanticsLabel('Close sidebar'), findsNothing);
     expect(
@@ -102,13 +270,13 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.byTooltip('Show sidebar'), findsOneWidget);
+    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.byTooltip('Hide sidebar'), findsOneWidget);
+    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
   });
 
   testWidgets('Cmd/Ctrl+K reopens the sidebar and focuses inline search', (
@@ -117,14 +285,14 @@ void main() {
     _setWindow(tester);
     await _pumpApp(tester);
 
-    await tester.tap(find.byTooltip('Hide sidebar'));
+    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 220));
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.byTooltip('Hide sidebar'), findsOneWidget);
+    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'workspace-search');
   });
 
@@ -133,15 +301,16 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
-    expect(find.byTooltip('Clear search'), findsOneWidget);
+    expect(find.byTooltip('Clear the workspace search'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Clear search'));
+    await tester.tap(find.byTooltip('Clear the workspace search'));
     await tester.pump();
     expect(_searchController(tester).text, isEmpty);
-    expect(find.byTooltip('Clear search'), findsNothing);
+    expect(find.byTooltip('Clear the workspace search'), findsNothing);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
@@ -164,7 +333,7 @@ void main() {
     _setWindow(tester);
     await _pumpApp(tester);
 
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Open workspace settings'));
     await tester.pump(const Duration(milliseconds: 220));
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
@@ -180,6 +349,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
     expect(find.bySemanticsLabel('Resize sidebar'), findsOneWidget);
     expect(
@@ -190,7 +360,7 @@ void main() {
     await tester.tap(find.text('Design replenishment dashboard'));
     await tester.pump();
     await tester.tap(
-      find.byTooltip('Actions for Design replenishment dashboard'),
+      find.byTooltip('Open actions for Design replenishment dashboard'),
     );
     await tester.pump();
     expect(find.text('Pin'), findsOneWidget);
@@ -199,15 +369,21 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
   });
 
-  testWidgets('mission rows keep passive signals and reveal actions on focus', (
+  testWidgets('task rows keep passive signals and reveal actions on focus', (
     tester,
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
-    expect(find.byTooltip('Pin Design replenishment dashboard'), findsNothing);
     expect(
-      find.byTooltip('Actions for Design replenishment dashboard'),
+      find.byTooltip(
+        'Pin task Design replenishment dashboard to the pinned list',
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byTooltip('Open actions for Design replenishment dashboard'),
       findsNothing,
     );
 
@@ -215,11 +391,13 @@ void main() {
     await tester.pump();
 
     expect(
-      find.byTooltip('Pin Design replenishment dashboard'),
+      find.byTooltip(
+        'Pin task Design replenishment dashboard to the pinned list',
+      ),
       findsOneWidget,
     );
     expect(
-      find.byTooltip('Actions for Design replenishment dashboard'),
+      find.byTooltip('Open actions for Design replenishment dashboard'),
       findsOneWidget,
     );
     expect(
@@ -238,11 +416,12 @@ void main() {
     );
   });
 
-  testWidgets('inline search finds a mission and opens its conversation', (
+  testWidgets('inline search finds a task and opens its conversation', (
     tester,
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
@@ -260,7 +439,7 @@ void main() {
       findsOneWidget,
     );
     expect(_searchController(tester).text, isEmpty);
-    expect(find.byTooltip('Clear search'), findsNothing);
+    expect(find.byTooltip('Clear the workspace search'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -269,16 +448,26 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
-    expect(find.byTooltip('Pin Design replenishment dashboard'), findsNothing);
+    expect(
+      find.byTooltip(
+        'Pin task Design replenishment dashboard to the pinned list',
+      ),
+      findsNothing,
+    );
     await tester.tap(find.text('Design replenishment dashboard'));
     await tester.pump();
-    final pin = find.byTooltip('Pin Design replenishment dashboard');
+    final pin = find.byTooltip(
+      'Pin task Design replenishment dashboard to the pinned list',
+    );
     expect(pin, findsOneWidget);
     await tester.tap(pin);
     await tester.pump();
     expect(
-      find.byTooltip('Unpin Design replenishment dashboard'),
+      find.byTooltip(
+        'Unpin task Design replenishment dashboard from the pinned list',
+      ),
       findsOneWidget,
     );
 
@@ -297,7 +486,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byTooltip('Settings'));
+    await tester.tap(find.byTooltip('Open workspace settings'));
     await tester.pump(const Duration(milliseconds: 220));
     expect(find.text('Settings'), findsOneWidget);
     expect(find.text('Activity'), findsOneWidget);
@@ -305,17 +494,84 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('project and model selectors switch in one click', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+    await _openProjects(tester);
+
+    await tester.tap(find.text('All projects'));
+    await tester.pump();
+    expect(find.text('Local Frank Pack'), findsNothing);
+
+    await tester.tap(find.text('Gemini 3.7 Flash High'));
+    await tester.pump();
+    expect(find.text('Local Frank Pack'), findsOneWidget);
+
+    await tester.tap(find.text('All projects'));
+    await tester.pump();
+    expect(find.text('Local Frank Pack'), findsNothing);
+    expect(find.text('Atlas Handoff'), findsWidgets);
+  });
+
+  testWidgets('Forui action popovers switch with selectors in one click', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+    await _openProjects(tester);
+
+    await tester.tap(find.text('Design replenishment dashboard'));
+    await tester.pump();
+    final actionTrigger = find.byTooltip(
+      'Open actions for Design replenishment dashboard',
+    );
+    await tester.tap(actionTrigger);
+    await tester.pump();
+    expect(find.text('Pin'), findsOneWidget);
+
+    await tester.tap(find.text('All projects'));
+    await tester.pump();
+    expect(find.text('Pin'), findsNothing);
+    expect(find.text('Atlas Handoff'), findsWidgets);
+
+    await tester.tap(actionTrigger);
+    await tester.pump();
+    expect(find.text('Atlas Handoff'), findsNothing);
+    expect(find.text('Pin'), findsOneWidget);
+  });
+
   testWidgets('clicking composer padding focuses its input', (tester) async {
     _setWindow(tester);
     await _pumpApp(tester);
+    await _openProjects(tester);
 
-    final composer = find.bySemanticsLabel('Message Maya');
+    final composer = find.byType(FocusableComposer);
     expect(composer, findsOneWidget);
     final rect = tester.getRect(composer);
     await tester.tapAt(Offset(rect.left + 24, rect.top + 20));
     await tester.pump();
 
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'Frank composer');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('chat composer exposes the floor reset side panel', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+    await _openProjects(tester);
+
+    final resetButton = find.byKey(
+      const ValueKey('composer-reset-view-button'),
+    );
+    expect(resetButton, findsOneWidget);
+    expect(find.bySemanticsLabel('Reset floor view'), findsOneWidget);
+    // The headless test host has no GPU scene, so the action stays visible but
+    // disabled until the real scene reports readiness.
+    expect(tester.widget<IconButton>(resetButton).onPressed, isNull);
     expect(tester.takeException(), isNull);
   });
 }
@@ -329,6 +585,11 @@ void _setWindow(WidgetTester tester, [Size size = const Size(1600, 1000)]) {
 Future<void> _pumpApp(WidgetTester tester) async {
   await tester.pumpWidget(const FrankApp());
   await tester.pump(const Duration(milliseconds: 500));
+}
+
+Future<void> _openProjects(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel('Projects view'));
+  await tester.pump(const Duration(milliseconds: 220));
 }
 
 Finder _searchField() => find.byWidgetPredicate(

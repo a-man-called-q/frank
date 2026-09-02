@@ -51,7 +51,7 @@ backend/crates/frank-update ──> (leaves)
 backend/crates/frank-updater ──> frank-update
 backend/crates/frank-release-cli ──> frank-update
 backend/crates/frank-pack, frank-compress, frank-safeio ──> (no internal deps)
-apps/frank_desktop ──> protocol gateway (Flutter + Forui + FlowUI + Flame)
+apps/frank_desktop ──> protocol gateway (Flutter + Forui + FlowUI + flutter_scene)
 ```
 
 ### Why This Structure?
@@ -94,7 +94,7 @@ budgets, approve itself, or invoke Git delivery.
 `apps/frank_desktop` owns the client-side shell. Its `FrankGateway` abstraction
 keeps fixtures and the future `frank-client` transport interchangeable. The
 current shell renders a persistent off-canvas work inbox, an Account Executive
-conversation, and an empty Flame floor. Shell, inbox, and chat state are
+conversation, and a static procedural `flutter_scene` floor. Shell, inbox, and chat state are
 isolated in feature BLoCs; the root coordinator is the only place that
 synchronizes their context. Live state must arrive through the same reconnecting
 `frank-client` stream and never through direct filesystem or database access.
@@ -247,7 +247,7 @@ its filesystem paths.
 
 The Flutter package is the only active desktop GUI. `forui` provides the
 navigation primitives, `flow_ui` provides the conversation thread and composer,
-and `flame` owns the reserved floor surface. The current prototype uses
+and `flutter_scene` owns the static 3D floor foundation. The current prototype uses
 `FixtureFrankGateway`, which makes the layout testable without a daemon. The
 gateway will later map `frank-client` snapshots, events, and reconnect state to
 the same UI models.
@@ -257,12 +257,16 @@ with a minimum supported window width of 880px. Desktop users can hide it
 completely so the main surface becomes full width. Its work inbox projects
 missions into Needs attention, Pinned, Draft, Active, and Completed shelves,
 with client-local scope, search, and pin ordering preferences. The first release
-does not populate the Flame floor; it is an integration seam for agent
-positions, status, and work later.
+does not populate the `flutter_scene` floor with agents; it is an integration
+seam for positions, status, selection, physics, and work later. The floor waits
+for `Scene.initializeStaticResources()` before constructing GPU resources and
+falls back to a deterministic loading/error placeholder when Flutter GPU is not
+available.
 
 **Testing**: Flutter widget tests cover fixture roster data, desktop off-canvas
 collapse, fixed-width minimum layout, work-inbox search/scope/pinning,
-navigation, mission-row actions, and the empty-floor accessibility label.
+navigation, mission-row actions, orthographic projection math, floor loading/
+error semantics, and the static-scene accessibility label.
 Feature BLoC tests cover loading, preference restore/fallback, navigation, and
 streaming cancellation;
 focused goldens protect the main shell states. Native
@@ -349,8 +353,16 @@ moon run :verify-strict # + coverage + audit + cargo-deny
 - Framework: Flutter desktop (3.47.1, pinned through Proto)
 - Navigation/components: [Forui](https://forui.dev/)
 - Chat/composer: [FlowUI](https://github.com/StacDev/flow_ui)
-- Floor integration seam: [Flame](https://pub.dev/packages/flame)
+- Floor integration seam: [`flutter_scene`](https://pub.dev/packages/flutter_scene) 0.23.0 (exact pre-1.0 pin)
 - Local font: Geist, vendored under `apps/frank_desktop/assets/fonts/`
+
+The floor is stylized low-poly 3D, rendered through Flutter GPU with a private
+orthographic three-quarter camera. macOS enables GPU through
+`FLTEnableFlutterGPU`; `hook/build.dart` and the ignored
+`flutter_scene_generated/` tree prepare future source assets. No agent, desk,
+selection, physics, or gateway mapping is rendered yet. Use `scene-smoke` on a
+real macOS host to validate `SceneView`; headless widget tests intentionally
+assert only the deterministic placeholder and fallback.
 
 Development:
 
@@ -383,7 +395,7 @@ Frank fixes these while maintaining feature parity.
 
 **Architecture**: Frank 1.0 adds a headless `frankd` orchestrator and a
 versioned HTTPS/WebSocket boundary. The desktop control panel is now a separate
-Flutter package (`apps/frank_desktop`) with Forui, FlowUI, and Flame, removing
+Flutter package (`apps/frank_desktop`) with Forui, FlowUI, and `flutter_scene`, removing
 the old iced/Bevy client from the active workspace.
 
 **Security**: Symlink protection, fail-closed installs, immutable fixtures.

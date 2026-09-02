@@ -16,8 +16,10 @@ in-memory fixtures only.
 The Flutter shell is responsible for keyboard navigation and platform
 semantics (including VoiceOver on macOS and NVDA on Windows). Accessibility is a
 release gate for every interactive surface: the permanent sidebar, Projects
-tree, chat thread, composer, streaming state, and future Flame floor. The CLI
-remains the screen-reader-first fallback for administration and automation.
+tree, chat thread, composer, streaming state, and the `flutter_scene` floor
+status/fallback. The current 3D objects are static and do not enter keyboard
+traversal; future interactive agents must add scene semantics explicitly. The
+CLI remains the screen-reader-first fallback for administration and automation.
 
 ## Data and transport
 
@@ -31,5 +33,7 @@ remains the screen-reader-first fallback for administration and automation.
   user data.
 
 Re-run the audit and the Flutter dependency review after every dependency
-upgrade. Keep generated preview bundles, coverage scratch files, and legacy
-client backups outside the repository.
+upgrade. Keep generated preview bundles, coverage scratch files, compiled
+`flutter_scene_generated/` output, and legacy client backups outside version
+control. Treat `FLTEnableFlutterGPU` and the scene build hook as part of the
+trusted host/build boundary; a GPU failure must remain a nonfatal UI fallback.

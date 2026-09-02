@@ -51,15 +51,26 @@ cargo build --release -p frank-cli
 
 The first client milestone is a Flutter desktop shell using [Forui](https://forui.dev/)
 for navigation, [FlowUI](https://github.com/StacDev/flow_ui) for the chat/composer,
-and [Flame](https://pub.dev/packages/flame) for the reserved floor surface. It
-currently runs against local fixtures so the information architecture can settle
-before we wire the live reconnecting transport.
+and [`flutter_scene` 0.23.0](https://pub.dev/packages/flutter_scene) for a
+stylized low-poly 3D office foundation. It currently runs against local fixtures
+so the information architecture can settle before we wire the live reconnecting
+transport.
 
 ```sh
 cd apps/frank_desktop
 proto install
 proto run flutter -- pub get
 proto run flutter -- run -d macos
+```
+
+Flutter GPU is enabled permanently in the macOS host (`FLTEnableFlutterGPU`).
+The scene package is pinned exactly because it is pre-1.0. Its build hook is
+installed with `dart run flutter_scene:init --no-skills`; source `.glb`/`.fscene`
+files belong in `assets/`, while compiled output in `flutter_scene_generated/`
+stays ignored. Run the real-host check with:
+
+```sh
+moon run frank-desktop:scene-smoke
 ```
 
 From the repository root, Moon provides the equivalent task targets:
@@ -72,10 +83,13 @@ Use `moon run frank-desktop:analyze`, `moon run frank-desktop:test`, or
 `moon run frank-desktop:build` for the non-persistent checks.
 
 The shell has a desktop-only, fixed-width off-canvas sidebar with Office/Projects
-navigation and project missions, a floating Account Executive conversation, and
-an intentionally empty floor. The minimum supported window width is 880px; the
-sidebar can be hidden to give the main surface the full width. The CLI (`frank`)
-remains available for screen-reader-first operation and automation.
+navigation and project missions, a floating Account Executive conversation, and a
+static procedural 3D floor. The floor currently contains only the room slab,
+walls, platform, and Frank accent strips; agents, desks, selection, status,
+physics, and live gateway mapping are later milestones. The minimum supported
+window width is 880px; the sidebar can be hidden to give the main surface the
+full width. The CLI (`frank`) remains available for screen-reader-first
+operation and automation.
 
 ### 🌐 Remote Frank 1.0
 

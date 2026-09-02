@@ -318,7 +318,9 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
       state.projectById(event.projectId),
       event.missionId,
     );
-    if (mission != null) _notice('Pin simulated for ${mission.title}.', emit);
+    if (mission != null) {
+      _notice('Pin simulated for task ${mission.title}.', emit);
+    }
   }
 
   void _createMission(
@@ -327,7 +329,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
   ) {
     final project = state.projectById(event.projectId);
     if (project != null) {
-      _notice('Create mission simulated for ${project.name}.', emit);
+      _notice('Create task simulated for ${project.name}.', emit);
     }
   }
 
@@ -352,7 +354,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
     );
     final name = event.name.trim();
     if (mission != null && name.isNotEmpty) {
-      _notice('Rename simulated: ${mission.title} → $name.', emit);
+      _notice('Rename task simulated: ${mission.title} → $name.', emit);
     }
   }
 
@@ -375,7 +377,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
       event.missionId,
     );
     if (mission != null) {
-      _notice('Archive simulated for ${mission.title}.', emit);
+      _notice('Archive task simulated for ${mission.title}.', emit);
     }
   }
 

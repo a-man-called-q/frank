@@ -36,9 +36,16 @@ cd apps/frank_desktop
 proto install
 proto run flutter -- pub get
 proto run flutter -- test
+proto run flutter -- build macos --debug
+proto run flutter -- test integration_test/office_scene_smoke_test.dart -d macos --reporter compact
 ```
 
-The app's first milestone intentionally uses local fixtures. Live transport,
+The app's exact `flutter_scene: 0.23.0` pin, `hook/build.dart`, and
+`flutter_scene_generated/` policy must be present in the release diff. macOS
+must ship with `FLTEnableFlutterGPU`; Windows/Linux host flags are documented
+when those runners are added. Plain Flutter tests do not provide an Impeller
+context and therefore validate only the deterministic placeholder/error shell;
+the macOS scene smoke is the render gate. The app's first milestone intentionally uses local fixtures. Live transport,
 pairing UX, desktop packaging, tray, and single-instance behavior are promoted
 only after the fixture shell passes these checks.
 
@@ -77,6 +84,6 @@ written to the event and audit streams.
 Before calling a build `1.0.0`, run native Flutter smoke tests on every target
 that we publish. The gate must cover keyboard navigation, VoiceOver/NVDA
 semantics, reconnect after daemon restart, single-instance behavior, and the
-Projects/chat/floor surfaces. Backend release checks must also cover fake
+Projects/chat/static 3D floor surfaces. Backend release checks must also cover fake
 provider missions, approval expiry, budget pause, Git conflict, failed delivery
 retry, and updater rollback.

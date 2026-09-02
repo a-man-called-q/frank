@@ -9,13 +9,15 @@ import '../../core/gateway/frank_gateway.dart';
 import '../../core/models/workspace_models.dart';
 import '../chat/account_chat.dart';
 import '../chat/bloc/chat_bloc.dart';
+import '../floor/office_scene_floor.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
 import '../settings/settings_surface.dart';
 import 'bloc/shell_bloc.dart';
 import 'main_sidebar.dart';
+import 'presentation/frank_desktop_menu.dart';
 import 'presentation/shell_context_bar.dart';
-import 'shortcut_registry.dart';
+import 'sidebar_effect.dart';
 import 'sidebar_layout.dart';
 import 'window_chrome.dart';
 
@@ -25,9 +27,14 @@ import 'window_chrome.dart';
 /// three feature blocs are kept independent; this widget is the sole place
 /// where their lifecycle and cross-feature context are coordinated.
 class OfficeShell extends StatelessWidget {
-  const OfficeShell({required this.gateway, super.key});
+  const OfficeShell({
+    required this.gateway,
+    this.sidebarEffectBuilder,
+    super.key,
+  });
 
   final FrankGateway gateway;
+  final SidebarEffectBuilder? sidebarEffectBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -39,13 +46,15 @@ class OfficeShell extends StatelessWidget {
         BlocProvider(create: (_) => ProjectsBloc()),
         BlocProvider(create: (_) => ChatBloc(gateway: gateway)),
       ],
-      child: const _OfficeCoordinator(),
+      child: _OfficeCoordinator(sidebarEffectBuilder: sidebarEffectBuilder),
     );
   }
 }
 
 class _OfficeCoordinator extends StatelessWidget {
-  const _OfficeCoordinator();
+  const _OfficeCoordinator({required this.sidebarEffectBuilder});
+
+  final SidebarEffectBuilder? sidebarEffectBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -63,9 +72,23 @@ class _OfficeCoordinator extends StatelessWidget {
           },
         ),
         BlocListener<ShellBloc, ShellState>(
-          listenWhen: (previous, current) =>
-              previous.destination.runtimeType !=
-              current.destination.runtimeType,
+          listenWhen: (previous, current) {
+            final destinationChanged =
+                previous.destination.runtimeType !=
+                current.destination.runtimeType;
+            final officeSectionChanged = switch ((
+              previous.destination,
+              current.destination,
+            )) {
+              (
+                OfficeDestination(section: final previousSection),
+                OfficeDestination(section: final currentSection),
+              ) =>
+                previousSection != currentSection,
+              _ => false,
+            };
+            return destinationChanged || officeSectionChanged;
+          },
           listener: _syncChatContext,
         ),
         BlocListener<ProjectsBloc, ProjectsState>(
@@ -76,7 +99,7 @@ class _OfficeCoordinator extends StatelessWidget {
           listener: _syncChatContext,
         ),
       ],
-      child: const _OfficeShellBody(),
+      child: _OfficeShellBody(sidebarEffectBuilder: sidebarEffectBuilder),
     );
   }
 
@@ -87,10 +110,7 @@ class _OfficeCoordinator extends StatelessWidget {
     final mission = projects.missionById(project, projects.selectedMissionId);
     final conversation = switch (shell.destination) {
       SettingsDestination() => null,
-      OfficeDestination() =>
-        project == null
-            ? null
-            : ProjectConversationContext(projectId: project.id),
+      OfficeDestination() => null,
       ProjectsDestination() =>
         project == null
             ? null
@@ -106,7 +126,9 @@ class _OfficeCoordinator extends StatelessWidget {
 }
 
 class _OfficeShellBody extends StatefulWidget {
-  const _OfficeShellBody();
+  const _OfficeShellBody({required this.sidebarEffectBuilder});
+
+  final SidebarEffectBuilder? sidebarEffectBuilder;
 
   @override
   State<_OfficeShellBody> createState() => _OfficeShellBodyState();
@@ -123,6 +145,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     super.initState();
     _windowChrome = WindowChromeState()..addListener(_onWindowChromeChanged);
     unawaited(_windowChrome.attach());
+    HardwareKeyboard.instance.addHandler(_handleGlobalKey);
   }
 
   void _onWindowChromeChanged() {
@@ -131,15 +154,36 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _windowChrome.removeListener(_onWindowChromeChanged);
     _windowChrome.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
 
+  bool _handleGlobalKey(KeyEvent event) {
+    if (event is! KeyDownEvent) return false;
+    final keyboard = HardwareKeyboard.instance;
+    if (event.logicalKey == LogicalKeyboardKey.keyB &&
+        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+      _toggleSidebar(context);
+      return true;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.keyK &&
+        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+      _focusSearch(context);
+      return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final shell = context.watch<ShellBloc>().state;
+    return FrankDesktopMenuDismissScope(child: _buildBody(context, shell));
+  }
+
+  Widget _buildBody(BuildContext context, ShellState shell) {
     if (shell.isLoading) return const LoadingShell();
     if (shell.hasError || shell.workspace == null) {
       return ErrorShell(
@@ -164,75 +208,96 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     );
     final generating = chat.generating && chat.pendingContext == conversation;
 
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        ShellShortcutRegistry.openSearchMac: () => _focusSearch(context),
-        ShellShortcutRegistry.openSearchControl: () => _focusSearch(context),
-        ShellShortcutRegistry.toggleSidebarMac: () => _toggleSidebar(context),
-        ShellShortcutRegistry.toggleSidebarControl: () =>
-            _toggleSidebar(context),
-      },
-      child: Focus(
-        autofocus: true,
-        onKeyEvent: (_, event) => _handleShellKey(context, event),
-        child: Scaffold(
-          body: SafeArea(
-            top: false,
-            left: false,
-            right: false,
-            bottom: false,
-            child: LayoutBuilder(
-              builder: (context, _) {
-                final mainSurface = Column(
-                  children: [
-                    ShellContextBar(
-                      workspace: workspace,
-                      project: selectedProject,
-                      mission: selectedMission,
-                      sidebarVisible: shell.sidebarVisible,
-                      isFullscreen: _windowChrome.isFullscreen,
-                      onToggleSidebar: () {
-                        context.read<ShellBloc>().add(
-                          const ShellSidebarToggled(),
-                        );
-                      },
-                      onDoubleTap: () => unawaited(_windowChrome.toggleZoom()),
-                    ),
-                    Expanded(
-                      child: _MainSurface(
-                        key: const ValueKey('main-surface'),
-                        workspace: workspace,
-                        project: selectedProject,
-                        mission: selectedMission,
-                        conversation: conversation,
-                        messages: chat.messagesFor(conversation),
-                        generating: generating,
+    final nativeSidebarEffect = widget.sidebarEffectBuilder != null;
+    return Scaffold(
+      backgroundColor: nativeSidebarEffect
+          ? Colors.transparent
+          : FrankColors.canvas,
+      body: SafeArea(
+        top: false,
+        left: false,
+        right: false,
+        bottom: false,
+        child: LayoutBuilder(
+          builder: (context, _) {
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Positioned.fill(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _SidebarSlot(
+                        visible: shell.sidebarVisible,
+                        width: shell.sidebarWidth,
+                        sidebarEffectBuilder: widget.sidebarEffectBuilder,
+                        onResizeEnd: (rawWidth) => context
+                            .read<ShellBloc>()
+                            .add(ShellSidebarResizeEnded(rawWidth)),
+                        childBuilder: (width) => MainSidebar(
+                          width: width,
+                          nativeSidebarEffect:
+                              widget.sidebarEffectBuilder != null,
+                          searchFocusNode: _searchFocusNode,
+                          isFullscreen: _windowChrome.isFullscreen,
+                        ),
                       ),
-                    ),
-                  ],
-                );
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _SidebarSlot(
-                      visible: shell.sidebarVisible,
-                      width: shell.sidebarWidth,
-                      onResizeEnd: (rawWidth) => context.read<ShellBloc>().add(
-                        ShellSidebarResizeEnded(rawWidth),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            const SizedBox(
+                              key: ValueKey('main-context-strip'),
+                              height: ShellContextBar.height,
+                              child: ColoredBox(color: FrankColors.canvas),
+                            ),
+                            Expanded(
+                              child: ColoredBox(
+                                key: const ValueKey('main-surface-background'),
+                                color: FrankColors.canvas,
+                                child: _MainSurface(
+                                  key: const ValueKey('main-surface'),
+                                  workspace: workspace,
+                                  project: selectedProject,
+                                  mission: selectedMission,
+                                  conversation: conversation,
+                                  messages: chat.messagesFor(conversation),
+                                  generating: generating,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      childBuilder: (width) => MainSidebar(
-                        width: width,
-                        searchFocusNode: _searchFocusNode,
-                        isFullscreen: _windowChrome.isFullscreen,
-                      ),
-                    ),
-                    Expanded(child: mainSurface),
-                  ],
-                );
-              },
-            ),
-          ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: ShellContextBar.height,
+                  child: ShellContextBar(
+                    workspace: workspace,
+                    project: shell.activeView == WorkspaceView.projects
+                        ? selectedProject
+                        : null,
+                    mission: shell.activeView == WorkspaceView.projects
+                        ? selectedMission
+                        : null,
+                    sidebarVisible: shell.sidebarVisible,
+                    sidebarWidth: shell.sidebarWidth,
+                    isFullscreen: _windowChrome.isFullscreen,
+                    onToggleSidebar: () {
+                      context.read<ShellBloc>().add(
+                        const ShellSidebarToggled(),
+                      );
+                    },
+                    onDoubleTap: () => unawaited(_windowChrome.toggleZoom()),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -243,8 +308,9 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     OfficeProject? project,
     OfficeMission? mission,
   ) {
-    if (project == null || shell.settingsSection != null) return null;
-    if (shell.activeView == WorkspaceView.projects && mission != null) {
+    if (shell.destination is! ProjectsDestination) return null;
+    if (project == null) return null;
+    if (mission != null) {
       return MissionConversationContext(
         projectId: project.id,
         missionId: mission.id,
@@ -255,7 +321,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
 
   void _focusSearch(BuildContext context) {
     final shell = context.read<ShellBloc>();
-    if (shell.state.settingsSection != null) {
+    if (shell.state.activeView != WorkspaceView.projects) {
       shell.add(const ShellViewSelected(WorkspaceView.projects));
       context.read<ProjectsBloc>().add(const ProjectsViewEntered());
     }
@@ -270,22 +336,6 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
   void _toggleSidebar(BuildContext context) {
     context.read<ShellBloc>().add(const ShellSidebarToggled());
   }
-
-  KeyEventResult _handleShellKey(BuildContext context, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final keyboard = HardwareKeyboard.instance;
-    if (event.logicalKey == LogicalKeyboardKey.keyB &&
-        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
-      _toggleSidebar(context);
-      return KeyEventResult.handled;
-    }
-    if (event.logicalKey == LogicalKeyboardKey.keyK &&
-        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
-      _focusSearch(context);
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
-  }
 }
 
 class _SidebarSlot extends StatefulWidget {
@@ -294,12 +344,14 @@ class _SidebarSlot extends StatefulWidget {
     required this.width,
     required this.onResizeEnd,
     required this.childBuilder,
+    this.sidebarEffectBuilder,
   });
 
   final bool visible;
   final double width;
   final ValueChanged<double> onResizeEnd;
   final Widget Function(double width) childBuilder;
+  final SidebarEffectBuilder? sidebarEffectBuilder;
 
   @override
   State<_SidebarSlot> createState() => _SidebarSlotState();
@@ -366,7 +418,7 @@ class _SidebarSlotState extends State<_SidebarSlot>
         final visibleContentWidth = _dragging
             ? SidebarLayout.contentWidthForPreview(_previewWidth)
             : _targetContentWidth;
-        return SizedBox(
+        final sidebar = SizedBox(
           key: const ValueKey('sidebar-slot'),
           width: visibleWidth,
           child: IgnorePointer(
@@ -401,6 +453,7 @@ class _SidebarSlotState extends State<_SidebarSlot>
             ),
           ),
         );
+        return widget.sidebarEffectBuilder?.call(sidebar) ?? sidebar;
       },
     );
   }
@@ -548,6 +601,9 @@ class _MainSurface extends StatelessWidget {
     if (settingsSection != null) {
       return SettingsSurface(section: settingsSection, workspace: workspace);
     }
+    if (shell.destination case OfficeDestination(:final section)) {
+      return _OfficeSectionSurface(section: section);
+    }
     if (project == null || conversation == null) {
       return const NoProjectSurface();
     }
@@ -564,6 +620,103 @@ class _MainSurface extends StatelessWidget {
       ),
       onStop: () =>
           context.read<ChatBloc>().add(const ChatMessageStopRequested()),
+    );
+  }
+}
+
+class _OfficeSectionSurface extends StatelessWidget {
+  const _OfficeSectionSurface({required this.section});
+
+  final OfficeSection section;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: '${section.label} office section',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact =
+              (constraints.maxWidth.isFinite && constraints.maxWidth < 700) ||
+              (constraints.maxHeight.isFinite && constraints.maxHeight < 560);
+          final contentPadding = compact ? 18.0 : 32.0;
+          final motionDisabled =
+              MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+          return OfficeSceneFloor(
+            key: const ValueKey('office-scene-floor-wrapper'),
+            activity: OfficeSceneActivity.paused,
+            blurSigma: 12.0,
+            scrimColor: FrankColors.canvas.withValues(alpha: 0.28),
+            foreground: KeyedSubtree(
+              key: ValueKey('office-section-surface-${section.name}'),
+              child: ColoredBox(
+                key: const ValueKey('office-section-content-host'),
+                color: FrankColors.panel.withValues(alpha: 0.84),
+                child: AnimatedSwitcher(
+                  key: const ValueKey('office-section-content-switcher'),
+                  duration: motionDisabled
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  reverseDuration: motionDisabled
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: AnimatedBuilder(
+                        animation: animation,
+                        child: child,
+                        builder: (context, child) => Transform.translate(
+                          offset: Offset(0, 8 * (1 - animation.value)),
+                          child: child,
+                        ),
+                      ),
+                    );
+                  },
+                  child: SingleChildScrollView(
+                    key: ValueKey('office-section-content-${section.name}'),
+                    padding: EdgeInsets.all(contentPadding),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 760),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              section.label,
+                              style: const TextStyle(
+                                color: FrankColors.ink,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              key: ValueKey(
+                                'office-section-description-${section.name}',
+                              ),
+                              section.description,
+                              style: const TextStyle(
+                                color: FrankColors.muted,
+                                fontSize: 13,
+                                height: 1.45,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

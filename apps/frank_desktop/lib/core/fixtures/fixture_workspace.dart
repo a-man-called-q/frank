@@ -8,7 +8,7 @@ class FixtureFrankGateway implements FrankGateway {
     role: 'Account Executive',
     status: 'Available',
     initials: 'MC',
-    color: 0xFFE2A84B,
+    color: 0xFF9A68A5,
   );
 
   static const _employees = <OfficeEmployee>[

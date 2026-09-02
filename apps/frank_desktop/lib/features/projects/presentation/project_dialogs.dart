@@ -92,7 +92,7 @@ class _RenameMissionDialogState extends State<RenameMissionDialog> {
   void _submit() {
     final value = _controller.text.trim();
     if (value.isEmpty) {
-      setState(() => _error = 'Mission name cannot be empty.');
+      setState(() => _error = 'Task name cannot be empty.');
       return;
     }
     Navigator.of(context).pop(value);
@@ -101,7 +101,7 @@ class _RenameMissionDialogState extends State<RenameMissionDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Rename mission'),
+      title: const Text('Rename task'),
       content: SizedBox(
         width: 420,
         child: TextField(
@@ -112,7 +112,7 @@ class _RenameMissionDialogState extends State<RenameMissionDialog> {
           },
           onSubmitted: (_) => _submit(),
           decoration: InputDecoration(
-            labelText: 'Mission name',
+            labelText: 'Task name',
             errorText: _error,
           ),
         ),
