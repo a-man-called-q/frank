@@ -121,9 +121,7 @@ impl Orchestrator {
                     CommandResult::Accepted,
                 ))
             }
-            _ => Err(OrchestratorError::Validation(
-                "command was routed to the wrong reducer".into(),
-            )),
+            _ => super::misrouted(),
         }
     }
 }
