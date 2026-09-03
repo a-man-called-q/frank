@@ -45,7 +45,7 @@ backend/crates/frank-update ──> (leaves)
 backend/crates/frank-updater ──> frank-update
 backend/crates/frank-release-cli ──> frank-update
 backend/crates/frank-pack, frank-compress, frank-safeio, frank-service ──> (leaves)
-apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene (future FrankGateway)
+apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene ──> FrankGateway
 ```
 
 | Crate | Responsibility | Ported from (historical Caveman source) |
@@ -67,7 +67,7 @@ apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene (future Fran
 | `frank-cli` | binary `frank` — hook fast path, local engine, remote pairing/admin | `bin/install.js` CLI surface |
 | `frank-app` | Server-side facade for legacy pack/state/target/ledger operations and v1 paths | *n/a — v1 server facade* |
 | `frank-service` | Per-user `frankd` service descriptor rendering, install preview and detection | *n/a — v1 service boundary* |
-| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, and static stylized 3D `flutter_scene` floor | *n/a — v1 client migration* |
+| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, Organization/Team/Ledger surfaces, and a stylized 3D `flutter_scene` floor with an orbit/pan/zoom camera | *n/a — v1 client migration* |
 | `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — v1 updater contract* |
 | `frank-updater` | Small helper binary for verified bundle swap, restart and rollback boundary | *n/a — v1 updater helper* |
 | `frank-release-cli` | Release manifest signing/verification and artifact inventory tooling | *n/a — release tooling* |
@@ -91,7 +91,9 @@ The desktop floor is a stylized low-poly 3D foundation implemented with the
 exact pre-1.0 dependency `flutter_scene: 0.23.0` and direct `vector_math`.
 `FLTEnableFlutterGPU=true` is permanent in the macOS host. The floor awaits
 `Scene.initializeStaticResources()` before constructing its retained scene and
-orthographic camera; `SceneView` is wrapped in `IgnorePointer`, and GPU failure
+orthographic camera. `SceneView` is wrapped in `IgnorePointer` and the camera is
+driven from an `OfficeSceneInteractionSurface` layered above it, so pan, orbit
+and zoom never depend on the scene widget receiving pointer events. GPU failure
 must show a retryable nonfatal fallback while chat remains usable.
 
 The official `dart run flutter_scene:init --no-skills` setup owns
@@ -100,7 +102,8 @@ and its generated-output `.gitignore`. Track future `.glb`/`.fscene`/`.fmat`
 sources under `assets/`, never compiled output. Headless Flutter tests assert
 the deterministic placeholder and semantics; `moon run frank-desktop:scene-smoke`
 is the macOS render gate. The current room has no agents, desks, selection,
-status mapping, physics, or live gateway integration.
+status mapping, physics, or live gateway integration -- the camera is
+interactive, the scene it looks at is not.
 
 **Deliberately not split further:** no `frank-core` grab bag — `Level`/`LevelId` live
 in `frank-pack` because levels are a pack concept. The JSONC parser, marker-fence
@@ -157,8 +160,45 @@ No v1 package is released between checkpoints; 0.2.x data/config remains untouch
 
 ## Verification
 
-- `cargo test --workspace`
+Run the gate through Moon, not bare `cargo`. Moon resolves the pinned toolchain
+from `.prototools` and `.moon/toolchains.yml`; a stray newer `rustc` on `PATH`
+will happily build code that the pinned 1.89 clippy rejects, which is how a
+lint sat undetected until 2c546c0.
+
+- `moon run frank-rust:verify` — fmt, clippy `-D warnings`, tests, doctests,
+  packs, targets, architecture, remote crates.
+- `moon run frank-scrutiny:strict` — the mandatory PR gate: the above plus
+  coverage against `.config/coverage.toml`, `cargo deny` and `cargo audit`.
+  Needs `cargo-nextest`, `cargo-llvm-cov`, `cargo-deny` and `cargo-audit`
+  installed, and the `llvm-tools-preview` component that `rust-toolchain.toml`
+  declares.
+- `moon run frank-desktop:analyze` and `moon run frank-desktop:test`.
 - `cargo run -p xtask -- build-packs` then `git diff --exit-code packs/` — compiled
   prompts must match source; a diff here means someone edited generated output by hand.
 - `cargo run -p xtask -- lint-targets` — every `targets/*.toml` must parse, use only
   known probe kinds, and expand paths safely.
+
+### Known debt
+
+Recorded so it is not rediscovered from scratch.
+
+- **Coverage.** `.config/coverage.toml` carries four crates that breach their own
+  floors, and nine v1 crates registered at a first measured baseline that is in
+  places very low (frank-orchestrator 20%, frank-client 12%, frank-agent-mcp
+  11%). The sharpest single gap is `frank-cli/src/server_cmd.rs`: 1036 lines of
+  v1 remote/pairing/service commands at 0.0% coverage. These floors are raised
+  by writing tests, never by editing the numbers.
+- **Ledger and Team bypass the gateway.** `LedgerSurface` and `TeamSurface`
+  accept injected data but fall back to `fixtureLedgerDashboard()` /
+  `fixtureTeamProfiles()` inside the widget, and neither has a bloc, unlike
+  chat / shell / projects / organization. When the gateway swaps to the real
+  `frank-client` transport these two surfaces will keep rendering fixture data
+  with no error. **Must be resolved before checkpoint 3.**
+- **The orchestrator's update flow reaches the network.** `update_flow.rs` owns
+  its own reqwest client. Moving the fetch/download half into `frank-update`
+  would keep that out of the orchestration crate but changes the dependency
+  graph pinned by `xtask architecture-check`.
+- **`frank-orchestrator` keeps its tests inline.** It is the only large crate
+  without a `tests/` directory. Moving the existing 16 tests out would drop the
+  crate's measured coverage, since inline test code is measured and `tests/` is
+  not; create the directory when new tests are added, not by relocating these.
