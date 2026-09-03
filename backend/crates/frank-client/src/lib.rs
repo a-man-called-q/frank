@@ -613,7 +613,12 @@ impl RemoteClient {
             .host_str()
             .map(|host| matches!(host, "localhost" | "127.0.0.1" | "::1"))
             .unwrap_or(false);
-        if !secure && !(loopback && config.allow_insecure_local) {
+        // Stated positively so the rule reads as the policy it encodes, and so
+        // clippy::nonminimal_bool has nothing to rewrite: the transport is
+        // acceptable when it is TLS, or when it is loopback and the caller has
+        // explicitly opted into plaintext there. Truth table is unchanged.
+        let transport_allowed = secure || (loopback && config.allow_insecure_local);
+        if !transport_allowed {
             return Err(ClientError::InsecureTransport);
         }
         let mut builder = Client::builder().timeout(config.request_timeout);
