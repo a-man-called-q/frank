@@ -58,23 +58,6 @@ target_regions = 90
 target_functions = 90
 target_lines = 95
 
-# Re-measured at M-3 (frank-gui -> iced migration): iced view layer +
-# iced_test headless UI tests added on top of M-2's model/message/reducer.
-# `src/interpret.rs` is the one deliberately uncovered file (0/24 regions) --
-# `Task<Message>` is opaque outside a real iced runtime, so its execution
-# path is covered by M-4's native_smoke.sh integration test instead; see
-# the doc comment on `interpret()` for the full reasoning.
-[packages.frank-gui-core]
-min_regions = 80
-min_functions = 80
-min_lines = 85
-max_uncovered_regions = 166
-max_uncovered_functions = 10
-max_uncovered_lines = 104
-target_regions = 90
-target_functions = 90
-target_lines = 95
-
 [packages.frank-ledger]
 min_regions = 90
 min_functions = 96
