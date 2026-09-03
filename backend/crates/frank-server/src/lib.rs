@@ -30,8 +30,6 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, broadcast};
 
-pub use frank_app::service;
-
 #[derive(Debug, Error)]
 pub enum ServerError {
     #[error("store error: {0}")]
@@ -871,9 +869,9 @@ async fn diagnostics(State(state): State<ServerState>, headers: HeaderMap) -> im
             }
         })
         .collect();
-    let installed = service::is_installed();
+    let installed = frank_app::service::is_installed();
     let service = Some(ServiceStatusView {
-        service_name: service::SERVICE_NAME.to_string(),
+        service_name: frank_app::service::SERVICE_NAME.to_string(),
         installed,
         running: true,
         pid: std::process::id().into(),
