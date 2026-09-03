@@ -11,6 +11,8 @@ use frank_protocol::{MAX_COMMAND_BODY_BYTES, PrPolicy, ProjectView, PushPolicy, 
 use thiserror::Error;
 use tokio::process::Command;
 
+use crate::helpers::bounded_text;
+
 #[derive(Debug, Error)]
 pub enum GitError {
     #[error("git command failed: {command}: {message}")]
@@ -637,15 +639,6 @@ impl GitWorkflow {
 /// Keep provider/check/Git diagnostics within the same body cap as command
 /// responses.  Git can emit an arbitrarily large diff or hook traceback; a
 /// daemon must not persist that entire buffer in an operation/error row.
-fn bounded_text(bytes: &[u8]) -> String {
-    let take = bytes.len().min(MAX_COMMAND_BODY_BYTES);
-    let mut text = String::from_utf8_lossy(&bytes[..take]).into_owned();
-    if bytes.len() > take {
-        text.push_str("\n[output truncated]");
-    }
-    text
-}
-
 fn bounded_command_output(stdout: &[u8], stderr: &[u8]) -> String {
     let mut bytes = Vec::with_capacity((stdout.len() + stderr.len()).min(MAX_COMMAND_BODY_BYTES));
     let stdout_take = stdout.len().min(MAX_COMMAND_BODY_BYTES);
