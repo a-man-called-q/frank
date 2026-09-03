@@ -17,13 +17,23 @@ allow = [
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
-  # OSI-approved, FSF-free permissive license (Boost C++ libraries). First
-  # pulled in by the frank-gui -> iced migration: iced_winit ->
-  # window_clipboard -> clipboard-win/error-code (Windows clipboard access).
-  # No copyleft, no binary-distribution notice requirement -- same category
-  # as MIT/Zlib below, just historically unseen in the Tauri graph.
+  # OSI-approved, FSF-free permissive license (Boost C++ libraries). No
+  # copyleft, no binary-distribution notice requirement -- same category as
+  # MIT/Zlib below. Originally added for the iced desktop graph (iced_winit ->
+  # window_clipboard -> clipboard-win/error-code); none of those crates are in
+  # Cargo.lock any more after the move to Flutter, so this entry may now be
+  # dead. Kept because cargo-deny does not report unused allows by default and
+  # dropping an allow unverified trades a documented exception for a red gate.
   "BSL-1.0",
   "CC0-1.0",
+  # Data license, not a code license. Carried by webpki-roots, which ships the
+  # Mozilla CA root store as data -- reached twice over, through sqlx-core and
+  # through reqwest -> hyper-rustls, so it is not avoidable without giving up
+  # rustls' bundled roots. CDLA-Permissive-2.0 imposes no copyleft, no
+  # share-alike on derived data, and no notice requirement on binaries; the
+  # only obligation is not to misrepresent the data's provenance. Same
+  # practical footing as the permissive code licenses above.
+  "CDLA-Permissive-2.0",
   "ISC",
   "MIT",
   "MPL-2.0",
