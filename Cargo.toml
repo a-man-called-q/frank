@@ -12,23 +12,23 @@ authors = ["Julius Brussee"]
 repository = "https://github.com/a-man-called-q/frank"
 
 [workspace.dependencies]
-frank-safeio = { path = "backend/crates/frank-safeio" }
-frank-pack = { path = "backend/crates/frank-pack" }
-frank-state = { path = "backend/crates/frank-state" }
-frank-ledger = { path = "backend/crates/frank-ledger" }
-frank-compress = { path = "backend/crates/frank-compress" }
-frank-target = { path = "backend/crates/frank-target" }
-frank-mcp = { path = "backend/crates/frank-mcp" }
-frank-app = { path = "backend/crates/frank-app" }
-frank-protocol = { path = "backend/crates/frank-protocol" }
-frank-store = { path = "backend/crates/frank-store" }
-frank-agent = { path = "backend/crates/frank-agent" }
-frank-orchestrator = { path = "backend/crates/frank-orchestrator" }
-frank-server = { path = "backend/crates/frank-server" }
-frank-client = { path = "backend/crates/frank-client" }
-frank-agent-mcp = { path = "backend/crates/frank-agent-mcp" }
-frank-update = { path = "backend/crates/frank-update" }
-frank-release-cli = { path = "backend/crates/frank-release-cli" }
+frank-safeio = { path = "backend/crates/frank-safeio", version = "1.0.0" }
+frank-pack = { path = "backend/crates/frank-pack", version = "1.0.0" }
+frank-state = { path = "backend/crates/frank-state", version = "1.0.0" }
+frank-ledger = { path = "backend/crates/frank-ledger", version = "1.0.0" }
+frank-compress = { path = "backend/crates/frank-compress", version = "1.0.0" }
+frank-target = { path = "backend/crates/frank-target", version = "1.0.0" }
+frank-mcp = { path = "backend/crates/frank-mcp", version = "1.0.0" }
+frank-app = { path = "backend/crates/frank-app", version = "1.0.0" }
+frank-protocol = { path = "backend/crates/frank-protocol", version = "1.0.0" }
+frank-store = { path = "backend/crates/frank-store", version = "1.0.0" }
+frank-agent = { path = "backend/crates/frank-agent", version = "1.0.0" }
+frank-orchestrator = { path = "backend/crates/frank-orchestrator", version = "1.0.0" }
+frank-server = { path = "backend/crates/frank-server", version = "1.0.0" }
+frank-client = { path = "backend/crates/frank-client", version = "1.0.0" }
+frank-agent-mcp = { path = "backend/crates/frank-agent-mcp", version = "1.0.0" }
+frank-update = { path = "backend/crates/frank-update", version = "1.0.0" }
+frank-release-cli = { path = "backend/crates/frank-release-cli", version = "1.0.0" }
 proptest = "1"
 
 clap = { version = "4", features = ["derive"] }

@@ -10,14 +10,14 @@ name = "frank"
 path = "src/main.rs"
 
 [dependencies]
-frank-app = { path = "../frank-app", version = "1.0.0" }
-frank-pack = { path = "../frank-pack", version = "1.0.0" }
-frank-state = { path = "../frank-state", version = "1.0.0" }
-frank-safeio = { path = "../frank-safeio", version = "1.0.0" }
-frank-ledger = { path = "../frank-ledger", version = "1.0.0" }
-frank-compress = { path = "../frank-compress", version = "1.0.0" }
-frank-target = { path = "../frank-target", version = "1.0.0" }
-frank-mcp = { path = "../frank-mcp", version = "1.0.0" }
+frank-app.workspace = true
+frank-pack.workspace = true
+frank-state.workspace = true
+frank-safeio.workspace = true
+frank-ledger.workspace = true
+frank-compress.workspace = true
+frank-target.workspace = true
+frank-mcp.workspace = true
 frank-client.workspace = true
 frank-protocol.workspace = true
 tokio.workspace = true
