@@ -15,3 +15,8 @@ android/
 web/
 linux/
 windows/
+
+# Golden *failure* artifacts, written by flutter_test when a golden mismatches
+# (isolatedDiff/maskedDiff/masterImage/testImage). These are build output for a
+# red test, not baselines -- the baselines live in test/goldens/goldens/.
+test/goldens/failures/
