@@ -33,18 +33,18 @@ backend/crates/frank-state ──> frank-pack, frank-safeio
 backend/crates/frank-ledger ──> frank-state, frank-safeio
 backend/crates/frank-target ──> frank-pack, frank-safeio
 backend/crates/frank-mcp ──> frank-compress
-backend/crates/frank-app ──> frank-pack, frank-state, frank-safeio, frank-target, frank-ledger
+backend/crates/frank-app ──> frank-pack, frank-state, frank-safeio, frank-service, frank-target, frank-ledger
 backend/crates/frank-protocol ──> (leaves)
 backend/crates/frank-store ──> frank-protocol, frank-safeio
 backend/crates/frank-agent ──> frank-protocol
 backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
-backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio
+backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-service, frank-protocol, frank-safeio
 backend/crates/frank-client ──> frank-protocol
 backend/crates/frank-agent-mcp ──> frank-client, frank-protocol
 backend/crates/frank-update ──> (leaves)
 backend/crates/frank-updater ──> frank-update
 backend/crates/frank-release-cli ──> frank-update
-backend/crates/frank-pack, frank-compress, frank-safeio ──> (leaves)
+backend/crates/frank-pack, frank-compress, frank-safeio, frank-service ──> (leaves)
 apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene (future FrankGateway)
 ```
 
@@ -66,6 +66,7 @@ apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene (future Fran
 | `frank-agent-mcp` | Local authenticated task-scoped MCP bridge for provider sessions | *n/a — v1 provider bridge* |
 | `frank-cli` | binary `frank` — hook fast path, local engine, remote pairing/admin | `bin/install.js` CLI surface |
 | `frank-app` | Server-side facade for legacy pack/state/target/ledger operations and v1 paths | *n/a — v1 server facade* |
+| `frank-service` | Per-user `frankd` service descriptor rendering, install preview and detection | *n/a — v1 service boundary* |
 | `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, and static stylized 3D `flutter_scene` floor | *n/a — v1 client migration* |
 | `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — v1 updater contract* |
 | `frank-updater` | Small helper binary for verified bundle swap, restart and rollback boundary | *n/a — v1 updater helper* |

@@ -869,9 +869,9 @@ async fn diagnostics(State(state): State<ServerState>, headers: HeaderMap) -> im
             }
         })
         .collect();
-    let installed = frank_app::service::is_installed();
+    let installed = frank_service::is_installed();
     let service = Some(ServiceStatusView {
-        service_name: frank_app::service::SERVICE_NAME.to_string(),
+        service_name: frank_service::SERVICE_NAME.to_string(),
         installed,
         running: true,
         pid: std::process::id().into(),

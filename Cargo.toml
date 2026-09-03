@@ -13,6 +13,7 @@ repository = "https://github.com/a-man-called-q/frank"
 
 [workspace.dependencies]
 frank-safeio = { path = "backend/crates/frank-safeio", version = "1.0.0" }
+frank-service = { path = "backend/crates/frank-service", version = "1.0.0" }
 frank-pack = { path = "backend/crates/frank-pack", version = "1.0.0" }
 frank-state = { path = "backend/crates/frank-state", version = "1.0.0" }
 frank-ledger = { path = "backend/crates/frank-ledger", version = "1.0.0" }

@@ -7,10 +7,10 @@ license.workspace = true
 
 [dependencies]
 frank-agent.workspace = true
-frank-app.workspace = true
 frank-orchestrator.workspace = true
 frank-protocol.workspace = true
 frank-safeio.workspace = true
+frank-service.workspace = true
 frank-store.workspace = true
 axum.workspace = true
 axum-server.workspace = true

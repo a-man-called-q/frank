@@ -669,6 +669,7 @@ dependencies = [
  "frank-ledger",
  "frank-pack",
  "frank-safeio",
+ "frank-service",
  "frank-state",
  "frank-target",
  "proptest",
@@ -839,10 +840,10 @@ dependencies = [
  "axum-server",
  "clap",
  "frank-agent",
- "frank-app",
  "frank-orchestrator",
  "frank-protocol",
  "frank-safeio",
+ "frank-service",
  "frank-store",
  "futures-util",
  "getrandom 0.3.4",
@@ -857,6 +858,14 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "frank-service"
+version = "1.0.0"
+dependencies = [
+ "frank-safeio",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

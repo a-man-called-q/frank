@@ -9,6 +9,7 @@ license.workspace = true
 frank-pack.workspace = true
 frank-state.workspace = true
 frank-safeio.workspace = true
+frank-service.workspace = true
 frank-target.workspace = true
 frank-ledger.workspace = true
 serde.workspace = true

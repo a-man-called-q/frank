@@ -22,9 +22,13 @@ mod pack_service;
 mod plan_store;
 mod prepare;
 mod repository;
-pub mod service;
 mod settings;
 mod target_service;
+
+// The service descriptor boundary lives in its own leaf crate so frankd can
+// depend on it without pulling in pack/state/target/ledger. Re-exported here
+// so existing `frank_app::service::` callers keep working.
+pub use frank_service as service;
 
 pub use builtin::{PACK_ID as BUILTIN_PACK_ID, builtin_pack};
 
