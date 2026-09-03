@@ -18,5 +18,8 @@ windows/
 
 # Golden *failure* artifacts, written by flutter_test when a golden mismatches
 # (isolatedDiff/maskedDiff/masterImage/testImage). These are build output for a
-# red test, not baselines -- the baselines live in test/goldens/goldens/.
-test/goldens/failures/
+# red test, not baselines -- the baselines live alongside them in goldens/.
+# Every suite that owns goldens gets its own failures/ dir (test/goldens/,
+# test/organization/, test/team/, ...), so match the directory name anywhere
+# under test/ rather than listing them one by one.
+test/**/failures/
