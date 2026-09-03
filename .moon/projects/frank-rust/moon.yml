@@ -5,6 +5,12 @@ stack: 'systems'
 toolchains:
   default: 'rust'
 
+# Every task below sets `cache: false` deliberately, and it is not an
+# optimisation left on the table. Eight of the eleven declare no `inputs`, so
+# Moon has nothing meaningful to hash for them and a cache hit would report a
+# gate as passing without running it. Turning caching on requires declaring
+# complete inputs per task first -- do that before flipping the flag, not after.
+
 tasks:
   build:
     command: 'cargo build --workspace --all-targets --locked'

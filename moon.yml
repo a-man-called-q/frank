@@ -6,6 +6,10 @@ workspace:
   inheritedTasks:
     include: []
 
+# `cache: false` throughout: these are thin wrappers that shell out to the
+# frank-rust and frank-scrutiny projects, so caching them would cache a
+# delegation rather than any real work. See .moon/projects/frank-rust/moon.yml.
+
 tasks:
   verify:
     command: 'moon run frank-rust:verify'
