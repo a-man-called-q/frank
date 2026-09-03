@@ -21,6 +21,7 @@ import 'bloc/shell_bloc.dart';
 import 'main_sidebar.dart';
 import 'presentation/frank_desktop_menu.dart';
 import 'presentation/shell_context_bar.dart';
+import 'shortcut_registry.dart';
 import 'sidebar_effect.dart';
 import 'sidebar_layout.dart';
 import 'window_chrome.dart';
@@ -189,13 +190,11 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
   bool _handleGlobalKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
     final keyboard = HardwareKeyboard.instance;
-    if (event.logicalKey == LogicalKeyboardKey.keyB &&
-        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+    if (ShellShortcutRegistry.matchesToggleSidebar(event, keyboard)) {
       _toggleSidebar(context);
       return true;
     }
-    if (event.logicalKey == LogicalKeyboardKey.keyK &&
-        (keyboard.isControlPressed || keyboard.isMetaPressed)) {
+    if (ShellShortcutRegistry.matchesOpenSearch(event, keyboard)) {
       _focusSearch(context);
       return true;
     }

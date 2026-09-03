@@ -2,6 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flow_ui/flow_ui.dart';
+// Not redundant with flutter/material above, and not removable: flow_ui builds
+// entirely on package:material_ui (29 of its files import it; it never imports
+// flutter/material). Its widgets therefore look up material_ui's own Material
+// and MaterialLocalizations *types*, which are distinct from Flutter's despite
+// the identical names. Dropping this import -- or either delegate below --
+// makes flow_ui widgets assert "No MaterialLocalizations found" at runtime.
 import 'package:material_ui/material_ui.dart' as mui;
 
 import '../../app/icons.dart';
