@@ -10,7 +10,6 @@ import '../../core/models/workspace_models.dart';
 import '../chat/account_chat.dart';
 import '../chat/bloc/chat_bloc.dart';
 import '../floor/office_scene_floor.dart';
-import '../floor/floor_view_reset_button.dart';
 import '../ledger/ledger_surface.dart';
 import '../organization/bloc/organization_bloc.dart';
 import '../organization/organization_surface.dart';
@@ -305,19 +304,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
                                           conversation,
                                         ),
                                         generating: generating,
-                                      ),
-                                    ),
-                                    Positioned(
-                                      top: 16,
-                                      right: 16,
-                                      child: AnimatedBuilder(
-                                        animation: _sceneController,
-                                        builder: (context, child) =>
-                                            FloorViewResetButton(
-                                              enabled:
-                                                  _sceneController.canReset,
-                                              onPressed: _sceneController.reset,
-                                            ),
+                                        sceneController: _sceneController,
                                       ),
                                     ),
                                   ],
@@ -661,6 +648,7 @@ class _MainSurface extends StatelessWidget {
     required this.conversation,
     required this.messages,
     required this.generating,
+    required this.sceneController,
     super.key,
   });
 
@@ -670,6 +658,7 @@ class _MainSurface extends StatelessWidget {
   final ConversationContext? conversation;
   final List<OfficeMessage> messages;
   final bool generating;
+  final OfficeSceneController sceneController;
 
   @override
   Widget build(BuildContext context) {
@@ -692,6 +681,9 @@ class _MainSurface extends StatelessWidget {
       // chat rail floor-free prevents a project switch from replacing the
       // scene/controller that carries the camera state.
       renderFloor: false,
+      // Reused so the floor-reset button (rendered beside the composer) acts
+      // on the same camera the shell's shared floor is displaying.
+      sceneController: sceneController,
       onSend: (text) => context.read<ChatBloc>().add(
         ChatMessageSubmitted(context: conversation!, text: text),
       ),

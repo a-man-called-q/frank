@@ -110,8 +110,28 @@ void main() {
     final composerRect = tester.getRect(
       find.byKey(const ValueKey('composer-surface')),
     );
+    final floorPanel = find.byKey(const ValueKey('floor-control-panel'));
+    expect(floorPanel, findsOneWidget);
+    expect(
+      find.descendant(
+        of: floorPanel,
+        matching: find.byKey(const ValueKey('floor-reset-view-button')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester.getRect(floorPanel).left,
+      closeTo(composerRect.right + 8, 0.1),
+    );
+    expect(
+      tester.getRect(floorPanel).height,
+      closeTo(composerRect.height, 0.1),
+    );
     expect(transcriptRect.left, closeTo(composerRect.left + 18, 0.1));
-    expect(transcriptRect.right, closeTo(composerRect.right - 18, 0.1));
+    // The floor recenter control sits beside the composer in the shared
+    // office rail, so the passive transcript extends beyond the composer by
+    // the control panel's reserved width rather than ending at the same inset.
+    expect(transcriptRect.right, closeTo(composerRect.right + 46, 0.1));
     expect(find.text('You:'), findsOneWidget);
     expect(find.text('Maya:'), findsOneWidget);
     expect(find.byType(FlowMarkdown), findsNWidgets(2));

@@ -13,7 +13,6 @@ import 'package:material_ui/material_ui.dart' as mui;
 import '../../app/icons.dart';
 import '../../app/theme.dart';
 import '../../core/models/workspace_models.dart';
-import '../floor/floor_view_reset_button.dart';
 import '../floor/office_scene_floor.dart';
 import 'presentation/focusable_composer.dart';
 
@@ -28,6 +27,7 @@ class AccountExecutiveChat extends StatefulWidget {
     required this.onSend,
     required this.onStop,
     this.renderFloor = true,
+    this.sceneController,
     super.key,
   });
 
@@ -41,16 +41,26 @@ class AccountExecutiveChat extends StatefulWidget {
   final VoidCallback onStop;
   final bool renderFloor;
 
+  /// Shared camera controller owned by a caller that renders its own floor
+  /// (for example the shell, which keeps one retained floor across every
+  /// destination). When absent, this widget owns and disposes its own
+  /// controller, which is the standalone/test path used with [renderFloor].
+  final OfficeSceneController? sceneController;
+
   @override
   State<AccountExecutiveChat> createState() => _AccountExecutiveChatState();
 }
 
 class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
-  late final OfficeSceneController _sceneController = OfficeSceneController();
+  OfficeSceneController? _ownedSceneController;
+
+  OfficeSceneController get _sceneController =>
+      widget.sceneController ??
+      (_ownedSceneController ??= OfficeSceneController());
 
   @override
   void dispose() {
-    _sceneController.dispose();
+    _ownedSceneController?.dispose();
     super.dispose();
   }
 
@@ -83,17 +93,6 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
                 Positioned.fill(
                   child: OfficeSceneFloor(controller: _sceneController),
                 ),
-                Positioned(
-                  top: 64,
-                  right: 16,
-                  child: AnimatedBuilder(
-                    animation: _sceneController,
-                    builder: (context, child) => FloorViewResetButton(
-                      enabled: _sceneController.canReset,
-                      onPressed: _sceneController.reset,
-                    ),
-                  ),
-                ),
               ],
               if (showConversationRail)
                 Positioned.fill(
@@ -113,6 +112,7 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
                           generating: widget.generating,
                           onSend: widget.onSend,
                           onStop: widget.onStop,
+                          sceneController: _sceneController,
                         ),
                       ),
                     ),
@@ -186,6 +186,7 @@ class _ConversationRail extends StatelessWidget {
     required this.generating,
     required this.onSend,
     required this.onStop,
+    required this.sceneController,
   });
 
   final OfficeEmployee executive;
@@ -196,6 +197,7 @@ class _ConversationRail extends StatelessWidget {
   final bool generating;
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
+  final OfficeSceneController sceneController;
 
   @override
   Widget build(BuildContext context) {
@@ -258,13 +260,31 @@ class _ConversationRail extends StatelessWidget {
               ),
               const SizedBox(height: 8),
             ],
-            FocusableComposer(
-              generating: generating,
-              onSend: onSend,
-              onStop: onStop,
-              executive: executive,
-              project: project,
-              mission: mission,
+            Row(
+              // Keep the row's height driven by the composer. A stretch row
+              // receives an unbounded height from the surrounding Column and
+              // can otherwise expand to the rail's entire viewport.
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: FocusableComposer(
+                    generating: generating,
+                    onSend: onSend,
+                    onStop: onStop,
+                    executive: executive,
+                    project: project,
+                    mission: mission,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedBuilder(
+                  animation: sceneController,
+                  builder: (context, child) => _FloorControlPanel(
+                    enabled: sceneController.canReset,
+                    onPressed: sceneController.reset,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -349,6 +369,110 @@ class _PassiveConversationLogState extends State<_PassiveConversationLog> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dedicated floor-control panel rendered beside the composer.
+///
+/// This is intentionally a separate surface from the chat transcript. The
+/// panel stretches to the composer's height and keeps the center button in its
+/// own hit-test region, while the transcript above remains click-through.
+class _FloorControlPanel extends StatelessWidget {
+  const _FloorControlPanel({required this.enabled, required this.onPressed});
+
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label: 'Floor controls',
+      child: Container(
+        key: const ValueKey('floor-control-panel'),
+        width: 56,
+        // Matches the default two-line composer surface. Keeping the panel's
+        // height explicit avoids an unbounded flex while preserving the
+        // dedicated, full-height control surface beside the composer.
+        height: 110,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: FrankColors.panel.withValues(alpha: 0.97),
+          borderRadius: BorderRadius.circular(19),
+          border: Border.all(color: FrankColors.border.withValues(alpha: 0.92)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.32),
+              blurRadius: 18,
+              spreadRadius: -6,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Center(
+          child: _RecenterFloorButton(enabled: enabled, onPressed: onPressed),
+        ),
+      ),
+    );
+  }
+}
+
+/// Center button inside [_FloorControlPanel].
+class _RecenterFloorButton extends StatelessWidget {
+  const _RecenterFloorButton({required this.enabled, required this.onPressed});
+
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Reset floor view',
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.35),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: IconButton(
+          key: const ValueKey('floor-reset-view-button'),
+          onPressed: enabled ? onPressed : null,
+          tooltip: 'Reset floor view',
+          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          padding: EdgeInsets.zero,
+          style: ButtonStyle(
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            shape: const WidgetStatePropertyAll(
+              RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+              ),
+            ),
+            overlayColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.hovered) ||
+                  states.contains(WidgetState.focused)) {
+                return FrankColors.aubergineSoft;
+              }
+              return Colors.transparent;
+            }),
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              if (!enabled) return FrankColors.muted.withValues(alpha: 0.4);
+              if (states.contains(WidgetState.hovered) ||
+                  states.contains(WidgetState.focused)) {
+                return FrankColors.ink;
+              }
+              return FrankColors.muted;
+            }),
+            splashFactory: NoSplash.splashFactory,
+            animationDuration: Duration.zero,
+          ),
+          icon: const Icon(FrankIcons.recenter, size: 16),
         ),
       ),
     );

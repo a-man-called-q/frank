@@ -756,15 +756,7 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
               controller: widget.controller!,
               child: sceneView,
             ),
-      overlay: const IgnorePointer(
-        child: Align(
-          alignment: Alignment.topRight,
-          child: Padding(
-            padding: EdgeInsets.all(14),
-            child: _OfficeSceneStatus(),
-          ),
-        ),
-      ),
+      overlay: null,
     );
   }
 }
@@ -820,37 +812,6 @@ class _OfficeSceneLoadingBadge extends StatelessWidget {
   }
 }
 
-class _OfficeSceneStatus extends StatelessWidget {
-  const _OfficeSceneStatus();
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      container: true,
-      explicitChildNodes: true,
-      label: 'Office floor ready',
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: FrankColors.panel.withValues(alpha: 0.86),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: FrankColors.border),
-        ),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-          child: Text(
-            '3D FLOOR · READY',
-            style: TextStyle(
-              color: FrankColors.muted,
-              fontFamily: FrankTypography.monoFontFamily,
-              fontSize: 9,
-              letterSpacing: 0.8,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _OfficeSceneError extends StatelessWidget {
   const _OfficeSceneError({required this.onRetry});

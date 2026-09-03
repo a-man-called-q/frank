@@ -29,7 +29,6 @@ void main() {
     }
 
     expect(find.byKey(const ValueKey('office-scene-view')), findsOneWidget);
-    expect(find.bySemanticsLabel('Office floor ready'), findsOneWidget);
     final sceneView = tester.widget<SceneView>(
       find.byKey(const ValueKey('office-scene-view')),
     );
@@ -113,7 +112,6 @@ void main() {
     final collapsedSceneView = tester.widget<SceneView>(sceneViewFinder);
     expect(identical(retainedScene, collapsedSceneView.scene), isTrue);
     expect(identical(retainedCamera, collapsedSceneView.camera), isTrue);
-    expect(find.bySemanticsLabel('Office floor ready'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     // Projects reuses the shell's retained floor and controller. Verify the

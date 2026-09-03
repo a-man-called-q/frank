@@ -70,7 +70,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(bloc.state.selectedNodeId, 'staff-maya');
     expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.bySemanticsLabel('Organization inspector'), findsOneWidget);
+    expect(find.text('Staff'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await expectLater(
       // The compact inspector is presented through MaterialApp's overlay,
@@ -96,6 +96,7 @@ Future<OrganizationBloc> _pumpOrganization(
     MediaQuery(
       data: const MediaQueryData(disableAnimations: true),
       child: MaterialApp(
+        debugShowCheckedModeBanner: false,
         theme: buildFrankTheme(Brightness.dark),
         home: BlocProvider.value(
           value: bloc,
