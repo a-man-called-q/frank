@@ -1,5 +1,5 @@
 moon = "2.4.5"
-rust = "1.88.0"
+rust = "1.89.0"
 flutter = "3.47.1"
 
 [plugins.tools]
