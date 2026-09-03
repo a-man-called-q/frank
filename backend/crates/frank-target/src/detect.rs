@@ -308,7 +308,17 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::write(&command, "#!/bin/sh\nsleep 1\nprintf 'frank 1.2.3\\n'\n").unwrap();
+            // Sleeps so the probe has to go round its 10ms poll loop rather
+            // than reading a child that has already exited -- but only just.
+            // At `sleep 1` against COMMAND_PROBE_TIMEOUT of 2s this had a 2x
+            // margin, which instrumented coverage builds (cargo llvm-cov
+            // nextest --jobs 1) exhaust: it failed at 2.011s and 2.014s in two
+            // of three such runs while passing every uninstrumented one. The
+            // assertion is about capturing stdout/stderr, not about timing;
+            // the timeout path is owned by
+            // command_version_probe_times_out_and_fails_closed below, which
+            // keeps its own margin and is deliberately left alone.
+            fs::write(&command, "#!/bin/sh\nsleep 0.2\nprintf 'frank 1.2.3\\n'\n").unwrap();
             let mut permissions = fs::metadata(&command).unwrap().permissions();
             permissions.set_mode(0o755);
             fs::set_permissions(&command, permissions).unwrap();
