@@ -23,12 +23,6 @@ final class ProjectsDestination extends ShellDestination {
   const ProjectsDestination();
 }
 
-final class SettingsDestination extends ShellDestination {
-  const SettingsDestination(this.section);
-
-  final SettingsSection section;
-}
-
 class ShellState {
   const ShellState({
     this.status = ShellLoadStatus.loading,
@@ -39,7 +33,6 @@ class ShellState {
     this.preferencesStatus = ShellPreferencesStatus.loading,
     this.projectScope,
     this.pinnedMissionIds = const [],
-    this.lastSettingsSection = SettingsSection.team,
     this.error,
   });
 
@@ -51,21 +44,14 @@ class ShellState {
   final ShellPreferencesStatus preferencesStatus;
   final String? projectScope;
   final List<String> pinnedMissionIds;
-  final SettingsSection lastSettingsSection;
   final String? error;
 
   /// Compatibility getter for callers that still use the old terminology.
   bool get sidebarCollapsed => !sidebarVisible;
 
-  WorkspaceView? get activeView => switch (destination) {
+  WorkspaceView get activeView => switch (destination) {
     OfficeDestination() => WorkspaceView.office,
     ProjectsDestination() => WorkspaceView.projects,
-    SettingsDestination() => null,
-  };
-
-  SettingsSection? get settingsSection => switch (destination) {
-    SettingsDestination(:final section) => section,
-    _ => null,
   };
 
   OfficeSection? get officeSection => switch (destination) {
@@ -87,7 +73,6 @@ class ShellState {
     ShellPreferencesStatus? preferencesStatus,
     Object? projectScope = _unset,
     List<String>? pinnedMissionIds,
-    SettingsSection? lastSettingsSection,
     String? error,
     bool clearError = false,
   }) {
@@ -104,7 +89,6 @@ class ShellState {
           ? this.projectScope
           : projectScope as String?,
       pinnedMissionIds: pinnedMissionIds ?? this.pinnedMissionIds,
-      lastSettingsSection: lastSettingsSection ?? this.lastSettingsSection,
       error: clearError ? null : error ?? this.error,
     );
   }
@@ -134,16 +118,6 @@ final class ShellOfficeSectionSelected extends ShellEvent {
   const ShellOfficeSectionSelected(this.section);
 
   final OfficeSection section;
-}
-
-final class ShellSettingsOpened extends ShellEvent {
-  const ShellSettingsOpened();
-}
-
-final class ShellSettingsSelected extends ShellEvent {
-  const ShellSettingsSelected(this.section);
-
-  final SettingsSection section;
 }
 
 final class ShellSidebarToggled extends ShellEvent {
@@ -177,8 +151,6 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
     on<ShellRetryRequested>((_, emit) => _loadWorkspace(emit));
     on<ShellViewSelected>(_selectView);
     on<ShellOfficeSectionSelected>(_selectOfficeSection);
-    on<ShellSettingsOpened>(_openSettings);
-    on<ShellSettingsSelected>(_selectSettings);
     on<ShellSidebarToggled>(_toggleSidebar);
     on<ShellSidebarResizeEnded>(_resizeSidebar);
     on<ShellProjectScopeChanged>(_changeProjectScope);
@@ -268,25 +240,6 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
     emit(
       state.copyWith(
         destination: OfficeDestination(event.section),
-        clearError: true,
-      ),
-    );
-  }
-
-  void _openSettings(ShellSettingsOpened event, Emitter<ShellState> emit) {
-    emit(
-      state.copyWith(
-        destination: SettingsDestination(state.lastSettingsSection),
-        clearError: true,
-      ),
-    );
-  }
-
-  void _selectSettings(ShellSettingsSelected event, Emitter<ShellState> emit) {
-    emit(
-      state.copyWith(
-        destination: SettingsDestination(event.section),
-        lastSettingsSection: event.section,
         clearError: true,
       ),
     );

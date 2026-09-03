@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_scene/scene.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
+import 'package:frank_desktop/features/chat/presentation/focusable_composer.dart';
 import 'package:frank_desktop/features/shell/sidebar_layout.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
@@ -115,10 +116,10 @@ void main() {
     expect(find.bySemanticsLabel('Office floor ready'), findsOneWidget);
     expect(tester.takeException(), isNull);
 
-    // The chat floor owns a separate controller. Verify the desktop mouse
-    // contract against the retained camera: left drag pans, right drag only
-    // changes horizontal orbit, and the composer side action restores the
-    // initial framing.
+    // Projects reuses the shell's retained floor and controller. Verify the
+    // desktop mouse contract against that same camera: the passive transcript
+    // forwards left drag and wheel input to the floor, right drag only changes
+    // horizontal orbit, and the floor reset action restores the initial view.
     await tester.tap(find.byTooltip('Show the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 420));
     final projectsView = find.bySemanticsLabel('Projects view');
@@ -152,7 +153,25 @@ void main() {
     final chatInitialPosition = chatScene.camera!.position;
     final chatInitialForward = chatScene.camera!.forward;
     final chatRect = tester.getRect(chatSceneFinder);
-    final floorPoint = Offset(chatRect.center.dx, chatRect.top + 80);
+    final transcriptFinder = find.byKey(
+      const ValueKey('passive-chat-transcript'),
+    );
+    expect(transcriptFinder, findsOneWidget);
+    final transcriptRect = tester.getRect(transcriptFinder);
+    final floorPoint = transcriptRect.center;
+
+    final composerFinder = find.byType(FocusableComposer);
+    expect(composerFinder, findsOneWidget);
+    final beforeComposerTap = tester
+        .widget<SceneView>(chatSceneFinder)
+        .camera!
+        .position;
+    await tester.tap(composerFinder, warnIfMissed: false);
+    await tester.pump();
+    _expectVectorClose(
+      tester.widget<SceneView>(chatSceneFinder).camera!.position,
+      beforeComposerTap,
+    );
 
     final panGesture = await tester.startGesture(
       floorPoint,
@@ -192,14 +211,40 @@ void main() {
       _distanceBetween(orbitedForward, chatInitialForward),
       greaterThan(0.01),
     );
+
+    final chatProjection = chatScene.camera!.projection;
+    final initialProjectionScale = chatProjection
+        .getProjectionMatrix(chatRect.width / chatRect.height)
+        .storage[5];
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: floorPoint,
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+    final zoomedProjectionScale = tester
+        .widget<SceneView>(chatSceneFinder)
+        .camera!
+        .projection
+        .getProjectionMatrix(chatRect.width / chatRect.height)
+        .storage[5];
+    expect(zoomedProjectionScale, greaterThan(initialProjectionScale));
+
     await tester.tap(
-      find.byKey(const ValueKey('composer-reset-view-button')),
+      find.byKey(const ValueKey('floor-reset-view-button')),
       warnIfMissed: false,
     );
     await tester.pump();
     final resetScene = tester.widget<SceneView>(chatSceneFinder);
     _expectVectorClose(resetScene.camera!.position, chatInitialPosition);
     _expectVectorClose(resetScene.camera!.forward, chatInitialForward);
+    expect(
+      resetScene.camera!.projection
+          .getProjectionMatrix(chatRect.width / chatRect.height)
+          .storage[5],
+      closeTo(initialProjectionScale, 1e-6),
+    );
     expect(tester.takeException(), isNull);
   });
 }

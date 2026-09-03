@@ -32,6 +32,20 @@ void main() {
     expect(controller.target.z, inInclusiveRange(-4.0, 4.0));
   });
 
+  test('primary pan follows the pointer in both screen directions', () {
+    final controller = OfficeSceneController()..setReady(true);
+    addTearDown(controller.dispose);
+
+    controller.panByPixels(const Offset(80, 0), const Size(800, 400));
+    expect(controller.target.x, greaterThan(0.0));
+
+    controller.reset();
+    controller.panByPixels(const Offset(0, 80), const Size(800, 400));
+    // The camera's screen-up axis points toward -Z at the authored angle;
+    // moving the target there makes the floor follow a downward drag.
+    expect(controller.target.z, lessThan(0.0));
+  });
+
   test('secondary rotation changes yaw but ignores vertical movement', () {
     final controller = OfficeSceneController()..setReady(true);
     addTearDown(controller.dispose);
@@ -49,12 +63,40 @@ void main() {
     expect(controller.eye.y, closeTo(8.5, 1e-6));
   });
 
+  test(
+    'scroll zoom changes the lens scale without moving the camera target',
+    () {
+      final controller = OfficeSceneController()..setReady(true);
+      addTearDown(controller.dispose);
+      final initialTarget = controller.target;
+      final initialYaw = controller.yaw;
+
+      controller.zoomByScroll(-120.0);
+
+      expect(controller.zoom, greaterThan(OfficeSceneController.initialZoom));
+      expect(controller.target.x, closeTo(initialTarget.x, 1e-9));
+      expect(controller.target.y, closeTo(initialTarget.y, 1e-6));
+      expect(controller.target.z, closeTo(initialTarget.z, 1e-9));
+      expect(controller.yaw, closeTo(initialYaw, 1e-9));
+
+      controller.reset();
+      controller.zoomByScale(1.25);
+      expect(controller.zoom, closeTo(1.25, 1e-9));
+
+      controller.zoomByScroll(-100000.0);
+      expect(controller.zoom, closeTo(OfficeSceneController.maxZoom, 1e-9));
+      controller.zoomByScroll(100000.0);
+      expect(controller.zoom, closeTo(OfficeSceneController.minZoom, 1e-9));
+    },
+  );
+
   test('reset restores the authored target and yaw', () {
     final controller = OfficeSceneController()..setReady(true);
     addTearDown(controller.dispose);
 
     controller.panByPixels(const Offset(80, 20), const Size(800, 400));
     controller.rotateByPixels(const Offset(-140, 0), const Size(800, 400));
+    controller.zoomByScroll(-120.0);
     expect(controller.canReset, isTrue);
 
     controller.reset();
@@ -62,6 +104,7 @@ void main() {
     expect(controller.target.y, closeTo(0.8, 1e-6));
     expect(controller.target.z, closeTo(0.0, 1e-9));
     expect(controller.yaw, closeTo(OfficeSceneController.initialYaw, 1e-9));
+    expect(controller.zoom, closeTo(OfficeSceneController.initialZoom, 1e-9));
     expect(controller.canReset, isFalse);
   });
 
@@ -112,6 +155,30 @@ void main() {
     expect(controller.yaw, greaterThan(initialYaw));
     expect(controller.target.x, closeTo(0.0, 1e-9));
     expect(controller.target.z, closeTo(0.0, 1e-9));
+
+    controller.reset();
+    await tester.sendEventToBinding(
+      const PointerScrollEvent(
+        kind: PointerDeviceKind.trackpad,
+        position: Offset(100, 80),
+        scrollDelta: Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+    expect(controller.zoom, greaterThan(OfficeSceneController.initialZoom));
+
+    controller.reset();
+    await tester.sendEventToBinding(
+      const PointerPanZoomStartEvent(position: Offset(100, 80)),
+    );
+    await tester.sendEventToBinding(
+      const PointerPanZoomUpdateEvent(position: Offset(100, 80), scale: 1.25),
+    );
+    await tester.sendEventToBinding(
+      const PointerPanZoomEndEvent(position: Offset(100, 80)),
+    );
+    await tester.pump();
+    expect(controller.zoom, closeTo(1.25, 1e-9));
 
     controller.reset();
     final clicked = await tester.startGesture(

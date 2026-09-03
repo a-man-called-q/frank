@@ -687,7 +687,7 @@ class _FrankDesktopMenuSurfaceState extends State<_FrankDesktopMenuSurface> {
                     ),
                     decoration: BoxDecoration(
                       color: item.checked
-                          ? FrankColors.aubergine.withValues(alpha: 0.18)
+                          ? FrankColors.aubergineAccent.withValues(alpha: 0.18)
                           : FrankColors.panel,
                       borderRadius: BorderRadius.circular(4),
                     ),
@@ -695,7 +695,7 @@ class _FrankDesktopMenuSurfaceState extends State<_FrankDesktopMenuSurface> {
                       item.badge!,
                       style: TextStyle(
                         color: item.checked
-                            ? FrankColors.aubergine
+                            ? FrankColors.aubergineAccent
                             : FrankColors.muted,
                         fontSize: 10,
                         fontWeight: FontWeight.w500,

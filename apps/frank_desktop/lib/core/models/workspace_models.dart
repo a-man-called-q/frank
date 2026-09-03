@@ -30,8 +30,6 @@ extension OfficeSectionMetadata on OfficeSection {
   };
 }
 
-enum SettingsSection { projects, team, activity, ledger }
-
 enum ProjectStatus { planning, active, review, delivered }
 
 enum MissionStatus {

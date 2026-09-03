@@ -11,13 +11,44 @@ abstract final class FrankTypography {
   static const monoFontFamily = 'GeistMono';
 }
 
+/// Shared geometry and interaction values for Frank's compact desktop UI.
+///
+/// The sidebar is the visual reference for feature surfaces. Keeping these
+/// values in the app theme lets Organization (and future Office surfaces) use
+/// the same quiet rhythm without coupling feature code to Forui internals.
+abstract final class FrankUiTokens {
+  static const controlRadius = 7.0;
+  static const panelRadius = 8.0;
+  static const controlHeight = 32.0;
+  static const toolbarHeight = 36.0;
+  static const iconSize = 16.0;
+  static const textSize = 12.0;
+  static const hoverInkOpacity = 0.06;
+  static const selectedInkOpacity = 0.08;
+  static const borderWidth = 1.0;
+  static const inset = 12.0;
+}
+
 ThemeData buildFrankTheme(Brightness brightness) {
   final dark = brightness == Brightness.dark;
-  final scheme = ColorScheme.fromSeed(
-    seedColor: FrankColors.aubergine,
-    brightness: brightness,
-    surface: dark ? const Color(0xFF101113) : const Color(0xFFF7F7F4),
-  );
+  final scheme =
+      ColorScheme.fromSeed(
+        // The brand hue is deliberately deep; the lighter companion is reserved
+        // for focus, selection, and the occasional primary action.
+        seedColor: FrankColors.aubergine,
+        brightness: brightness,
+        surface: dark ? const Color(0xFF101113) : const Color(0xFFF7F7F4),
+      ).copyWith(
+        // Filled actions use the dark brand surface. The lighter companion is
+        // intentionally limited to focus/selection accents in individual
+        // components so purple never becomes the page's dominant color.
+        primary: FrankColors.aubergine,
+        onPrimary: Colors.white,
+        primaryContainer: FrankColors.aubergineSoft,
+        onPrimaryContainer: FrankColors.ink,
+        secondary: FrankColors.aubergineAccent,
+        onSecondary: Colors.white,
+      );
   final immediateButtonStyle = ButtonStyle(
     overlayColor: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.pressed)) return Colors.transparent;
@@ -159,8 +190,11 @@ FThemeData buildFrankForuiTheme(Brightness brightness) {
 }
 
 abstract final class FrankColors {
-  static const aubergine = Color(0xFF9A68A5);
-  static const aubergineSoft = Color(0xFF302238);
+  /// Base brand hue. Keep this dark enough to read as a surface tint rather
+  /// than a second accent color.
+  static const aubergine = Color(0xFF4A263D);
+  static const aubergineSoft = Color(0xFF241921);
+  static const aubergineAccent = Color(0xFF9B708D);
   static const warningAmber = Color(0xFFE2A84B);
   static const warningAmberSoft = Color(0xFF3A2E1C);
   static const ink = Color(0xFFE8E9E7);

@@ -43,7 +43,7 @@ final _frankMenuTileStyle = FTileStyleDelta.delta(
         TextStyleDelta.delta(
           fontFamily: FrankTypography.uiFontFamily,
           fontFamilyFallback: FrankTypography.uiFontFallback,
-          fontSize: 14,
+          fontSize: FrankUiTokens.textSize + 2,
           height: 20 / 14,
         ),
       ),
@@ -68,9 +68,8 @@ final _frankMenuStyle = FPopoverMenuStyleDelta.delta(
 );
 
 // Office navigation uses the same quiet, compact visual language as the
-// project inbox. Keep this style scoped to the Office group so the Settings
-// navigation can retain its existing Forui treatment until it gets its own
-// design pass.
+// project inbox. Keeping this style scoped to the Office group prevents
+// unrelated menu surfaces from inheriting its compact treatment.
 final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
   padding: const EdgeInsetsDelta.value(EdgeInsets.symmetric(horizontal: 12)),
   headerPadding: const EdgeInsetsGeometryDelta.value(
@@ -81,7 +80,7 @@ final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
       fontFamily: FrankTypography.uiFontFamily,
       fontFamilyFallback: FrankTypography.uiFontFallback,
       color: FrankColors.muted,
-      fontSize: 12,
+      fontSize: FrankUiTokens.textSize,
       fontWeight: FontWeight.w400,
       height: 16 / 12,
     ),
@@ -94,44 +93,42 @@ final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
           fontFamily: FrankTypography.uiFontFamily,
           fontFamilyFallback: FrankTypography.uiFontFallback,
           color: FrankColors.muted,
-          fontSize: 12,
+          fontSize: FrankUiTokens.textSize,
           fontWeight: FontWeight.w400,
           height: 16 / 12,
         ),
       ),
-      FVariantOperation.exact(
-        {FTappableVariant.selected},
-        TextStyleDelta.delta(color: FrankColors.ink),
-      ),
+      FVariantOperation.exact({
+        FTappableVariant.selected,
+      }, TextStyleDelta.delta(color: FrankColors.ink)),
     ]),
     iconSpacing: 8,
     iconStyle: FVariantsDelta.delta([
       FVariantOperation.all(
-        IconThemeDataDelta.delta(color: FrankColors.muted, size: 16),
+        IconThemeDataDelta.delta(
+          color: FrankColors.muted,
+          size: FrankUiTokens.iconSize,
+        ),
       ),
-      FVariantOperation.exact(
-        {FTappableVariant.selected},
-        IconThemeDataDelta.delta(color: FrankColors.ink),
-      ),
+      FVariantOperation.exact({
+        FTappableVariant.selected,
+      }, IconThemeDataDelta.delta(color: FrankColors.ink)),
     ]),
     padding: const EdgeInsetsGeometryDelta.value(
       EdgeInsets.symmetric(horizontal: 6, vertical: 7),
     ),
-    borderRadius: BorderRadius.circular(7),
+    borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
     backgroundColor: FVariantsValueDelta.delta([
       FVariantValueDeltaOperation.all(Colors.transparent),
-      FVariantValueDeltaOperation.exact(
-        {FTappableVariant.hovered},
-        FrankColors.ink.withValues(alpha: 0.06),
-      ),
-      FVariantValueDeltaOperation.exact(
-        {FTappableVariant.selected},
-        FrankColors.ink.withValues(alpha: 0.08),
-      ),
-      FVariantValueDeltaOperation.exact(
-        {FTappableVariant.pressed},
-        FrankColors.ink.withValues(alpha: 0.08),
-      ),
+      FVariantValueDeltaOperation.exact({
+        FTappableVariant.hovered,
+      }, FrankColors.ink.withValues(alpha: FrankUiTokens.hoverInkOpacity)),
+      FVariantValueDeltaOperation.exact({
+        FTappableVariant.selected,
+      }, FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)),
+      FVariantValueDeltaOperation.exact({
+        FTappableVariant.pressed,
+      }, FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)),
     ]),
     focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
       color: Colors.transparent,
@@ -257,7 +254,6 @@ class MainSidebar extends StatelessWidget {
             workspaceName: workspace.name,
             activeView: shell.activeView,
             officeSection: shell.officeSection ?? OfficeSection.organization,
-            settingsSection: shell.settingsSection,
             projects: projectsState.projects,
             selectedProjectId: projectsState.selectedProjectId,
             selectedMissionId: projectsState.selectedMissionId,
@@ -274,12 +270,6 @@ class MainSidebar extends StatelessWidget {
             onSelectOfficeSection: (section) => context.read<ShellBloc>().add(
               ShellOfficeSectionSelected(section),
             ),
-            onOpenSettings: (_) {
-              context.read<ShellBloc>().add(const ShellSettingsOpened());
-            },
-            onSelectSettings: (section) {
-              context.read<ShellBloc>().add(ShellSettingsSelected(section));
-            },
             onToggleProject: (projectId) =>
                 context.read<ProjectsBloc>().add(ProjectToggled(projectId)),
             onSelectMission: (projectId, missionId) {
@@ -397,7 +387,7 @@ class MainSidebar extends StatelessWidget {
       builder: (_) => ProjectConfirmationDialog(
         title: 'Archive project?',
         message:
-            '“${project.name}” will move to Settings → Projects → Archived when project actions are connected.',
+            '“${project.name}” will move to the archived project list when project actions are connected.',
         confirmLabel: 'Archive project',
       ),
     );

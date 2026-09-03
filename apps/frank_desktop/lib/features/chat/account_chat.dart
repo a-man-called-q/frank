@@ -10,7 +10,6 @@ import '../../core/models/workspace_models.dart';
 import '../floor/floor_view_reset_button.dart';
 import '../floor/office_scene_floor.dart';
 import 'presentation/focusable_composer.dart';
-import 'presentation/flow_message_mapper.dart';
 
 class AccountExecutiveChat extends StatefulWidget {
   const AccountExecutiveChat({
@@ -22,6 +21,7 @@ class AccountExecutiveChat extends StatefulWidget {
     required this.generating,
     required this.onSend,
     required this.onStop,
+    this.renderFloor = true,
     super.key,
   });
 
@@ -33,6 +33,7 @@ class AccountExecutiveChat extends StatefulWidget {
   final bool generating;
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
+  final bool renderFloor;
 
   @override
   State<AccountExecutiveChat> createState() => _AccountExecutiveChatState();
@@ -40,18 +41,6 @@ class AccountExecutiveChat extends StatefulWidget {
 
 class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
   late final OfficeSceneController _sceneController = OfficeSceneController();
-
-  @override
-  void didUpdateWidget(covariant AccountExecutiveChat oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final contextChanged =
-        oldWidget.project.id != widget.project.id ||
-        oldWidget.mission?.id != widget.mission?.id ||
-        oldWidget.officeView != widget.officeView;
-    if (contextChanged) {
-      _sceneController.reset();
-    }
-  }
 
   @override
   void dispose() {
@@ -84,20 +73,22 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
           return Stack(
             fit: StackFit.expand,
             children: [
-              Positioned.fill(
-                child: OfficeSceneFloor(controller: _sceneController),
-              ),
-              Positioned(
-                top: 64,
-                right: 16,
-                child: AnimatedBuilder(
-                  animation: _sceneController,
-                  builder: (context, child) => FloorViewResetButton(
-                    enabled: _sceneController.canReset,
-                    onPressed: _sceneController.reset,
+              if (widget.renderFloor) ...[
+                Positioned.fill(
+                  child: OfficeSceneFloor(controller: _sceneController),
+                ),
+                Positioned(
+                  top: 64,
+                  right: 16,
+                  child: AnimatedBuilder(
+                    animation: _sceneController,
+                    builder: (context, child) => FloorViewResetButton(
+                      enabled: _sceneController.canReset,
+                      onPressed: _sceneController.reset,
+                    ),
                   ),
                 ),
-              ),
+              ],
               if (showConversationRail)
                 Positioned.fill(
                   child: Align(
@@ -202,7 +193,6 @@ class _ConversationRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final flowMessages = messages.map(toFlowMessage).toList(growable: false);
     return Localizations(
       locale: const Locale('en', 'US'),
       delegates: const [
@@ -211,7 +201,10 @@ class _ConversationRail extends StatelessWidget {
         mui.DefaultMaterialLocalizations.delegate,
       ],
       child: mui.Material(
-        color: Colors.transparent,
+        // A canvas Material absorbs hit tests even with a transparent color.
+        // Transparency keeps Flow UI's inherited Material context without
+        // turning the whole rail into an interaction shield over the floor.
+        type: mui.MaterialType.transparency,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -229,50 +222,43 @@ class _ConversationRail extends StatelessWidget {
               ),
             ],
             Expanded(
-              child: FlowChatView(
-                // The rail owns the empty state so the floor is never
-                // replaced by FlowChatView's full-surface zero state.
-                empty: false,
-                thread: FlowThread(
-                  messages: flowMessages,
-                  padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                  itemSpacing: 12,
-                  messageBuilder: (context, message) =>
-                      _FloatingMessage(executive: executive, message: message),
-                  thinkingLabel: 'Maya is thinking…',
-                ),
-                aboveComposer: messages.isEmpty
-                    ? FlowSuggestionGroup(
-                        layout: FlowSuggestionLayout.column,
-                        suggestions: [
-                          FlowSuggestion(
-                            label: 'Turn a rough idea into a project brief',
-                            icon: FrankIcons.editNote,
-                            onTap: () => onSend(
-                              'Help me turn this rough idea into a project brief.',
-                            ),
-                          ),
-                          FlowSuggestion(
-                            label: 'Suggest a team for my next project',
-                            icon: FrankIcons.users,
-                            onTap: () => onSend(
-                              'Suggest the smallest team for my next project.',
-                            ),
-                          ),
-                        ],
-                      )
-                    : null,
-                composer: FocusableComposer(
-                  generating: generating,
-                  onSend: onSend,
-                  onStop: onStop,
-                  executive: executive,
-                  project: project,
-                  mission: mission,
-                ),
-                maxContentWidth: 760,
-                padding: EdgeInsets.zero,
+              child: _PassiveConversationLog(
+                executive: executive,
+                messages: messages,
               ),
+            ),
+            if (messages.isEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: FlowSuggestionGroup(
+                  layout: FlowSuggestionLayout.column,
+                  suggestions: [
+                    FlowSuggestion(
+                      label: 'Turn a rough idea into a project brief',
+                      icon: FrankIcons.editNote,
+                      onTap: () => onSend(
+                        'Help me turn this rough idea into a project brief.',
+                      ),
+                    ),
+                    FlowSuggestion(
+                      label: 'Suggest a team for my next project',
+                      icon: FrankIcons.users,
+                      onTap: () => onSend(
+                        'Suggest the smallest team for my next project.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            FocusableComposer(
+              generating: generating,
+              onSend: onSend,
+              onStop: onStop,
+              executive: executive,
+              project: project,
+              mission: mission,
             ),
           ],
         ),
@@ -281,58 +267,149 @@ class _ConversationRail extends StatelessWidget {
   }
 }
 
-class _FloatingMessage extends StatelessWidget {
-  const _FloatingMessage({required this.executive, required this.message});
+/// A transcript that is visually present but never wins pointer hit testing.
+///
+/// The reversed, non-scrollable list keeps the newest messages at the bottom
+/// of the viewport. Once the history is taller than the available space, the
+/// older rows remain in state but are clipped above the visible log, just like
+/// a compact MMORPG chat window.
+class _PassiveConversationLog extends StatefulWidget {
+  const _PassiveConversationLog({
+    required this.executive,
+    required this.messages,
+  });
 
   final OfficeEmployee executive;
-  final FlowMessageData message;
+  final List<OfficeMessage> messages;
+
+  @override
+  State<_PassiveConversationLog> createState() =>
+      _PassiveConversationLogState();
+}
+
+class _PassiveConversationLogState extends State<_PassiveConversationLog> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final assistant = message.role == FlowMessageRole.assistant;
-    final content = FlowMessage(
-      message,
-      markdown: true,
-      maxBubbleWidthFraction: 1,
-      bubbleRadius: BorderRadius.circular(12),
-      bubblePadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      thinkingLabel: 'Maya is thinking…',
-      leading: assistant
-          ? CircleAvatar(
-              radius: 13,
-              backgroundColor: Color(executive.color),
-              child: Text(
-                executive.initials,
-                style: const TextStyle(color: Color(0xFF17191C), fontSize: 8),
+    final hasMessages = widget.messages.isNotEmpty;
+    return MouseRegion(
+      opaque: false,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Padding(
+        // Leave a small breathing rail at either side; the lower edge stays
+        // flush and square so the transcript can sit on the composer cleanly.
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: ClipRRect(
+          key: const ValueKey('passive-chat-transcript-clip'),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(14),
+            topRight: Radius.circular(14),
+          ),
+          child: IgnorePointer(
+            key: const ValueKey('passive-chat-transcript'),
+            child: AnimatedContainer(
+              key: const ValueKey('passive-chat-transcript-background'),
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
+              decoration: BoxDecoration(
+                color: hasMessages && _hovered
+                    ? Colors.black.withValues(alpha: .07)
+                    : Colors.transparent,
               ),
-            )
-          : null,
-    );
-
-    final bubble = assistant
-        ? Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: FrankColors.panel.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: FrankColors.border),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black38,
-                  blurRadius: 14,
-                  spreadRadius: -5,
-                ),
-              ],
+              child: ListView.builder(
+                key: const ValueKey('chat-transcript-list'),
+                reverse: true,
+                primary: false,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+                itemCount: widget.messages.length,
+                itemBuilder: (context, index) {
+                  // A reversed list starts with the newest message at the bottom.
+                  final message =
+                      widget.messages[widget.messages.length - 1 - index];
+                  return Padding(
+                    key: ValueKey('chat-log-message-${message.id}'),
+                    padding: EdgeInsets.only(
+                      top: index == widget.messages.length - 1 ? 0 : 12,
+                    ),
+                    child: _ChatLogMessage(
+                      executive: widget.executive,
+                      message: message,
+                    ),
+                  );
+                },
+              ),
             ),
-            child: content,
-          )
-        : content;
+          ),
+        ),
+      ),
+    );
+  }
+}
 
-    return Align(
-      alignment: assistant ? Alignment.centerLeft : Alignment.centerRight,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 600),
-        child: bubble,
+class _ChatLogMessage extends StatelessWidget {
+  const _ChatLogMessage({required this.executive, required this.message});
+
+  final OfficeEmployee executive;
+  final OfficeMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final assistant = message.role == ChatRole.assistant;
+    final speaker = assistant ? executive.name.split(' ').first : 'You';
+    final nameColor = assistant ? Color(executive.color) : FrankColors.muted;
+    final bodyColor = switch (message.status) {
+      OfficeMessageStatus.error => Theme.of(context).colorScheme.error,
+      OfficeMessageStatus.stopped => FrankColors.muted,
+      _ => FrankColors.ink,
+    };
+    final isThinking =
+        message.status == OfficeMessageStatus.pending &&
+        message.text.trim().isEmpty;
+
+    return Semantics(
+      container: true,
+      label: '$speaker: ${isThinking ? 'is thinking…' : message.text}',
+      child: Row(
+        key: ValueKey('chat-log-row-${message.id}'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$speaker:',
+            style: TextStyle(
+              color: nameColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: isThinking
+                ? const Text(
+                    'is thinking…',
+                    style: TextStyle(
+                      color: FrankColors.muted,
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
+                  )
+                : message.text.isEmpty
+                ? const SizedBox.shrink()
+                : FlowMarkdown(
+                    text: message.text,
+                    isStreaming:
+                        message.status == OfficeMessageStatus.streaming,
+                    style: TextStyle(
+                      color: bodyColor,
+                      fontSize: 13,
+                      height: 1.45,
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }

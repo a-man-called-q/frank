@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,7 +41,7 @@ void main() {
     expect(find.text('Organization'), findsWidgets);
     expect(find.text('Team'), findsOneWidget);
     expect(find.text('Ledger'), findsOneWidget);
-    expect(find.text('Taskboard'), findsOneWidget);
+    expect(find.text('Taskboard'), findsWidgets);
     expect(find.text('Journal'), findsOneWidget);
     expect(
       tester
@@ -50,10 +51,8 @@ void main() {
           .selected,
       isTrue,
     );
-    expect(
-      find.text('Configure agents, connections, and taskboard assignments.'),
-      findsOneWidget,
-    );
+    expect(find.text('Maya Chen'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('mission-shelf-scroll-view')),
       findsNothing,
@@ -64,6 +63,51 @@ void main() {
     );
     expect(find.bySemanticsLabel('Frank'), findsOneWidget);
     expect(find.byType(FocusableComposer), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('sidebar footer exposes a disabled User profile control', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+
+    final userButton = find.byKey(const ValueKey('sidebar-user-button'));
+    expect(userButton, findsOneWidget);
+    expect(
+      find.descendant(of: userButton, matching: find.text('User')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: userButton, matching: find.text('U')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('User profile is not available yet'), findsOneWidget);
+
+    final semantics = tester.getSemantics(userButton);
+    expect(semantics.flagsCollection.isButton, isTrue);
+    expect(semantics.flagsCollection.isEnabled, Tristate.isFalse);
+    expect(semantics.label, 'User');
+    expect(semantics.hint, 'User profile is not available yet');
+
+    await tester.tap(userButton);
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('office-section-surface-organization')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('compact sidebar keeps the User control within the viewport', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(880, 340));
+    await _pumpApp(tester);
+
+    final userButton = find.byKey(const ValueKey('sidebar-user-button'));
+    expect(userButton, findsOneWidget);
+    expect(tester.getRect(userButton).bottom, lessThanOrEqualTo(340));
     expect(tester.takeException(), isNull);
   });
 
@@ -111,6 +155,20 @@ void main() {
 
     final stage = find.byKey(const ValueKey('office-scene-stage'));
     final stageElement = tester.element(stage);
+    final retainedController = tester
+        .widget<OfficeSceneFloor>(find.byType(OfficeSceneFloor))
+        .controller!;
+    retainedController.setReady(true);
+    retainedController.panByPixels(const Offset(72, 24), const Size(900, 640));
+    retainedController.rotateByPixels(
+      const Offset(48, 0),
+      const Size(900, 640),
+    );
+    retainedController.zoomByScroll(-120);
+    final retainedTargetX = retainedController.target.x;
+    final retainedTargetZ = retainedController.target.z;
+    final retainedYaw = retainedController.yaw;
+    final retainedZoom = retainedController.zoom;
     final filter = tester.widget<ImageFiltered>(
       find.byKey(const ValueKey('office-scene-image-filter')),
     );
@@ -137,6 +195,30 @@ void main() {
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
       find.byKey(const ValueKey('office-section-content-ledger')),
+      findsOneWidget,
+    );
+
+    await _openProjects(tester);
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(identical(stageElement, tester.element(stage)), isTrue);
+    expect(
+      find.byKey(const ValueKey('mission-shelf-scroll-view')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.bySemanticsLabel('Office view'));
+    await tester.pump(const Duration(milliseconds: 220));
+    expect(identical(stageElement, tester.element(stage)), isTrue);
+    final officeController = tester
+        .widget<OfficeSceneFloor>(find.byType(OfficeSceneFloor))
+        .controller!;
+    expect(identical(retainedController, officeController), isTrue);
+    expect(officeController.target.x, closeTo(retainedTargetX, 1e-9));
+    expect(officeController.target.z, closeTo(retainedTargetZ, 1e-9));
+    expect(officeController.yaw, closeTo(retainedYaw, 1e-9));
+    expect(officeController.zoom, closeTo(retainedZoom, 1e-9));
+    expect(
+      find.byKey(const ValueKey('office-section-content-organization')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -327,14 +409,10 @@ void main() {
     );
   });
 
-  testWidgets('Cmd/Ctrl+K from Settings returns to inline search', (
-    tester,
-  ) async {
+  testWidgets('Cmd/Ctrl+K from Office opens inline search', (tester) async {
     _setWindow(tester);
     await _pumpApp(tester);
 
-    await tester.tap(find.byTooltip('Open workspace settings'));
-    await tester.pump(const Duration(milliseconds: 220));
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
@@ -443,7 +521,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('scope, pinning, agent search, and settings navigation work', (
+  testWidgets('scope, pinning, agent search, and Office navigation work', (
     tester,
   ) async {
     _setWindow(tester);
@@ -482,15 +560,10 @@ void main() {
     await tester.tap(find.text('Maya Chen'));
     await tester.pump(const Duration(milliseconds: 220));
     expect(
-      find.text('Manage the agents available to Frank Agency.'),
+      find.byKey(const ValueKey('office-section-surface-team')),
       findsOneWidget,
     );
-
-    await tester.tap(find.byTooltip('Open workspace settings'));
-    await tester.pump(const Duration(milliseconds: 220));
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Activity'), findsOneWidget);
-    expect(find.text('Ledger'), findsOneWidget);
+    expect(find.bySemanticsLabel('Team roster'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

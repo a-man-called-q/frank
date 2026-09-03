@@ -25,11 +25,11 @@ extension OfficeSceneActivityX on OfficeSceneActivity {
 
 /// Owns the transient camera state for an interactive office floor.
 ///
-/// The controller deliberately models only the two interactions currently
-/// supported by the desktop floor: horizontal orbit and ground-plane pan. It
-/// is independent from the GPU scene, which keeps the gesture and reset
-/// behavior deterministic in widget/unit tests and lets the composer share the
-/// same reset action without reaching into the renderer.
+/// The controller deliberately models the interactions currently supported by
+/// the desktop floor: horizontal orbit, ground-plane pan, and orthographic
+/// zoom. It is independent from the GPU scene, which keeps the gesture and
+/// reset behavior deterministic in widget/unit tests and lets the composer
+/// share the same reset action without reaching into the renderer.
 class OfficeSceneController extends ChangeNotifier {
   OfficeSceneController({
     this.viewportWorldHeight = 11.0,
@@ -57,6 +57,16 @@ class OfficeSceneController extends ChangeNotifier {
   static const double initialEyeZ = 12.0;
   static const double initialTargetX = 0.0;
   static const double initialTargetZ = 0.0;
+  static const double initialZoom = 1.0;
+
+  /// The zoom range keeps the authored floor useful without letting the
+  /// orthographic lens become so wide or tight that the room disappears.
+  static const double minZoom = 0.65;
+  static const double maxZoom = 2.0;
+
+  /// Scroll units are conventionally reported in 120-unit wheel notches.
+  static const double zoomScrollSensitivity = 1.0 / 120.0;
+  static const double zoomScrollSpeed = 0.15;
 
   // The horizontal orbit convention matches the eye used by the existing
   // scene: eye = target + (-sin(yaw), 0, -cos(yaw)) * horizontalDistance.
@@ -70,6 +80,7 @@ class OfficeSceneController extends ChangeNotifier {
   double _targetX = initialTargetX;
   double _targetZ = initialTargetZ;
   double _yaw = initialYaw;
+  double _zoom = initialZoom;
   bool _isReady = false;
 
   /// Current world-space point around which the camera looks.
@@ -79,6 +90,11 @@ class OfficeSceneController extends ChangeNotifier {
   /// Current camera yaw in radians. Elevation is intentionally fixed.
   @visibleForTesting
   double get yaw => _yaw;
+
+  /// Current orthographic zoom factor. `1` is the authored framing; values
+  /// above one zoom in and values below one zoom out.
+  @visibleForTesting
+  double get zoom => _zoom;
 
   /// Current world-space camera eye, useful for deterministic assertions.
   @visibleForTesting
@@ -92,7 +108,8 @@ class OfficeSceneController extends ChangeNotifier {
   bool get _atInitialView =>
       (_targetX - initialTargetX).abs() < 1e-9 &&
       (_targetZ - initialTargetZ).abs() < 1e-9 &&
-      (_yaw - initialYaw).abs() < 1e-9;
+      (_yaw - initialYaw).abs() < 1e-9 &&
+      (_zoom - initialZoom).abs() < 1e-9;
 
   /// Marks the controller as attached to a successfully initialized scene.
   /// This is public so the stage can keep the composer button disabled while
@@ -109,6 +126,7 @@ class OfficeSceneController extends ChangeNotifier {
     _targetX = initialTargetX;
     _targetZ = initialTargetZ;
     _yaw = initialYaw;
+    _zoom = initialZoom;
     if (changed) notifyListeners();
   }
 
@@ -119,13 +137,16 @@ class OfficeSceneController extends ChangeNotifier {
     final height = viewport.height.isFinite && viewport.height > 0
         ? viewport.height
         : 1.0;
-    final pixelsToWorld = viewportWorldHeight / height;
+    final pixelsToWorld = viewportWorldHeight / _zoom / height;
 
     final eye = _eyeFor(target);
     final forward = target - eye;
     forward.normalize();
-    final right = forward.cross(vm.Vector3(0.0, 1.0, 0.0))..normalize();
-    final up = right.cross(forward);
+    // Keep the basis in the same convention as flutter_scene's camera
+    // controller: +X is the camera's screen-right axis and +Y is screen-up.
+    // Using the opposite cross-product order makes a drag feel reversed.
+    final right = vm.Vector3(0.0, 1.0, 0.0).cross(forward)..normalize();
+    final up = forward.cross(right);
     final groundUp = vm.Vector3(up.x, 0.0, up.z);
     if (groundUp.length2 > 0) groundUp.normalize();
 
@@ -148,8 +169,32 @@ class OfficeSceneController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Applies a mouse-wheel/trackpad scroll as an orthographic zoom.
+  ///
+  /// Flutter reports positive scroll deltas when scrolling down/away, so a
+  /// positive value zooms out and a negative value zooms in. The exponential
+  /// response keeps one wheel notch feeling consistent at either end of the
+  /// range.
+  @visibleForTesting
+  void zoomByScroll(double scrollDelta) {
+    if (!_isReady || !scrollDelta.isFinite || scrollDelta == 0.0) return;
+    _setZoom(
+      _zoom * math.exp(-scrollDelta * zoomScrollSensitivity * zoomScrollSpeed),
+    );
+  }
+
+  /// Applies a pinch scale factor, where values above one zoom in and values
+  /// below one zoom out. Trackpad pan/zoom events report this as a cumulative
+  /// scale; the interaction surface converts that into a per-event factor.
+  @visibleForTesting
+  void zoomByScale(double scaleFactor) {
+    if (!_isReady || !scaleFactor.isFinite || scaleFactor <= 0.0) return;
+    _setZoom(_zoom * scaleFactor);
+  }
+
   /// Updates a retained camera node from the current controller state.
-  void applyTo(Node cameraNode) {
+  void applyTo(Node cameraNode, {OfficeOrthographicProjection? projection}) {
+    projection?.zoom = _zoom;
     cameraNode.lookAtFrom(_eyeFor(target), target);
   }
 
@@ -162,6 +207,13 @@ class OfficeSceneController extends ChangeNotifier {
     }
     _targetX = clampedX;
     _targetZ = clampedZ;
+    notifyListeners();
+  }
+
+  void _setZoom(double value) {
+    final nextZoom = value.clamp(minZoom, maxZoom).toDouble();
+    if ((_zoom - nextZoom).abs() < 1e-9) return;
+    _zoom = nextZoom;
     notifyListeners();
   }
 
@@ -194,6 +246,7 @@ class OfficeSceneInteractionSurface extends StatefulWidget {
 class _OfficeSceneInteractionSurfaceState
     extends State<OfficeSceneInteractionSurface> {
   bool _dragging = false;
+  double _panZoomLastScale = 1.0;
 
   void _onPointerDown(PointerDownEvent event) {
     if (event.kind != PointerDeviceKind.mouse) return;
@@ -213,6 +266,37 @@ class _OfficeSceneInteractionSurfaceState
     }
   }
 
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is PointerScrollEvent) {
+      // Mouse wheels and trackpad scroll signals use the same path, even
+      // though the latter carries PointerDeviceKind.trackpad.
+      if (event.kind != PointerDeviceKind.mouse &&
+          event.kind != PointerDeviceKind.trackpad) {
+        return;
+      }
+      widget.controller.zoomByScroll(event.scrollDelta.dy);
+    } else if (event is PointerScaleEvent) {
+      widget.controller.zoomByScale(event.scale);
+    }
+  }
+
+  void _onPointerPanZoomStart(PointerPanZoomStartEvent event) {
+    _panZoomLastScale = 1.0;
+  }
+
+  void _onPointerPanZoomUpdate(PointerPanZoomUpdateEvent event) {
+    final scale = event.scale;
+    if (!scale.isFinite || scale <= 0.0) return;
+    final previousScale = _panZoomLastScale;
+    _panZoomLastScale = scale;
+    if (!previousScale.isFinite || previousScale <= 0.0) return;
+    widget.controller.zoomByScale(scale / previousScale);
+  }
+
+  void _onPointerPanZoomEnd(PointerPanZoomEndEvent event) {
+    _panZoomLastScale = 1.0;
+  }
+
   void _stopDragging(PointerEvent event) {
     if (event.kind != PointerDeviceKind.mouse || !_dragging) return;
     setState(() => _dragging = false);
@@ -226,6 +310,10 @@ class _OfficeSceneInteractionSurfaceState
         behavior: HitTestBehavior.opaque,
         onPointerDown: _onPointerDown,
         onPointerMove: _onPointerMove,
+        onPointerSignal: _onPointerSignal,
+        onPointerPanZoomStart: _onPointerPanZoomStart,
+        onPointerPanZoomUpdate: _onPointerPanZoomUpdate,
+        onPointerPanZoomEnd: _onPointerPanZoomEnd,
         onPointerUp: _stopDragging,
         onPointerCancel: _stopDragging,
         child: widget.child,
@@ -249,8 +337,19 @@ class OfficeOrthographicProjection extends CameraProjection {
        assert(near >= 0),
        assert(far > near);
 
-  /// The world-space height visible through the lens.
+  /// The authored world-space height visible through the lens at zoom 1.
   final double verticalSize;
+
+  /// Orthographic zoom factor. Values above one show a smaller world span.
+  double _zoom = 1.0;
+
+  double get zoom => _zoom;
+
+  set zoom(double value) {
+    assert(value.isFinite && value > 0);
+    if (!value.isFinite || value <= 0) return;
+    _zoom = value;
+  }
 
   /// The near depth plane, expressed in camera space.
   final double near;
@@ -263,7 +362,7 @@ class OfficeOrthographicProjection extends CameraProjection {
     final safeAspect = aspectRatio.isFinite && aspectRatio > 0
         ? aspectRatio
         : 1.0;
-    final halfHeight = verticalSize / 2.0;
+    final halfHeight = verticalSize / zoom / 2.0;
     final halfWidth = halfHeight * safeAspect;
     final depth = far - near;
     final jitterX = jitter?.x ?? 0.0;
@@ -390,7 +489,10 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
       widget.controller?.addListener(_onControllerChanged);
       widget.controller?.setReady(_sceneHandle != null);
       if (_sceneHandle != null && widget.controller != null) {
-        widget.controller!.applyTo(_sceneHandle!.cameraNode);
+        widget.controller!.applyTo(
+          _sceneHandle!.cameraNode,
+          projection: _orthographicProjection(_sceneHandle!.camera),
+        );
       }
     }
   }
@@ -407,7 +509,10 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
     final handle = _sceneHandle;
     final controller = widget.controller;
     if (handle != null && controller != null) {
-      controller.applyTo(handle.cameraNode);
+      controller.applyTo(
+        handle.cameraNode,
+        projection: _orthographicProjection(handle.camera),
+      );
     }
     // SceneView repaints on widget updates even when autoTick is disabled.
     setState(() {});
@@ -436,15 +541,16 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
       // delayed until the shared shader/material resources are ready.
       final scene = Scene();
       final cameraNode = Node(name: 'office-camera');
+      final projection = OfficeOrthographicProjection();
       final cameraComponent = CameraComponent(
-        projection: OfficeOrthographicProjection(),
+        projection: projection,
         activateOnMount: true,
       );
       cameraNode.lookAtFrom(
         vm.Vector3(10.0, 8.5, 12.0),
         vm.Vector3(0.0, 0.8, 0.0),
       );
-      controller?.applyTo(cameraNode);
+      controller?.applyTo(cameraNode, projection: projection);
       cameraNode.addComponent(cameraComponent);
       scene.add(cameraNode);
       scene.directionalLight = DirectionalLight(
@@ -458,7 +564,11 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
         controller?.setReady(true);
       }
       return _OfficeSceneResult.ready(
-        _OfficeSceneHandle(scene, cameraNode, cameraComponent.toCamera()),
+        _OfficeSceneHandle(
+          scene,
+          cameraNode,
+          cameraComponent.toCamera(),
+        ),
       );
     } catch (error) {
       if (mounted && identical(widget.controller, controller)) {
@@ -467,6 +577,18 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
       debugPrint('Office scene unavailable: $error');
       return const _OfficeSceneResult.failure();
     }
+  }
+
+  /// Reads the projection from the camera that SceneView actually renders.
+  ///
+  /// Keeping this as a type-checked lookup avoids a second, non-nullable
+  /// projection field on the retained handle. Besides preventing the two
+  /// references from ever drifting, it also makes a hot-reloaded stage safe:
+  /// handles created by an older isolate can still be used while the new
+  /// widget code is rebuilding.
+  OfficeOrthographicProjection? _orthographicProjection(Camera camera) {
+    final projection = camera.projection;
+    return projection is OfficeOrthographicProjection ? projection : null;
   }
 
   List<Node> _officeNodes() => [

@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 /// Shell-wide keyboard contracts live in one place so platform modifiers do
-/// not drift between the sidebar, search, and settings surfaces.
+/// not drift between the sidebar, search, and Office surfaces.
 abstract final class ShellShortcutRegistry {
   static const toggleSidebarMac = SingleActivator(
     LogicalKeyboardKey.keyB,

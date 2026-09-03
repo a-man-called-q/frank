@@ -10,8 +10,8 @@ class ShellContextBar extends StatelessWidget {
   static const _toggleHitboxSize = 32.0;
   static const _glyphSize = 18.0;
   static const _logoSize = 18.0;
-  static const _collapsedVisualGap = 12.0;
-  static const _openTitleGap = 21.0;
+  static const _collapsedVisualGap = 8.0;
+  static const _openTitleGap = 14.0;
 
   // The toggle is a 32px hitbox but its visible glyph is 18px centered inside
   // it. Position the logo from the glyph's painted right edge so the optical

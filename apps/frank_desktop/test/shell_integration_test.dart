@@ -54,11 +54,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 20));
 
     expect(find.text('Organization'), findsWidgets);
-    expect(
-      find.text('Configure agents, connections, and taskboard assignments.'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Frank Agency'), findsNothing);
+    expect(find.text('Maya Chen'), findsOneWidget);
+    expect(find.text('Email'), findsOneWidget);
+    expect(find.bySemanticsLabel('Organization flow editor'), findsOneWidget);
   });
 }
 

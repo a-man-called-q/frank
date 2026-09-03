@@ -58,16 +58,6 @@ void main() {
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
-  testWidgets('Settings shell golden', (tester) async {
-    await _pumpShell(tester);
-    await tester.tap(find.byTooltip('Open workspace settings'));
-    await tester.pump(const Duration(milliseconds: 220));
-    await expectLater(
-      find.byKey(const ValueKey('golden-root')),
-      matchesGoldenFile('goldens/settings.png'),
-    );
-  }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
-
   testWidgets('search results golden', (tester) async {
     await _pumpShell(tester);
     await _openProjects(tester);

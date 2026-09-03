@@ -36,10 +36,12 @@ void main() {
     final foruiTooltipDecoration =
         forui.tooltipStyle.decoration as BoxDecoration;
 
-    expect(FrankColors.aubergine, const Color(0xFF9A68A5));
-    expect(FrankColors.aubergineSoft, const Color(0xFF302238));
+    expect(FrankColors.aubergine, const Color(0xFF4A263D));
+    expect(FrankColors.aubergineSoft, const Color(0xFF241921));
+    expect(FrankColors.aubergineAccent, const Color(0xFF9B708D));
     expect(FrankColors.warningAmber, const Color(0xFFE2A84B));
-    expect(theme.colorScheme.primary, isNot(const Color(0xFFE2A84B)));
+    expect(theme.colorScheme.primary, FrankColors.aubergine);
+    expect(theme.colorScheme.secondary, FrankColors.aubergineAccent);
     expect(materialDecoration.color, FrankColors.tooltipPanel);
     expect(materialDecoration.border, isNull);
     expect(theme.tooltipTheme.constraints?.maxWidth, 340);

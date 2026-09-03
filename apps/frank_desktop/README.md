@@ -45,7 +45,7 @@ data and does not connect to `frankd`. The shell is desktop-only with a
 minimum window width of 880px and a persistent, fixed-width off-canvas sidebar
 that can be hidden completely so the main surface uses the full width. The
 sidebar provides Office/Projects navigation, attention/pinned/draft/active/
-completed mission shelves, scope and inline search, Settings sections, a
+completed mission shelves, scope and inline search, Office sections, a
 floating Account Executive conversation, and a static stylized low-poly 3D
 office foundation. The room currently has only procedural slab, walls, a
 central platform, and Frank accent strips; agents, desks, selection, status,

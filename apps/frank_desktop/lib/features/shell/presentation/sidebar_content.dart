@@ -11,7 +11,6 @@ class MainSidebarContent extends StatelessWidget {
     required this.workspaceName,
     required this.activeView,
     required this.officeSection,
-    required this.settingsSection,
     required this.projects,
     required this.selectedProjectId,
     required this.selectedMissionId,
@@ -23,8 +22,6 @@ class MainSidebarContent extends StatelessWidget {
     this.onDoubleTap,
     required this.onSelectView,
     required this.onSelectOfficeSection,
-    required this.onOpenSettings,
-    required this.onSelectSettings,
     required this.onToggleProject,
     required this.onSelectMission,
     required this.onCreateMission,
@@ -46,9 +43,8 @@ class MainSidebarContent extends StatelessWidget {
   final OfficeWorkspace workspace;
   final bool isFullscreen;
   final String workspaceName;
-  final WorkspaceView? activeView;
+  final WorkspaceView activeView;
   final OfficeSection officeSection;
-  final SettingsSection? settingsSection;
   final List<OfficeProject> projects;
   final String? selectedProjectId;
   final String? selectedMissionId;
@@ -60,8 +56,6 @@ class MainSidebarContent extends StatelessWidget {
   final VoidCallback? onDoubleTap;
   final ValueChanged<WorkspaceView> onSelectView;
   final ValueChanged<OfficeSection> onSelectOfficeSection;
-  final ValueChanged<SettingsSection> onOpenSettings;
-  final ValueChanged<SettingsSection> onSelectSettings;
   final ValueChanged<String> onToggleProject;
   final void Function(String projectId, String missionId) onSelectMission;
   final ValueChanged<String> onCreateMission;
@@ -86,12 +80,6 @@ class MainSidebarContent extends StatelessWidget {
         ),
       ],
       WorkspaceView.projects => const <Widget>[],
-      null => <Widget>[
-        _SettingsNavigation(
-          selected: settingsSection!,
-          onSelect: onSelectSettings,
-        ),
-      ],
     };
 
     return LayoutBuilder(
@@ -112,7 +100,7 @@ class MainSidebarContent extends StatelessWidget {
                 onProjectScopeChanged: onSelectProjectScope,
                 onSelectProject: onSelectProjectScope,
                 onSelectMission: onSelectMission,
-                onSelectAgent: () => onSelectSettings(SettingsSection.team),
+                onSelectAgent: () => onSelectOfficeSection(OfficeSection.team),
                 onTogglePinnedMission: onTogglePinnedMission,
                 onReorderPinnedMissions: onReorderPinnedMissions,
                 onCreateMission: onCreateMission,
@@ -134,11 +122,7 @@ class MainSidebarContent extends StatelessWidget {
                   onSelectView: onSelectView,
                 ),
                 children: content,
-                footer: _SidebarFooter(
-                  dense: shortHeight,
-                  settingsOpen: settingsSection != null,
-                  onOpenSettings: () => onOpenSettings(SettingsSection.team),
-                ),
+                footer: _SidebarFooter(dense: shortHeight),
               )
             : FSidebar.raw(
                 style: _frankSidebarStyle(
@@ -153,11 +137,7 @@ class MainSidebarContent extends StatelessWidget {
                   onSelectView: onSelectView,
                 ),
                 child: inbox,
-                footer: _SidebarFooter(
-                  dense: shortHeight,
-                  settingsOpen: settingsSection != null,
-                  onOpenSettings: () => onOpenSettings(SettingsSection.team),
-                ),
+                footer: _SidebarFooter(dense: shortHeight),
               );
 
         return SizedBox(width: width, child: sidebar);
@@ -178,7 +158,7 @@ class _SidebarHeader extends StatelessWidget {
   final bool dense;
   final bool isFullscreen;
   final String workspaceName;
-  final WorkspaceView? activeView;
+  final WorkspaceView activeView;
   final ValueChanged<WorkspaceView> onSelectView;
 
   @override
@@ -237,24 +217,24 @@ class _WorkspaceViewToggle extends StatelessWidget {
     required this.onSelected,
   });
 
-  final WorkspaceView? selected;
+  final WorkspaceView selected;
   final ValueChanged<WorkspaceView> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final selectedIndex = selected == WorkspaceView.projects ? 1 : 0;
-    const trackHeight = 32.0;
+    const trackHeight = FrankUiTokens.controlHeight;
 
     return Semantics(
       container: true,
       label: 'Workspace view',
-      value: selected == null ? 'Settings' : _viewLabel(selected!),
+      value: _viewLabel(selected),
       child: Container(
         width: double.infinity,
         height: trackHeight,
         decoration: BoxDecoration(
           color: FrankColors.canvas.withValues(alpha: 0.5),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
           border: Border.all(
             color: FrankColors.border.withValues(alpha: 0.4),
             width: 1,
@@ -269,7 +249,7 @@ class _WorkspaceViewToggle extends StatelessWidget {
               curve: Curves.easeOutCubic,
               child: IgnorePointer(
                 child: AnimatedOpacity(
-                  opacity: selected == null ? 0 : 1,
+                  opacity: 1,
                   duration: const Duration(milliseconds: 120),
                   child: FractionallySizedBox(
                     widthFactor: 0.5,
@@ -279,7 +259,9 @@ class _WorkspaceViewToggle extends StatelessWidget {
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: FrankColors.panelRaised,
-                          borderRadius: BorderRadius.circular(6),
+                          borderRadius: BorderRadius.circular(
+                            FrankUiTokens.controlRadius - 1,
+                          ),
                           border: Border.all(
                             color: Colors.white.withValues(alpha: 0.07),
                             width: 0.8,
@@ -1464,95 +1446,71 @@ class _OfficeNavigation extends StatelessWidget {
   };
 }
 
-class _SettingsNavigation extends StatelessWidget {
-  const _SettingsNavigation({required this.selected, required this.onSelect});
-
-  final SettingsSection selected;
-  final ValueChanged<SettingsSection> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return FSidebarGroup(
-      label: const Text('Settings'),
-      children: [
-        _settingsItem(
-          section: SettingsSection.projects,
-          icon: FrankIcons.folder,
-          label: 'Projects',
-        ),
-        _settingsItem(
-          section: SettingsSection.team,
-          icon: FrankIcons.users,
-          label: 'Team',
-        ),
-        _settingsItem(
-          section: SettingsSection.activity,
-          icon: FrankIcons.activity,
-          label: 'Activity',
-        ),
-        _settingsItem(
-          section: SettingsSection.ledger,
-          icon: FrankIcons.ledger,
-          label: 'Ledger',
-        ),
-      ],
-    );
-  }
-
-  Widget _settingsItem({
-    required SettingsSection section,
-    required IconData icon,
-    required String label,
-  }) {
-    return FSidebarItem(
-      selected: selected == section,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
-      onPress: () => onSelect(section),
-    );
-  }
-}
-
 class _SidebarFooter extends StatelessWidget {
-  const _SidebarFooter({
-    required this.dense,
-    required this.settingsOpen,
-    required this.onOpenSettings,
-  });
+  const _SidebarFooter({required this.dense});
+
+  static const _profileTooltip = 'User profile is not available yet';
 
   final bool dense;
-  final bool settingsOpen;
-  final VoidCallback onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
+    final height = dense ? 32.0 : 38.0;
     return Padding(
-      padding: EdgeInsets.all(dense ? 10 : 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          IconButton(
-            onPressed: onOpenSettings,
-            tooltip: 'Open workspace settings',
-            icon: Icon(
-              FrankIcons.settings,
-              size: 18,
-              color: settingsOpen ? FrankColors.aubergine : null,
+      padding: EdgeInsets.all(dense ? 8 : 12),
+      child: Tooltip(
+        message: _profileTooltip,
+        child: Semantics(
+          key: const ValueKey('sidebar-user-button'),
+          container: true,
+          button: true,
+          enabled: false,
+          label: 'User',
+          hint: _profileTooltip,
+          child: OutlinedButton(
+            onPressed: null,
+            style: OutlinedButton.styleFrom(
+              alignment: Alignment.centerLeft,
+              minimumSize: Size.zero,
+              fixedSize: Size.fromHeight(height),
+              padding: EdgeInsets.symmetric(horizontal: dense ? 8 : 10),
+              backgroundColor: FrankColors.panelRaised.withValues(alpha: .28),
+              disabledForegroundColor: FrankColors.muted,
+              side: BorderSide(color: FrankColors.border.withValues(alpha: .8)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
-            padding: dense ? EdgeInsets.zero : null,
-            visualDensity: dense ? VisualDensity.compact : null,
-            constraints: dense
-                ? const BoxConstraints.tightFor(width: 32, height: 32)
-                : null,
-          ),
-          const Expanded(
-            child: Text(
-              'Prototype workspace',
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: FrankColors.muted, fontSize: 11),
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: CircleAvatar(
+                    radius: dense ? 10 : 11,
+                    backgroundColor: FrankColors.aubergine.withValues(
+                      alpha: .26,
+                    ),
+                    child: Text(
+                      'U',
+                      style: TextStyle(
+                        color: FrankColors.ink,
+                        fontSize: dense ? 11 : 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: dense ? 7 : 8),
+                const Flexible(
+                  child: Text(
+                    'User',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1586,7 +1544,7 @@ class FrankLogo extends StatelessWidget {
             color: FrankColors.aubergine.withValues(alpha: 0.14),
             child: const Text(
               'F',
-              style: TextStyle(color: FrankColors.aubergine),
+              style: TextStyle(color: FrankColors.aubergineAccent),
             ),
           );
         },

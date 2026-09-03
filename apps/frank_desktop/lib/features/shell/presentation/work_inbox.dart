@@ -1071,7 +1071,7 @@ class _MissionActions extends StatelessWidget {
                 FrankIcons.pin,
                 size: 14,
                 color: entry.pinned
-                    ? FrankColors.aubergine
+                    ? FrankColors.aubergineAccent
                     : FrankColors.muted.withValues(alpha: 0.6),
               ),
               padding: EdgeInsets.zero,
@@ -1148,7 +1148,7 @@ class _PassiveMissionSignals extends StatelessWidget {
           child: const Icon(
             FrankIcons.pin,
             size: 14,
-            color: FrankColors.aubergine,
+            color: FrankColors.aubergineAccent,
           ),
         ),
       );

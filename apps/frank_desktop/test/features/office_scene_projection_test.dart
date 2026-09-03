@@ -22,6 +22,21 @@ void main() {
     expect(tall.storage[0], closeTo(square.storage[0] * 2.0, 1e-6));
   });
 
+  test('zoom changes the lens scale while preserving the aspect ratio', () {
+    final projection = OfficeOrthographicProjection(verticalSize: 12.0);
+    final base = projection.getProjectionMatrix(2.0);
+
+    projection.zoom = 2.0;
+    final zoomed = projection.getProjectionMatrix(2.0);
+
+    expect(zoomed.storage[5], closeTo(base.storage[5] * 2.0, 1e-6));
+    expect(zoomed.storage[0], closeTo(base.storage[0] * 2.0, 1e-6));
+    expect(
+      (2.0 / zoomed.storage[0]) / (2.0 / zoomed.storage[5]),
+      closeTo(2.0, 1e-6),
+    );
+  });
+
   test('maps the configured depth range to Flutter Scene clip depth', () {
     final projection = OfficeOrthographicProjection(
       verticalSize: 10.0,

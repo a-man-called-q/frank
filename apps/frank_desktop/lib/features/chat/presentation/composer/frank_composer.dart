@@ -148,7 +148,7 @@ class _FrankComposerState extends State<FrankComposer> {
               fontSize: 14,
               height: 1.42,
             ),
-            cursorColor: FrankColors.aubergine,
+            cursorColor: FrankColors.aubergineAccent,
             keyboardType: TextInputType.multiline,
             decoration: InputDecoration(
               isDense: true,

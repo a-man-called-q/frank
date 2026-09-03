@@ -10,9 +10,13 @@ import '../../core/models/workspace_models.dart';
 import '../chat/account_chat.dart';
 import '../chat/bloc/chat_bloc.dart';
 import '../floor/office_scene_floor.dart';
+import '../floor/floor_view_reset_button.dart';
+import '../ledger/ledger_surface.dart';
+import '../organization/bloc/organization_bloc.dart';
+import '../organization/organization_surface.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
-import '../settings/settings_surface.dart';
+import '../team/team_surface.dart';
 import 'bloc/shell_bloc.dart';
 import 'main_sidebar.dart';
 import 'presentation/frank_desktop_menu.dart';
@@ -45,6 +49,7 @@ class OfficeShell extends StatelessWidget {
         ),
         BlocProvider(create: (_) => ProjectsBloc()),
         BlocProvider(create: (_) => ChatBloc(gateway: gateway)),
+        BlocProvider(create: (_) => OrganizationBloc(gateway: gateway)),
       ],
       child: _OfficeCoordinator(sidebarEffectBuilder: sidebarEffectBuilder),
     );
@@ -69,6 +74,13 @@ class _OfficeCoordinator extends StatelessWidget {
             if (workspace == null) return;
             context.read<ProjectsBloc>().add(ProjectsInitialized(workspace));
             context.read<ChatBloc>().add(ChatInitialized(workspace));
+            // Organization is loaded only when its section is active. The
+            // default Office destination is Organization, so starting it here
+            // avoids a visible second loading pass after the workspace shell
+            // has already appeared while keeping Team/Ledger/etc. lazy.
+            if (state.officeSection == OfficeSection.organization) {
+              context.read<OrganizationBloc>().add(const OrganizationStarted());
+            }
           },
         ),
         BlocListener<ShellBloc, ShellState>(
@@ -91,6 +103,18 @@ class _OfficeCoordinator extends StatelessWidget {
           },
           listener: _syncChatContext,
         ),
+        BlocListener<ShellBloc, ShellState>(
+          // Organization is intentionally lazy: Team, Ledger, Taskboard,
+          // and Journal should not initialize its graph until the section is
+          // actually opened. The workspace listener above covers the default
+          // destination; this listener covers a later navigation into it.
+          listenWhen: (previous, current) =>
+              previous.officeSection != OfficeSection.organization &&
+              current.officeSection == OfficeSection.organization &&
+              current.workspace != null,
+          listener: (context, _) =>
+              context.read<OrganizationBloc>().add(const OrganizationStarted()),
+        ),
         BlocListener<ProjectsBloc, ProjectsState>(
           listenWhen: (previous, current) =>
               previous.status != current.status ||
@@ -109,7 +133,6 @@ class _OfficeCoordinator extends StatelessWidget {
     final project = projects.projectById(projects.selectedProjectId);
     final mission = projects.missionById(project, projects.selectedMissionId);
     final conversation = switch (shell.destination) {
-      SettingsDestination() => null,
       OfficeDestination() => null,
       ProjectsDestination() =>
         project == null
@@ -136,6 +159,7 @@ class _OfficeShellBody extends StatefulWidget {
 
 class _OfficeShellBodyState extends State<_OfficeShellBody> {
   late final WindowChromeState _windowChrome;
+  late final OfficeSceneController _sceneController = OfficeSceneController();
   late final FocusNode _searchFocusNode = FocusNode(
     debugLabel: 'workspace-search',
   );
@@ -157,6 +181,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
     _windowChrome.removeListener(_onWindowChromeChanged);
     _windowChrome.dispose();
+    _sceneController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
   }
@@ -253,15 +278,50 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
                             Expanded(
                               child: ColoredBox(
                                 key: const ValueKey('main-surface-background'),
-                                color: FrankColors.canvas,
-                                child: _MainSurface(
-                                  key: const ValueKey('main-surface'),
-                                  workspace: workspace,
-                                  project: selectedProject,
-                                  mission: selectedMission,
-                                  conversation: conversation,
-                                  messages: chat.messagesFor(conversation),
-                                  generating: generating,
+                                color: nativeSidebarEffect
+                                    ? FrankColors.canvas
+                                    : Colors.transparent,
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Positioned.fill(
+                                      child: OfficeSceneFloor(
+                                        key: const ValueKey(
+                                          'shared-office-scene-floor',
+                                        ),
+                                        controller: _sceneController,
+                                        activity: _sceneActivity(shell),
+                                        blurSigma: _sceneBlur(shell),
+                                        scrimColor: _sceneScrim(shell),
+                                      ),
+                                    ),
+                                    Positioned.fill(
+                                      child: _MainSurface(
+                                        key: const ValueKey('main-surface'),
+                                        workspace: workspace,
+                                        project: selectedProject,
+                                        mission: selectedMission,
+                                        conversation: conversation,
+                                        messages: chat.messagesFor(
+                                          conversation,
+                                        ),
+                                        generating: generating,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 16,
+                                      right: 16,
+                                      child: AnimatedBuilder(
+                                        animation: _sceneController,
+                                        builder: (context, child) =>
+                                            FloorViewResetButton(
+                                              enabled:
+                                                  _sceneController.canReset,
+                                              onPressed: _sceneController.reset,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -318,6 +378,24 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     }
     return ProjectConversationContext(projectId: project.id);
   }
+
+  OfficeSceneActivity _sceneActivity(ShellState shell) =>
+      shell.destination is ProjectsDestination
+      ? OfficeSceneActivity.static
+      : OfficeSceneActivity.paused;
+
+  double _sceneBlur(ShellState shell) => switch (shell.destination) {
+    ProjectsDestination() => 0,
+    OfficeDestination(section: OfficeSection.organization) => 10,
+    OfficeDestination() => 12,
+  };
+
+  Color _sceneScrim(ShellState shell) => switch (shell.destination) {
+    ProjectsDestination() => Colors.transparent,
+    OfficeDestination(section: OfficeSection.organization) =>
+      FrankColors.canvas.withValues(alpha: .72),
+    OfficeDestination() => FrankColors.canvas.withValues(alpha: .28),
+  };
 
   void _focusSearch(BuildContext context) {
     final shell = context.read<ShellBloc>();
@@ -597,12 +675,8 @@ class _MainSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final shell = context.watch<ShellBloc>().state;
-    final settingsSection = shell.settingsSection;
-    if (settingsSection != null) {
-      return SettingsSurface(section: settingsSection, workspace: workspace);
-    }
     if (shell.destination case OfficeDestination(:final section)) {
-      return _OfficeSectionSurface(section: section);
+      return _OfficeSectionSurface(section: section, workspace: workspace);
     }
     if (project == null || conversation == null) {
       return const NoProjectSurface();
@@ -615,6 +689,10 @@ class _MainSurface extends StatelessWidget {
       officeView: shell.activeView == WorkspaceView.office,
       messages: messages,
       generating: generating,
+      // The shell owns one retained floor for every destination. Keeping the
+      // chat rail floor-free prevents a project switch from replacing the
+      // scene/controller that carries the camera state.
+      renderFloor: false,
       onSend: (text) => context.read<ChatBloc>().add(
         ChatMessageSubmitted(context: conversation!, text: text),
       ),
@@ -624,10 +702,28 @@ class _MainSurface extends StatelessWidget {
   }
 }
 
+class NoProjectSurface extends StatelessWidget {
+  const NoProjectSurface({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const ColoredBox(
+      color: FrankColors.canvas,
+      child: Center(
+        child: Text(
+          'No projects yet',
+          style: TextStyle(color: FrankColors.muted, fontSize: 18),
+        ),
+      ),
+    );
+  }
+}
+
 class _OfficeSectionSurface extends StatelessWidget {
-  const _OfficeSectionSurface({required this.section});
+  const _OfficeSectionSurface({required this.section, required this.workspace});
 
   final OfficeSection section;
+  final OfficeWorkspace workspace;
 
   @override
   Widget build(BuildContext context) {
@@ -636,79 +732,105 @@ class _OfficeSectionSurface extends StatelessWidget {
       label: '${section.label} office section',
       child: LayoutBuilder(
         builder: (context, constraints) {
+          if (section == OfficeSection.organization) {
+            return KeyedSubtree(
+              key: const ValueKey('office-section-surface-organization'),
+              child: ColoredBox(
+                key: const ValueKey('office-section-content-host'),
+                color: FrankColors.canvas.withValues(alpha: .18),
+                child: AnimatedSwitcher(
+                  key: const ValueKey('office-section-content-switcher'),
+                  duration:
+                      (MediaQuery.maybeOf(context)?.disableAnimations ?? false)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  reverseDuration:
+                      (MediaQuery.maybeOf(context)?.disableAnimations ?? false)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  child: KeyedSubtree(
+                    key: const ValueKey('office-section-content-organization'),
+                    child: OrganizationSurface(workspace: workspace),
+                  ),
+                ),
+              ),
+            );
+          }
           final compact =
               (constraints.maxWidth.isFinite && constraints.maxWidth < 700) ||
               (constraints.maxHeight.isFinite && constraints.maxHeight < 560);
           final contentPadding = compact ? 18.0 : 32.0;
           final motionDisabled =
               MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+          final contentMaxWidth =
+              section == OfficeSection.team || section == OfficeSection.ledger
+              ? 1240.0
+              : 760.0;
 
-          return OfficeSceneFloor(
-            key: const ValueKey('office-scene-floor-wrapper'),
-            activity: OfficeSceneActivity.paused,
-            blurSigma: 12.0,
-            scrimColor: FrankColors.canvas.withValues(alpha: 0.28),
-            foreground: KeyedSubtree(
-              key: ValueKey('office-section-surface-${section.name}'),
-              child: ColoredBox(
-                key: const ValueKey('office-section-content-host'),
-                color: FrankColors.panel.withValues(alpha: 0.84),
-                child: AnimatedSwitcher(
-                  key: const ValueKey('office-section-content-switcher'),
-                  duration: motionDisabled
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  reverseDuration: motionDisabled
-                      ? Duration.zero
-                      : const Duration(milliseconds: 180),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: AnimatedBuilder(
-                        animation: animation,
+          return KeyedSubtree(
+            key: ValueKey('office-section-surface-${section.name}'),
+            child: ColoredBox(
+              key: const ValueKey('office-section-content-host'),
+              color: FrankColors.panel.withValues(alpha: 0.84),
+              child: AnimatedSwitcher(
+                key: const ValueKey('office-section-content-switcher'),
+                duration: motionDisabled
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                reverseDuration: motionDisabled
+                    ? Duration.zero
+                    : const Duration(milliseconds: 180),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  return FadeTransition(
+                    opacity: animation,
+                    child: AnimatedBuilder(
+                      animation: animation,
+                      child: child,
+                      builder: (context, child) => Transform.translate(
+                        offset: Offset(0, 8 * (1 - animation.value)),
                         child: child,
-                        builder: (context, child) => Transform.translate(
-                          offset: Offset(0, 8 * (1 - animation.value)),
-                          child: child,
-                        ),
                       ),
-                    );
-                  },
-                  child: SingleChildScrollView(
-                    key: ValueKey('office-section-content-${section.name}'),
-                    padding: EdgeInsets.all(contentPadding),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 760),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              section.label,
-                              style: const TextStyle(
-                                color: FrankColors.ink,
-                                fontSize: 22,
-                                fontWeight: FontWeight.w500,
-                              ),
+                    ),
+                  );
+                },
+                child: SingleChildScrollView(
+                  key: ValueKey('office-section-content-${section.name}'),
+                  padding: EdgeInsets.all(contentPadding),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                      child: section == OfficeSection.team
+                          ? TeamSurface(workspace: workspace)
+                          : section == OfficeSection.ledger
+                          ? LedgerSurface(workspace: workspace)
+                          : Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  section.label,
+                                  style: const TextStyle(
+                                    color: FrankColors.ink,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  key: ValueKey(
+                                    'office-section-description-${section.name}',
+                                  ),
+                                  section.description,
+                                  style: const TextStyle(
+                                    color: FrankColors.muted,
+                                    fontSize: 13,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              key: ValueKey(
-                                'office-section-description-${section.name}',
-                              ),
-                              section.description,
-                              style: const TextStyle(
-                                color: FrankColors.muted,
-                                fontSize: 13,
-                                height: 1.45,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
                   ),
                 ),

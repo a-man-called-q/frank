@@ -1,7 +1,25 @@
+import 'fixture_organization.dart';
 import '../gateway/frank_gateway.dart';
+import '../models/organization_models.dart';
 import '../models/workspace_models.dart';
 
 class FixtureFrankGateway implements FrankGateway {
+  FixtureFrankGateway({
+    this.latency = const Duration(milliseconds: 180),
+    this.organizationLatency = Duration.zero,
+    this.organizationLoadError,
+    this.organizationSaveError,
+    this.organizationPublishError,
+  });
+
+  final Duration latency;
+  final Duration organizationLatency;
+  final Object? organizationLoadError;
+  final Object? organizationSaveError;
+  final Object? organizationPublishError;
+  OrganizationGraph? _organizationDraft;
+  OrganizationGraph? _organizationPublished;
+
   static const _ae = OfficeEmployee(
     id: 'ae-maya',
     name: 'Maya Chen',
@@ -166,7 +184,7 @@ class FixtureFrankGateway implements FrankGateway {
 
   @override
   Future<OfficeWorkspace> loadWorkspace() async {
-    await Future<void>.delayed(const Duration(milliseconds: 180));
+    await Future<void>.delayed(latency);
     return OfficeWorkspace(
       name: 'Frank Agency',
       projects: _projects,
@@ -174,6 +192,50 @@ class FixtureFrankGateway implements FrankGateway {
       accountExecutive: _ae,
     );
   }
+
+  @override
+  Future<OrganizationGraph> loadOrganization() async {
+    if (organizationLoadError != null) throw organizationLoadError!;
+    if (organizationLatency > Duration.zero) {
+      await Future<void>.delayed(organizationLatency);
+    }
+    _organizationDraft ??= _copyOrganization(fixtureOrganizationGraph());
+    _organizationPublished ??= _copyOrganization(_organizationDraft!);
+    return _copyOrganization(_organizationDraft!);
+  }
+
+  @override
+  Future<OrganizationGraph> saveOrganizationDraft(
+    OrganizationGraph graph,
+  ) async {
+    if (organizationSaveError != null) throw organizationSaveError!;
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
+    final saved = graph.copyWith(draftRevision: graph.draftRevision + 1);
+    _organizationDraft = _copyOrganization(saved);
+    return _copyOrganization(saved);
+  }
+
+  @override
+  Future<OrganizationGraph> publishOrganization(
+    OrganizationGraph graph, {
+    required int expectedPublishedRevision,
+  }) async {
+    if (organizationPublishError != null) throw organizationPublishError!;
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
+    final actual =
+        _organizationPublished?.publishedRevision ??
+        fixtureOrganizationGraph().publishedRevision;
+    if (actual != expectedPublishedRevision) {
+      throw OrganizationRevisionConflict(expectedPublishedRevision, actual);
+    }
+    final published = graph.copyWith(publishedRevision: actual + 1);
+    _organizationDraft = _copyOrganization(published);
+    _organizationPublished = _copyOrganization(published);
+    return _copyOrganization(published);
+  }
+
+  OrganizationGraph _copyOrganization(OrganizationGraph graph) =>
+      OrganizationGraph.fromJson(graph.toJson());
 
   @override
   Stream<String> replyTo(

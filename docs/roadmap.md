@@ -27,8 +27,8 @@ data remains in place and is not migrated automatically.
       analyst, accounting, and other agency roles).
 - [ ] Add project brief, mission, task DAG, approvals, budgets, and delivery
       flows to the Account Executive conversation.
-- [ ] Add Team, Activity, Ledger, and Settings surfaces behind the existing
-      sidebar destinations.
+- [ ] Expand the Office surfaces with activity, taskboard, and journal
+      workflows behind the existing sidebar destinations.
 - [ ] Populate the `flutter_scene` floor with agents, desks, status, selection,
       physics, and project work.
 - [ ] Add tray, single-instance, reconnect, and desktop update flows with

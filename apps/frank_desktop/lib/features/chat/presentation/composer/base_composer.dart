@@ -91,7 +91,7 @@ class _BaseComposerState extends State<BaseComposer> {
       borderRadius: BorderRadius.circular(19),
       border: Border.all(
         color: _focused
-            ? FrankColors.aubergine.withValues(alpha: 0.72)
+            ? FrankColors.aubergineAccent.withValues(alpha: 0.72)
             : FrankColors.border.withValues(alpha: 0.92),
       ),
       boxShadow: [

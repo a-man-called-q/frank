@@ -25,7 +25,6 @@ abstract final class FrankIcons {
   static const archive = FLucideIcons.archive;
   static const close = FLucideIcons.x;
   static const more = FLucideIcons.ellipsis;
-  static const settings = FLucideIcons.settings;
   static const activity = FLucideIcons.zap;
   static const ledger = FLucideIcons.receiptText;
   static const circle = FLucideIcons.circle;
@@ -34,6 +33,18 @@ abstract final class FrankIcons {
   static const circleDashed = FLucideIcons.circleDashed;
   static const clock = FLucideIcons.clock;
   static const terminal = FLucideIcons.terminal;
+  static const mail = FLucideIcons.mail;
+  static const calendar = FLucideIcons.calendar;
+  static const drive = FLucideIcons.hardDrive;
+  static const browser = FLucideIcons.globe;
+  static const database = FLucideIcons.database;
+  static const approval = FLucideIcons.shieldCheck;
+  static const undo = FLucideIcons.undo2;
+  static const redo = FLucideIcons.redo2;
+  static const save = FLucideIcons.save;
+  static const publish = FLucideIcons.send;
+  static const minimap = FLucideIcons.map;
+  static const workflow = FLucideIcons.workflow;
   static const gitBranch = FLucideIcons.gitBranch;
   static const refresh = FLucideIcons.refreshCw;
   static const plus = FLucideIcons.plus;

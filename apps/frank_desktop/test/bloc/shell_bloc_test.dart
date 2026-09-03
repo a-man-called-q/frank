@@ -45,18 +45,15 @@ void main() {
     ],
   );
 
-  test(
-    'shell destination cannot represent settings and a workspace view at once',
-    () {
-      const settings = SettingsDestination(SettingsSection.activity);
-      expect(settings.section, SettingsSection.activity);
-      expect(const ShellState(destination: settings).activeView, isNull);
-      expect(
-        const ShellState(destination: settings).settingsSection,
-        SettingsSection.activity,
-      );
-    },
-  );
+  test('shell destinations always expose a workspace view', () {
+    const office = ShellState(destination: OfficeDestination());
+    const projects = ShellState(destination: ProjectsDestination());
+
+    expect(office.activeView, WorkspaceView.office);
+    expect(projects.activeView, WorkspaceView.projects);
+    expect(office.activeView, isNotNull);
+    expect(projects.activeView, isNotNull);
+  });
 
   blocTest<ShellBloc, ShellState>(
     'loads the workspace and reports ready',
@@ -104,32 +101,6 @@ void main() {
       predicate<ShellState>((state) => state.hasError),
       predicate<ShellState>((state) => state.isLoading),
       predicate<ShellState>((state) => state.isReady),
-    ],
-  );
-
-  blocTest<ShellBloc, ShellState>(
-    'keeps the selected settings section as the footer shortcut',
-    build: () => ShellBloc(gateway: FakeGateway()),
-    act: (bloc) async {
-      bloc.add(const ShellStarted());
-      await Future<void>.delayed(const Duration(milliseconds: 220));
-      bloc.add(const ShellSettingsSelected(SettingsSection.ledger));
-      bloc.add(const ShellViewSelected(WorkspaceView.office));
-      bloc.add(const ShellSettingsOpened());
-    },
-    wait: const Duration(milliseconds: 220),
-    expect: () => [
-      predicate<ShellState>((state) => state.isLoading),
-      predicate<ShellState>((state) => state.isReady),
-      predicate<ShellState>(
-        (state) => state.settingsSection == SettingsSection.ledger,
-      ),
-      predicate<ShellState>(
-        (state) => state.activeView == WorkspaceView.office,
-      ),
-      predicate<ShellState>(
-        (state) => state.settingsSection == SettingsSection.ledger,
-      ),
     ],
   );
 

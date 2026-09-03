@@ -4,7 +4,7 @@ publish_to: none
 version: 1.0.0-dev.1
 
 environment:
-  sdk: '>=3.8.0 <4.0.0'
+  sdk: '>=3.9.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -17,9 +17,11 @@ dependencies:
   flow_ui: 0.2.0
   forui: 0.25.0
   flutter_bloc: 9.1.1
+  flutter_mobx: 2.3.0
   material_ui: 1.1.0
   shared_preferences: 2.5.5
   vector_math: 2.4.2
+  vyuh_node_flow: 0.31.0
 
 dev_dependencies:
   bloc_test: 10.0.0
@@ -37,6 +39,7 @@ flutter:
     enable-swift-package-manager: false
   assets:
     - assets/branding/frank-logo.png
+    - assets/characters/team/
     - assets/fonts/Geist-Variable.ttf
     - flutter_scene_generated/
 
