@@ -11,16 +11,30 @@ dependencies:
     sdk: flutter
   flutter_gpu:
     sdk: flutter
+  # Used by hook/build.dart, not from lib/ -- it is the Dart build-hook API
+  # that flutter_scene's buildScenes/buildMaterials run under. A grep of lib/
+  # alone makes it look unused; removing it breaks the scene asset pipeline.
   hooks: 2.0.0
   macos_window_utils: 1.9.1
   flutter_scene: 0.23.0
   flow_ui: 0.2.0
   forui: 0.25.0
-  flutter_bloc: 9.1.1
+  # Required by vyuh_node_flow, which exposes MobX observables (node.isSelected
+  # and friends); the Organization board's node visuals wrap in Observer so
+  # selection repaints. Not a second state-management stack alongside bloc.
   flutter_mobx: 2.3.0
+  flutter_bloc: 9.1.1
+  # Not a duplicate of Flutter's Material: flow_ui is built entirely on
+  # package:material_ui and never imports flutter/material, so its widgets
+  # resolve material_ui's own Material and MaterialLocalizations types. Direct
+  # dependency because account_chat.dart imports it to satisfy them.
   material_ui: 1.1.0
   shared_preferences: 2.5.5
   vector_math: 2.4.2
+  # Exact pin, deliberately: organization_flow_adapter.dart reaches into this
+  # package's src/ for PathSegment, which ConnectionStyle exposes in its public
+  # signature but the barrel does not re-export. A patch bump can move that
+  # file, so upgrades need the adapter checked by hand.
   vyuh_node_flow: 0.31.0
 
 dev_dependencies:
@@ -40,6 +54,10 @@ flutter:
   assets:
     - assets/branding/frank-logo.png
     - assets/characters/team/
+    # An asset rather than a `fonts:` family on purpose: the golden suites load
+    # it through rootBundle and register it with FontLoader('Geist') so goldens
+    # render in the real typeface instead of Ahem. See shell_golden_test.dart
+    # and organization_golden_test.dart -- dropping this entry reds them.
     - assets/fonts/Geist-Variable.ttf
     - flutter_scene_generated/
 
