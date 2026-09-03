@@ -91,6 +91,23 @@ target_regions = 90
 target_functions = 90
 target_lines = 95
 
+# Extracted from frank-app at the frank-service split. The code and its three
+# tests moved verbatim, so these are frank-app's own measured numbers for
+# service.rs, simply attributed to the crate that now owns the file rather than
+# averaged into frank-app's better-covered modules. Recorded as the honest
+# starting baseline, not as an achievement: the descriptor renderers are well
+# covered, install_preview/default_descriptor_path/is_installed are not.
+[packages.frank-service]
+min_regions = 57
+min_functions = 72
+min_lines = 69
+max_uncovered_regions = 111
+max_uncovered_functions = 6
+max_uncovered_lines = 54
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
 # Re-measured at M-4 (frank-gui -> iced migration): added try_lock_exclusive
 # + LockGuard (unix.rs and windows.rs) for the desktop GUI's single-instance
 # guard. Percentage floors held (94-100%, still above every min_* below);
