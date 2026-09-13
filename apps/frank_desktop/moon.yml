@@ -48,7 +48,16 @@ tasks:
     command: 'proto run flutter -- build macos --debug'
     deps: ['~:get']
     inputs:
-      - '/apps/frank_desktop/macos/**/*'
+      - '/apps/frank_desktop/macos/Flutter/*.xcconfig'
+      - '/apps/frank_desktop/macos/Flutter/GeneratedPluginRegistrant.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.plist'
+      - '/apps/frank_desktop/macos/Runner/**/*.entitlements'
+      - '/apps/frank_desktop/macos/Runner.xcodeproj/project.pbxproj'
+      - '/apps/frank_desktop/macos/Runner.xcworkspace/contents.xcworkspacedata'
+      - '/apps/frank_desktop/macos/RunnerTests/**/*.swift'
+      - '/apps/frank_desktop/macos/Podfile'
+      - '/apps/frank_desktop/macos/Podfile.lock'
       - '/apps/frank_desktop/assets/**/*'
       - '/apps/frank_desktop/hook/**/*'
       - '/apps/frank_desktop/flutter_scene_generated/**/*'
@@ -62,7 +71,40 @@ tasks:
     command: 'proto run flutter -- test integration_test/office_scene_smoke_test.dart -d macos --reporter compact'
     deps: ['~:get']
     inputs:
-      - '/apps/frank_desktop/macos/**/*'
+      - '/apps/frank_desktop/macos/Flutter/*.xcconfig'
+      - '/apps/frank_desktop/macos/Flutter/GeneratedPluginRegistrant.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.plist'
+      - '/apps/frank_desktop/macos/Runner/**/*.entitlements'
+      - '/apps/frank_desktop/macos/Runner.xcodeproj/project.pbxproj'
+      - '/apps/frank_desktop/macos/Runner.xcworkspace/contents.xcworkspacedata'
+      - '/apps/frank_desktop/macos/RunnerTests/**/*.swift'
+      - '/apps/frank_desktop/macos/Podfile'
+      - '/apps/frank_desktop/macos/Podfile.lock'
+      - '/apps/frank_desktop/assets/**/*'
+      - '/apps/frank_desktop/hook/**/*'
+      - '/apps/frank_desktop/flutter_scene_generated/**/*'
+      - '/apps/frank_desktop/integration_test/**/*'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      cache: false
+
+  character-smoke:
+    command: 'proto run flutter -- test integration_test/frank_character_scene_smoke_test.dart -d macos --reporter compact'
+    deps: ['~:get']
+    inputs:
+      - '/apps/frank_desktop/macos/Flutter/*.xcconfig'
+      - '/apps/frank_desktop/macos/Flutter/GeneratedPluginRegistrant.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.plist'
+      - '/apps/frank_desktop/macos/Runner/**/*.entitlements'
+      - '/apps/frank_desktop/macos/Runner.xcodeproj/project.pbxproj'
+      - '/apps/frank_desktop/macos/Runner.xcworkspace/contents.xcworkspacedata'
+      - '/apps/frank_desktop/macos/RunnerTests/**/*.swift'
+      - '/apps/frank_desktop/macos/Podfile'
+      - '/apps/frank_desktop/macos/Podfile.lock'
       - '/apps/frank_desktop/assets/**/*'
       - '/apps/frank_desktop/hook/**/*'
       - '/apps/frank_desktop/flutter_scene_generated/**/*'
@@ -79,3 +121,17 @@ tasks:
       cache: false
       persistent: true
       runInCI: false
+
+  run-configured:
+    command: 'proto run flutter -- run -d macos --dart-define-from-file=.env'
+    deps: ['~:get']
+    options:
+      cache: false
+      persistent: true
+      runInCI: false
+
+  build-configured:
+    command: 'proto run flutter -- build macos --debug --dart-define-from-file=.env'
+    deps: ['~:get']
+    options:
+      cache: false

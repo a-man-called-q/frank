@@ -9,7 +9,7 @@ Use the repository's Proto pin (Flutter 3.47.1), then run from this directory:
 ```sh
 proto install
 proto run flutter -- pub get
-proto run flutter -- run -d macos
+proto run flutter -- run -d macos --dart-define-from-file=.env
 ```
 
 The macOS host enables Flutter GPU permanently through
@@ -40,8 +40,10 @@ moon run frank-desktop:run --interactive
 The `run` target is persistent; use `--interactive` so Flutter's hot-reload
 keys and stdin are forwarded to the terminal.
 
-The first milestone is intentionally local-only. It uses deterministic fixture
-data and does not connect to `frankd`. The shell is desktop-only with a
+The client authenticates to a self-hosted `frankd` using the compile-time
+configuration in [`.env.example`](.env.example). Login and session lifecycle
+are real; office, project, team, and ledger content still uses deterministic
+fixture data and carries a demo-data banner. The shell is desktop-only with a
 minimum window width of 880px and a persistent, fixed-width off-canvas sidebar
 that can be hidden completely so the main surface uses the full width. The
 sidebar provides Office/Projects navigation, attention/pinned/draft/active/
@@ -62,3 +64,9 @@ Forui and FlowUI are pinned exactly because both libraries are still evolving
 before 1.0. The app keeps its transport behind `FrankGateway` so the fixture can
 later be replaced by the authenticated Frank protocol client without changing
 the shell widgets.
+
+See [`../../docs/self-hosted-auth.md`](../../docs/self-hosted-auth.md) for the
+Docker quickstart, development certificate, owner bootstrap, password reset,
+and `.env` instructions. `.env` is ignored and must be supplied to Flutter with
+`--dart-define-from-file=.env`; do not put passwords, private keys, or sessions
+in it.

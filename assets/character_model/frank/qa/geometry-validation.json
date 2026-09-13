@@ -1,0 +1,183 @@
+{
+  "measurements_m": {
+    "chest_width": 0.3512953519821167,
+    "chest_depth": 0.2947769910097122,
+    "waist_width": 0.3505527973175049,
+    "hip_width": 0.3487546443939209,
+    "hand_width": 0.08814653754234314,
+    "foot_width": 0.15584472566843033
+  },
+  "triangles": 29388,
+  "mesh_count": 13,
+  "height_m": 1.4997010324150324,
+  "body_nonmanifold_edges": 0,
+  "body_components": 1,
+  "max_influences": 3,
+  "unweighted": 0,
+  "max_weight_sum_error": 3.864988684654236e-08,
+  "sole_contact": {
+    "L": {
+      "vertices_within_0_1mm": 161,
+      "width": 0.09723201394081116,
+      "depth": 0.14393429830670357
+    },
+    "R": {
+      "vertices_within_0_1mm": 161,
+      "width": 0.09723199158906937,
+      "depth": 0.14393430016934872
+    }
+  },
+  "rig_bones": 23,
+  "reference_dimensions": {
+    "head": {
+      "target_m": 0.5801393728222997,
+      "measured_m": 0.5822544097900391,
+      "error_percent": 0.36457393978450975
+    },
+    "chest": {
+      "target_m": 0.3488675958188154,
+      "measured_m": 0.3512953519821167,
+      "error_percent": 0.6958961486816267
+    },
+    "waist": {
+      "target_m": 0.3554006968641115,
+      "measured_m": 0.3505527973175049,
+      "error_percent": 1.3640658528197107
+    },
+    "hip": {
+      "target_m": 0.36062717770034847,
+      "measured_m": 0.3487546443939209,
+      "error_percent": 3.2921903951156635
+    },
+    "foot": {
+      "target_m": 0.1594076655052265,
+      "measured_m": 0.15801134705543518,
+      "error_percent": 0.8759418471914964
+    },
+    "hand": {
+      "target_m": 0.12804878048780488,
+      "measured_m": 0.127520352602005,
+      "error_percent": 0.4126770155770459
+    }
+  },
+  "dimension_target_passed": true,
+  "measurement_definitions": {
+    "head": "maximum world X width",
+    "chest": "central contour at z=.62",
+    "waist": "central contour at z=.525",
+    "hip": "central contour at z=.47",
+    "foot": "full forefoot X extent below z=.10",
+    "hand": "full hand X extent between z=.31 and .46, x>.27"
+  },
+  "front_contour_profiles": {
+    "650": {
+      "z_m": 0.7813588850174217,
+      "target_width_m": 0.4795296167247387,
+      "measured_width_m": 0.5023303329944611,
+      "error_percent": 4.754808769780429
+    },
+    "720": {
+      "z_m": 0.6898954703832754,
+      "target_width_m": 0.3488675958188154,
+      "measured_width_m": 0.33753323554992676,
+      "error_percent": 3.2489002718312445
+    },
+    "800": {
+      "z_m": 0.5853658536585367,
+      "target_width_m": 0.33580139372822304,
+      "measured_width_m": 0.35107332468032837,
+      "error_percent": 4.547905767319563
+    },
+    "850": {
+      "z_m": 0.5200348432055749,
+      "target_width_m": 0.3514808362369338,
+      "measured_width_m": 0.35045671463012695,
+      "error_percent": 0.29137338404319413
+    }
+  },
+  "front_landmarks": {
+    "head_bottom": {
+      "target_z_m": 0.872822299651568,
+      "measured_z_m": 0.87019944190979,
+      "error_percent": 0.30050306263084703
+    },
+    "elbow": {
+      "target_z_m": 0.620644599303136,
+      "measured_z_m": 0.6200000047683716,
+      "error_percent": 0.10385888082940752
+    },
+    "wrist": {
+      "target_z_m": 0.48083623693379796,
+      "measured_z_m": 0.47999998927116394,
+      "error_percent": 0.17391527476519014
+    },
+    "brief_top": {
+      "target_z_m": 0.5226480836236934,
+      "measured_z_m": 0.525,
+      "error_percent": 0.44999999999999735
+    },
+    "knee": {
+      "target_z_m": 0.2299651567944251,
+      "measured_z_m": 0.23000000417232513,
+      "error_percent": 0.015153329480766857
+    }
+  },
+  "profile_target_passed": true,
+  "landmark_target_passed": true,
+  "head_front_profiles": {
+    "150": {
+      "z_m": 1.4346689895470384,
+      "measured_width_m": 0.5782422423362732,
+      "target_width_m": 0.5736062717770035,
+      "error_percent": 0.8082147611300815
+    },
+    "250": {
+      "z_m": 1.304006968641115,
+      "measured_width_m": 0.5790627002716064,
+      "target_width_m": 0.5840592334494774,
+      "error_percent": 0.8554839803424114
+    },
+    "500": {
+      "z_m": 0.9773519163763067,
+      "measured_width_m": 0.5304207801818848,
+      "target_width_m": 0.5213414634146342,
+      "error_percent": 1.7415297658819864
+    },
+    "560": {
+      "z_m": 0.8989547038327527,
+      "measured_width_m": 0.4998781830072403,
+      "target_width_m": 0.4873693379790941,
+      "error_percent": 2.566604842236253
+    },
+    "300": {
+      "z_m": 1.2386759581881535,
+      "measured_width_m": 0.5737887918949127,
+      "target_width_m": 0.5775261324041813,
+      "error_percent": 0.6471292465520806
+    }
+  },
+  "head_profile_target_passed": true,
+  "torso_depth_profile": {
+    "0.47": {
+      "front_y": -0.14772136509418488,
+      "back_y": 0.15197783708572388
+    },
+    "0.525": {
+      "front_y": -0.15972095727920532,
+      "back_y": 0.1484958827495575
+    },
+    "0.6": {
+      "front_y": -0.15822499990463257,
+      "back_y": 0.13986912369728088
+    },
+    "0.7": {
+      "front_y": -0.1450112760066986,
+      "back_y": 0.1297694444656372
+    },
+    "0.775": {
+      "front_y": -0.12384501844644547,
+      "back_y": 0.11267457902431488
+    }
+  },
+  "blend_sha256": "7c1d01c045d5431fcb472bc54af2be6a60ca4b13fb2a33b2d934c284c642e372"
+}

@@ -1,0 +1,24 @@
+{
+  "revision": "1.4",
+  "asset_hashes": {
+    "blend": "7c1d01c045d5431fcb472bc54af2be6a60ca4b13fb2a33b2d934c284c642e372",
+    "glb": "c0fffeee515dcb2172fe525a1d5935cca81a883edf81499adf1857614789964e"
+  },
+  "builder": "scripts/build_frank.py",
+  "script_sha256": {
+    "body_topology.py": "669c7c39d41a176d4d9688205c8bea22347fc4a06c75a97dfe75ef852dd41b44",
+    "render_qa.py": "b000323503fc334412dedbedce981526200ae1d0376cdd4e654149a307b1e774",
+    "head_topology.py": "744486a6d88a63ee235a1a7803dc9dec5d7c7a2de229038a2785b357e1d9c4b8",
+    "inspect_poses.py": "8212a7817543c6a2986b60e88450ab9e717c849f9956ef61206bf50bb9d86dc3",
+    "inspect_geometry.py": "c8bcd7cd85deff541f66750ed9e9d66b3ac2cb2ba3b6a3f89f2499ff29d51547",
+    "build_frank.py": "b63e3835a70cd0c38c229cda1c985d5fdaab6aa0ded73d299634b7e1e025d65a",
+    "validate_frank.py": "f8796b115c5213326984dcbd6e62faf2aecb268882f72914fb6c7c42d1776008",
+    "promote_candidate.py": "673f84696feca79ceedae59268467a78b0dff94378793d93b5f14b6e1f512a6e",
+    "check_runtime.py": "1b91e12499558f7507cc652117a7d70dbd999bc07f7a4a81fe2a385796d2af7a",
+    "render_roundtrip.py": "dc2c51e428d5a30e1c4e2ac32ee558bdcd0555006a530924754c700e0201addc",
+    "compare_renders.py": "234e62d1d05f86c0121935582f572438cb2d62cbcc50b63629ee156b9321426c"
+  },
+  "reference_calibration_sha256": "1fed4f0aab8dfbe1a0a9756abaca2443f6279cc4679e621813314169b3e254a5",
+  "baseline": "backups/1.3",
+  "construction": "Authored connected body and head/ear section cages. Body simplification restricted to single-bone rigid patches; head/ears rigid simplification after subdivision."
+}

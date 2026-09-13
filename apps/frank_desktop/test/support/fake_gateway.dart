@@ -1,32 +1,365 @@
 import 'dart:async';
 
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
+import 'package:frank_desktop/core/fixtures/fixture_ledger.dart';
+import 'package:frank_desktop/core/fixtures/fixture_team.dart';
 import 'package:frank_desktop/core/gateway/frank_gateway.dart';
 import 'package:frank_desktop/core/models/organization_models.dart';
+import 'package:frank_desktop/core/models/ledger_models.dart';
+import 'package:frank_desktop/core/models/openrouter_models.dart';
+import 'package:frank_desktop/core/models/taskboard_models.dart';
+import 'package:frank_desktop/core/models/team_models.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
+import 'package:frank_desktop/core/models/workflow_models.dart';
 
 class FakeGateway implements FrankGateway {
-  FakeGateway({this.workspace, this.loadError, this.organization});
+  FakeGateway({
+    this.workspace,
+    this.loadError,
+    this.organization,
+    this.taskboard,
+    this.taskboardLatency = Duration.zero,
+    this.taskboardLoadError,
+    this.taskboardDecisionError,
+    this.teamProfiles,
+    this.ledgerDashboard,
+    this.teamProfilesError,
+    this.ledgerDashboardError,
+  });
+
+  @override
+  bool get isFixture => true;
+
+  @override
+  Stream<void> watchTaskboard() => const Stream<void>.empty();
+
+  @override
+  Future<WorkflowProjection> loadWorkflowProjection() async =>
+      const WorkflowProjection(
+        boards: [
+          WorkflowTaskboard(
+            id: 'fake-inbox',
+            name: 'Inbox',
+            dispatchMode: WorkflowDispatchMode.pull,
+          ),
+        ],
+      );
+
+  @override
+  Future<WorkflowProjection> executeWorkflowCommand({
+    required String type,
+    Map<String, Object?> data = const <String, Object?>{},
+  }) => loadWorkflowProjection();
 
   OfficeWorkspace? workspace;
   Object? loadError;
   OrganizationGraph? organization;
+  TaskboardSnapshot? taskboard;
+  Duration taskboardLatency;
   OrganizationGraph? publishedOrganization;
   Object? organizationLoadError;
   Object? organizationSaveError;
   Object? organizationPublishError;
+  Object? taskboardLoadError;
+  Object? taskboardDecisionError;
+  List<TeamAgentProfile>? teamProfiles;
+  LedgerDashboardData? ledgerDashboard;
+  Object? teamProfilesError;
+  Object? ledgerDashboardError;
   int loadCalls = 0;
   int organizationLoadCalls = 0;
+  int taskboardLoadCalls = 0;
   final List<OrganizationGraph> organizationSaves = [];
   final List<OrganizationGraph> organizationPublishes = [];
+  final List<TaskboardDecisionRequest> taskboardDecisions = [];
   final List<ReplyRequest> replies = [];
   Stream<String> Function(ReplyRequest request)? onReply;
+  int _snapshotRevision = 1;
+  String? _supervisorModel;
+
+  @override
+  int get snapshotRevision => _snapshotRevision;
+
+  @override
+  String? get cachedSupervisorModel => _supervisorModel;
+
+  @override
+  Future<OpenRouterConnection> loadOpenRouterConnection() async =>
+      const OpenRouterConnection(
+        configured: true,
+        credentialSource: 'environment',
+        checkedAt: null,
+        catalogRefreshedAt: null,
+        diagnostic: null,
+      );
+
+  @override
+  Future<OpenRouterConnection> testOpenRouterConnection() =>
+      loadOpenRouterConnection();
+
+  @override
+  Future<OpenRouterConnection> saveOpenRouterCredential(String apiKey) =>
+      loadOpenRouterConnection();
+
+  @override
+  Future<OpenRouterConnection> removeOpenRouterCredential() =>
+      loadOpenRouterConnection();
+
+  @override
+  Future<OpenRouterCatalog> loadOpenRouterModels({bool refresh = false}) async {
+    return FixtureFrankGateway(latency: Duration.zero).loadOpenRouterModels();
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> updateAgentModelOverride({
+    required String agentId,
+    required String? model,
+    required int expectedRevision,
+  }) async {
+    final profiles = await loadTeamProfiles();
+    final index = profiles.indexWhere(
+      (profile) => profile.employeeId == agentId,
+    );
+    if (index < 0) throw StateError('agent not found');
+    final current = profiles[index];
+    teamProfiles = [...profiles]
+      ..[index] = model == null
+          ? current.copyWith(
+              model: current.roleDefaultModel ?? current.model,
+              clearModelOverride: true,
+              modelSource: 'role',
+            )
+          : current.copyWith(
+              model: model,
+              modelOverride: model,
+              modelSource: 'agent',
+            );
+    _snapshotRevision++;
+    return teamProfiles!;
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> updateRoleDefaultModel({
+    required String roleId,
+    required String? model,
+    required int expectedRevision,
+  }) async {
+    final profiles = await loadTeamProfiles();
+    teamProfiles = [
+      for (final profile in profiles)
+        profile.roleId == roleId
+            ? profile.copyWith(
+                roleDefaultModel: model,
+                model: profile.modelOverride == null
+                    ? (model ?? profile.model)
+                    : profile.model,
+              )
+            : profile,
+    ];
+    _snapshotRevision++;
+    return teamProfiles!;
+  }
+
+  @override
+  Future<void> updateSupervisorModel({
+    required String? model,
+    required int expectedRevision,
+  }) async {
+    _supervisorModel = model;
+    _snapshotRevision++;
+  }
+
+  @override
+  List<TeamAgentProfile>? get cachedTeamProfiles => teamProfiles;
+
+  @override
+  LedgerDashboardData? get cachedLedgerDashboard => ledgerDashboard;
+
+  @override
+  Future<List<TeamAgentProfile>> loadTeamProfiles() async {
+    if (teamProfilesError != null) throw teamProfilesError!;
+    if (teamProfiles != null) return teamProfiles!;
+    final loadedWorkspace = workspace ??= await FixtureFrankGateway()
+        .loadWorkspace();
+    return teamProfiles = fixtureTeamProfiles(loadedWorkspace);
+  }
+
+  @override
+  Future<List<TeamRoleSummary>> loadTeamRoles() async {
+    final profiles = await loadTeamProfiles();
+    final seen = <String>{};
+    return [
+      for (final profile in profiles)
+        if (profile.roleId != null && seen.add(profile.roleId!))
+          TeamRoleSummary(
+            id: profile.roleId!,
+            name: profile.role,
+            description: profile.tagline,
+            template: profile.specialization?.toLowerCase() ?? 'generalist',
+            defaultModel: profile.roleDefaultModel ?? profile.model,
+          ),
+    ];
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> createRole(TeamRoleDraft draft) async {
+    if (draft.name.trim().isEmpty) {
+      throw ArgumentError.value(draft.name, 'name');
+    }
+    _snapshotRevision++;
+    return loadTeamProfiles();
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> createAgent(TeamAgentDraft draft) async {
+    if (draft.displayName.trim().isEmpty) {
+      throw ArgumentError.value(draft.displayName, 'displayName');
+    }
+    if (draft.roleId.trim().isEmpty) {
+      throw ArgumentError.value(draft.roleId, 'roleId');
+    }
+    _snapshotRevision++;
+    return loadTeamProfiles();
+  }
+
+  @override
+  @override
+  Future<List<TeamAgentProfile>> updateAgentPatch({
+    required String agentId,
+    required TeamAgentPatch patch,
+    required int expectedRevision,
+  }) async {
+    final profiles = await loadTeamProfiles();
+    if (!profiles.any((profile) => profile.employeeId == agentId)) {
+      throw StateError('agent not found');
+    }
+    _snapshotRevision++;
+    return profiles;
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> archiveAgent({
+    required String agentId,
+    required int expectedRevision,
+  }) async {
+    final profiles = await loadTeamProfiles();
+    if (!profiles.any((profile) => profile.employeeId == agentId)) {
+      throw StateError('agent not found');
+    }
+    _snapshotRevision++;
+    return profiles;
+  }
+
+  @override
+  @override
+  Future<List<TeamAgentProfile>> updateRolePatch({
+    required String roleId,
+    required TeamRolePatch patch,
+    required int expectedRevision,
+  }) async {
+    final roles = await loadTeamRoles();
+    if (!roles.any((role) => role.id == roleId)) {
+      throw StateError('role not found');
+    }
+    _snapshotRevision++;
+    return loadTeamProfiles();
+  }
+
+  @override
+  Future<List<TeamAgentProfile>> archiveRole({
+    required String roleId,
+    required int expectedRevision,
+  }) async {
+    final roles = await loadTeamRoles();
+    if (!roles.any((role) => role.id == roleId)) {
+      throw StateError('role not found');
+    }
+    _snapshotRevision++;
+    return loadTeamProfiles();
+  }
+
+  @override
+  Future<LedgerDashboardData> loadLedgerDashboard() async {
+    if (ledgerDashboardError != null) throw ledgerDashboardError!;
+    if (ledgerDashboard != null) return ledgerDashboard!;
+    final loadedWorkspace = workspace ??= await FixtureFrankGateway()
+        .loadWorkspace();
+    return ledgerDashboard = fixtureLedgerDashboard(loadedWorkspace);
+  }
+
+  @override
+  Future<TaskboardSnapshot> loadTaskboard() async {
+    taskboardLoadCalls++;
+    if (taskboardLoadError != null) throw taskboardLoadError!;
+    taskboard ??= await FixtureFrankGateway(
+      taskboardLatency: taskboardLatency,
+    ).loadTaskboard();
+    return taskboard!;
+  }
+
+  @override
+  Future<TaskboardSnapshot> submitTaskboardDecision({
+    required String taskId,
+    required TaskboardDecisionInput decision,
+  }) async {
+    taskboardDecisions.add(
+      TaskboardDecisionRequest(taskId: taskId, decision: decision),
+    );
+    if (taskboardDecisionError != null) throw taskboardDecisionError!;
+    final fixture = FixtureFrankGateway(
+      initialTaskboard: taskboard,
+      taskboardLatency: taskboardLatency,
+    );
+    // Keep the fake's snapshot mutable across multiple decision calls while
+    // retaining the same production fixture semantics.
+    taskboard = await fixture.submitTaskboardDecision(
+      taskId: taskId,
+      decision: decision,
+    );
+    return taskboard!;
+  }
+
+  @override
+  Future<TaskboardSnapshot> claimTask({
+    required String taskId,
+    required String agentId,
+  }) async {
+    final fixture = FixtureFrankGateway(
+      initialTaskboard: taskboard,
+      taskboardLatency: taskboardLatency,
+    );
+    taskboard = await fixture.claimTask(taskId: taskId, agentId: agentId);
+    return taskboard!;
+  }
+
+  @override
+  Future<TaskboardSnapshot> releaseTask({required String taskId}) async {
+    final fixture = FixtureFrankGateway(
+      initialTaskboard: taskboard,
+      taskboardLatency: taskboardLatency,
+    );
+    taskboard = await fixture.releaseTask(taskId: taskId);
+    return taskboard!;
+  }
+
+  @override
+  Future<TaskboardSnapshot> addTaskComment({
+    required String taskId,
+    required String body,
+  }) async {
+    final fixture = FixtureFrankGateway(
+      initialTaskboard: taskboard,
+      taskboardLatency: taskboardLatency,
+    );
+    taskboard = await fixture.addTaskComment(taskId: taskId, body: body);
+    return taskboard!;
+  }
 
   @override
   Future<OfficeWorkspace> loadWorkspace() async {
     loadCalls++;
     if (loadError != null) throw loadError!;
-    return workspace ?? await FixtureFrankGateway().loadWorkspace();
+    return workspace ??= await FixtureFrankGateway().loadWorkspace();
   }
 
   @override
@@ -68,6 +401,46 @@ class FakeGateway implements FrankGateway {
   }
 
   @override
+  Future<List<ConnectorProfile>> loadConnectorProfiles() async => const [];
+
+  @override
+  Future<ConnectorProfile> testConnectorProfile({required String profileId}) =>
+      Future<ConnectorProfile>.error(
+        StateError(
+          'Connector profile tests are unavailable in the fake gateway.',
+        ),
+      );
+
+  @override
+  Future<List<ConnectorProfile>> createConnectorProfile({
+    required String name,
+    required ConnectorKind kind,
+    Map<String, Object?> config = const <String, Object?>{},
+  }) async => const [];
+
+  @override
+  Future<List<ConnectorProfile>> updateConnectorProfile({
+    required String profileId,
+    String? name,
+    ConnectorKind? kind,
+    Map<String, Object?>? config,
+  }) async => const [];
+
+  @override
+  Future<List<ConnectorProfile>> archiveConnectorProfile({
+    required String profileId,
+  }) async => const [];
+
+  @override
+  Future<void> saveConnectorCredential({
+    required String profileId,
+    required String secret,
+  }) async {}
+
+  @override
+  Future<void> removeConnectorCredential({required String profileId}) async {}
+
+  @override
   Stream<String> replyTo(
     String text, {
     required String projectId,
@@ -93,6 +466,16 @@ class ReplyRequest {
   final String text;
   final String projectId;
   final String? missionId;
+}
+
+class TaskboardDecisionRequest {
+  const TaskboardDecisionRequest({
+    required this.taskId,
+    required this.decision,
+  });
+
+  final String taskId;
+  final TaskboardDecisionInput decision;
 }
 
 class ReplyStream {

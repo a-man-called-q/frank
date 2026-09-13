@@ -11,7 +11,7 @@ void main() {
     tester,
   ) async {
     _setWindow(tester);
-    await tester.pumpWidget(const FrankApp());
+    await tester.pumpWidget(const FrankApp(showLogin: false));
     await tester.pump(const Duration(milliseconds: 500));
 
     final sidebar = tester.widget<FSidebarData>(
@@ -31,7 +31,10 @@ void main() {
     (tester) async {
       _setWindow(tester);
       await tester.pumpWidget(
-        FrankApp(sidebarEffectBuilder: _fakeSidebarEffect),
+        FrankApp(
+          showLogin: false,
+          sidebarEffectBuilder: _fakeSidebarEffect,
+        ),
       );
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -67,13 +70,19 @@ void main() {
   );
 
   testWidgets(
-    'native effect leaves the context strip and main surface opaque',
+    'native effect keeps the glass context strip and opaque main surface',
     (tester) async {
       _setWindow(tester);
       await tester.pumpWidget(
-        FrankApp(sidebarEffectBuilder: _fakeSidebarEffect),
+        FrankApp(
+          showLogin: false,
+          sidebarEffectBuilder: _fakeSidebarEffect,
+        ),
       );
       await tester.pump(const Duration(milliseconds: 500));
+      // macos_window_utils schedules a zero-duration update after mounting;
+      // flush it before the test's invariant check disposes the tree.
+      await tester.pumpAndSettle();
 
       final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
       final contextStrip = tester.widget<SizedBox>(
@@ -94,7 +103,7 @@ void main() {
 
       expect(scaffold.backgroundColor, Colors.transparent);
       expect(contextStrip.height, ShellContextBar.height);
-      expect(contextPaint.color, FrankColors.canvas);
+      expect(contextPaint.color, FrankColors.sidebarGlass);
       expect(mainPaint.color, FrankColors.canvas);
       expect(mainRect.left, closeTo(SidebarLayout.defaultWidth, 0.1));
       expect(mainRect.width, greaterThan(0));

@@ -22,6 +22,314 @@ pub fn retry_after_failure(task: &mut TaskView) -> TaskStatus {
     }
 }
 
+/// Before the first Organization publish, preserve the legacy runtime. Once
+/// a graph is active, only agents explicitly present as staff nodes may
+/// receive new assignments or claims.
+pub(crate) fn organization_allows_agent(snapshot: &Snapshot, agent_id: AgentId) -> bool {
+    let Some(graph) = snapshot.organization.published.as_ref() else {
+        return true;
+    };
+    if graph
+        .nodes
+        .iter()
+        .any(|node| node.kind == OrganizationNodeKind::Staff && node.agent_id == Some(agent_id))
+    {
+        return true;
+    }
+    // v2 workflows target a role. Every real member keeps exactly one
+    // immutable primary role; the graph only needs a Role node for that role.
+    let Some(role_id) = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id && !agent.archived)
+        .and_then(|agent| agent.role_id)
+    else {
+        return false;
+    };
+    graph
+        .nodes
+        .iter()
+        .any(|node| node.kind == OrganizationNodeKind::Role && node.role_id == Some(role_id))
+}
+
+fn organization_node_for_agent<'a>(
+    snapshot: &'a Snapshot,
+    graph: &'a OrganizationGraph,
+    agent_id: AgentId,
+) -> Option<&'a OrganizationNode> {
+    if let Some(node) = graph
+        .nodes
+        .iter()
+        .find(|node| node.kind == OrganizationNodeKind::Staff && node.agent_id == Some(agent_id))
+    {
+        return Some(node);
+    }
+    let role_id = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id && !agent.archived)
+        .and_then(|agent| agent.role_id)?;
+    graph
+        .nodes
+        .iter()
+        .find(|node| node.kind == OrganizationNodeKind::Role && node.role_id == Some(role_id))
+}
+
+/// Once an Organization is published, an agent may only delegate to a staff
+/// member connected by an explicit handoff relation. Self-assignment remains
+/// valid for normal task claims.
+pub(crate) fn organization_allows_handoff(
+    snapshot: &Snapshot,
+    source_agent_id: AgentId,
+    target_agent_id: AgentId,
+) -> bool {
+    if source_agent_id == target_agent_id {
+        return true;
+    }
+    let Some(graph) = snapshot.organization.published.as_ref() else {
+        return true;
+    };
+    // v2 ownership is transferred by DropWorkItem through a board. Keep the
+    // legacy direct edge only for pre-v2 graphs so old snapshots remain valid.
+    if graph.nodes.iter().any(|node| {
+        matches!(
+            node.kind,
+            OrganizationNodeKind::Role
+                | OrganizationNodeKind::Taskboard
+                | OrganizationNodeKind::ChildWorkflow
+        )
+    }) {
+        return false;
+    }
+    let source = graph.nodes.iter().find(|node| {
+        node.kind == OrganizationNodeKind::Staff && node.agent_id == Some(source_agent_id)
+    });
+    let target = graph.nodes.iter().find(|node| {
+        node.kind == OrganizationNodeKind::Staff && node.agent_id == Some(target_agent_id)
+    });
+    let (Some(source), Some(target)) = (source, target) else {
+        return false;
+    };
+    graph.relations.iter().any(|relation| {
+        relation.kind == OrganizationRelationKind::Handoff
+            && relation.source_node_id == source.id
+            && relation.target_node_id == target.id
+    })
+}
+
+/// Review is a separate relation from handoff. The source task remains in
+/// `Review` until the target staff agent accepts it.
+pub(crate) fn organization_allows_review(
+    snapshot: &Snapshot,
+    source_agent_id: AgentId,
+    reviewer_agent_id: AgentId,
+) -> bool {
+    let Some(graph) = snapshot.organization.published.as_ref() else {
+        return true;
+    };
+    if graph.nodes.iter().any(|node| {
+        matches!(
+            node.kind,
+            OrganizationNodeKind::Role
+                | OrganizationNodeKind::Taskboard
+                | OrganizationNodeKind::ChildWorkflow
+        )
+    }) {
+        return false;
+    }
+    let source = organization_node_for_agent(snapshot, graph, source_agent_id);
+    let reviewer = organization_node_for_agent(snapshot, graph, reviewer_agent_id);
+    let (Some(source), Some(reviewer)) = (source, reviewer) else {
+        return false;
+    };
+    graph.relations.iter().any(|relation| {
+        relation.kind == OrganizationRelationKind::Review
+            && relation.source_node_id == source.id
+            && relation.target_node_id == reviewer.id
+    })
+}
+
+/// Resolve the deterministic reviewer for a source staff member. A review
+/// relation is an actual work-item target, not just a permission check: the
+/// first matching relation in the published graph owns the review until it is
+/// accepted or rejected.
+pub(crate) fn organization_review_target(
+    snapshot: &Snapshot,
+    source_agent_id: AgentId,
+) -> Option<AgentId> {
+    let graph = snapshot.organization.published.as_ref()?;
+    let source = organization_node_for_agent(snapshot, graph, source_agent_id)?;
+    graph.relations.iter().find_map(|relation| {
+        if relation.kind != OrganizationRelationKind::Review || relation.source_node_id != source.id
+        {
+            return None;
+        }
+        let target = graph.nodes.iter().find(|node| {
+            node.id == relation.target_node_id && node.kind == OrganizationNodeKind::Staff
+        })?;
+        let reviewer = target.agent_id?;
+        snapshot
+            .agents
+            .iter()
+            .any(|agent| agent.id == reviewer && !agent.archived)
+            .then_some(reviewer)
+    })
+}
+
+/// Resolve the first published review relation for a source agent, retaining
+/// both the relation identity and its handoff contract.  The relation id is
+/// carried by the durable review work item so a later decision can be
+/// audited against the exact graph edge that created it.
+pub(crate) fn organization_review_contract(
+    snapshot: &Snapshot,
+    source_agent_id: AgentId,
+    reviewer_agent_id: AgentId,
+) -> Option<(String, OrganizationHandoffContract)> {
+    let graph = snapshot.organization.published.as_ref()?;
+    let source = organization_node_for_agent(snapshot, graph, source_agent_id)?;
+    let reviewer = organization_node_for_agent(snapshot, graph, reviewer_agent_id)?;
+    graph.relations.iter().find_map(|relation| {
+        if relation.kind != OrganizationRelationKind::Review
+            || relation.source_node_id != source.id
+            || relation.target_node_id != reviewer.id
+        {
+            return None;
+        }
+        Some((relation.id.clone(), relation.contract.clone()))
+    })
+}
+
+/// Resolve an OpenRouter tool to the capability grant in the published
+/// Organization. Internal Frank coordination tools remain available as
+/// before; connector-backed tools fail closed once an Organization has been
+/// published unless the agent has an explicit `toolAccess` relation.
+pub(crate) fn organization_tool_denial(
+    snapshot: &Snapshot,
+    agent_id: AgentId,
+    tool: &str,
+) -> Option<String> {
+    let (capability, permission) = organization_tool_permission(tool)?;
+    let graph = snapshot.organization.published.as_ref()?;
+    let staff_node = organization_node_for_agent(snapshot, graph, agent_id);
+    let Some(staff_node) = staff_node else {
+        return Some("agent is not present on a published Organization staff node".into());
+    };
+    let granted = graph.relations.iter().any(|relation| {
+        if relation.kind != OrganizationRelationKind::ToolAccess
+            || relation.source_node_id != staff_node.id
+            || !relation.permissions.iter().any(|value| value == permission)
+        {
+            return false;
+        }
+        graph
+            .nodes
+            .iter()
+            .find(|node| node.id == relation.target_node_id)
+            .is_some_and(|node| {
+                if node.kind != OrganizationNodeKind::Capability
+                    || node.capability != Some(capability)
+                {
+                    return false;
+                }
+                let Some(profile_id) = node.connector_profile_id else {
+                    return false;
+                };
+                snapshot
+                    .organization
+                    .connector_profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id && !profile.archived)
+                    .is_some_and(|profile| {
+                        profile.health != ConnectorHealth::Unhealthy
+                            && profile_supports(profile.kind, capability)
+                    })
+            })
+    });
+    if granted {
+        None
+    } else {
+        Some(format!(
+            "Organization tool grant is missing: {tool} requires {permission} on {capability:?}"
+        ))
+    }
+}
+
+/// Resolve the concrete profile behind an already-authorized tool grant. The
+/// profile is cloned from the sanitized snapshot; credentials remain outside
+/// this DTO and are loaded only by the daemon adapter that needs them.
+pub(crate) fn organization_tool_profile(
+    snapshot: &Snapshot,
+    agent_id: AgentId,
+    tool: &str,
+) -> Option<ConnectorProfileView> {
+    let (capability, permission) = organization_tool_permission(tool)?;
+    let graph = snapshot.organization.published.as_ref()?;
+    let staff_node = organization_node_for_agent(snapshot, graph, agent_id)?;
+    graph.relations.iter().find_map(|relation| {
+        if relation.kind != OrganizationRelationKind::ToolAccess
+            || relation.source_node_id != staff_node.id
+            || !relation.permissions.iter().any(|value| value == permission)
+        {
+            return None;
+        }
+        let capability_node = graph.nodes.iter().find(|node| {
+            node.id == relation.target_node_id
+                && node.kind == OrganizationNodeKind::Capability
+                && node.capability == Some(capability)
+        })?;
+        let profile_id = capability_node.connector_profile_id?;
+        snapshot
+            .organization
+            .connector_profiles
+            .iter()
+            .find(|profile| profile.id == profile_id && !profile.archived)
+            .cloned()
+    })
+}
+
+fn profile_supports(kind: ConnectorKind, capability: OrganizationCapabilityKind) -> bool {
+    matches!(
+        (kind, capability),
+        (
+            ConnectorKind::GoogleWorkspace,
+            OrganizationCapabilityKind::Email
+        ) | (
+            ConnectorKind::GoogleWorkspace,
+            OrganizationCapabilityKind::Calendar
+        ) | (
+            ConnectorKind::GoogleWorkspace,
+            OrganizationCapabilityKind::Drive
+        ) | (
+            ConnectorKind::Taskboard,
+            OrganizationCapabilityKind::Taskboard
+        ) | (ConnectorKind::Browser, OrganizationCapabilityKind::Browser)
+            | (
+                ConnectorKind::Terminal,
+                OrganizationCapabilityKind::Terminal
+            )
+            | (
+                ConnectorKind::Postgres,
+                OrganizationCapabilityKind::Database
+            )
+            | (ConnectorKind::Sqlite, OrganizationCapabilityKind::Database)
+    )
+}
+
+fn organization_tool_permission(tool: &str) -> Option<(OrganizationCapabilityKind, &'static str)> {
+    let (capability, permission) = frank_tool_catalog::organization_permission(tool)?;
+    let capability = match capability {
+        "email" => OrganizationCapabilityKind::Email,
+        "calendar" => OrganizationCapabilityKind::Calendar,
+        "drive" => OrganizationCapabilityKind::Drive,
+        "taskboard" => OrganizationCapabilityKind::Taskboard,
+        "browser" => OrganizationCapabilityKind::Browser,
+        "terminal" => OrganizationCapabilityKind::Terminal,
+        "database" => OrganizationCapabilityKind::Database,
+        _ => return None,
+    };
+    Some((capability, permission))
+}
+
 pub(crate) fn authorize(command: &Command, actor_kind: ActorKind, role: DeviceRole) -> Result<()> {
     if matches!(command, Command::Pair(_)) {
         return Ok(());
@@ -35,6 +343,12 @@ pub(crate) fn authorize(command: &Command, actor_kind: ActorKind, role: DeviceRo
             Command::UpdateTask { .. }
                 | Command::CreateTask(_)
                 | Command::SetTaskStatus { .. }
+                | Command::AssignTask { .. }
+                | Command::ClaimTask { .. }
+                | Command::TaskAccept { .. }
+                | Command::DecideReview { .. }
+                | Command::ReleaseTask { .. }
+                | Command::AddTaskComment { .. }
                 | Command::SendMessage(_)
                 | Command::AckMessage { .. }
                 | Command::CompleteMessage { .. }
@@ -44,6 +358,12 @@ pub(crate) fn authorize(command: &Command, actor_kind: ActorKind, role: DeviceRo
                 | Command::PublishArtifact(_)
                 | Command::BeginArtifactUpload(_)
                 | Command::FinalizeArtifactUpload { .. }
+                | Command::CreateWorkItem(_)
+                | Command::DropWorkItem { .. }
+                | Command::SpawnChildWorkItems { .. }
+                | Command::RespondWorkOffer { .. }
+                | Command::RequestHumanInput { .. }
+                | Command::RequestTaskRework { .. }
         )
     {
         return Err(OrchestratorError::Forbidden);
@@ -60,9 +380,24 @@ pub(crate) fn authorize(command: &Command, actor_kind: ActorKind, role: DeviceRo
             | Command::CreateAgent(_)
             | Command::UpdateAgent { .. }
             | Command::ArchiveAgent { .. }
+            | Command::CreateRole(_)
+            | Command::UpdateRole { .. }
+            | Command::ArchiveRole { .. }
+            | Command::SetAgentRole { .. }
+            | Command::CreateTaskboard(_)
+            | Command::UpdateTaskboard { .. }
+            | Command::ArchiveTaskboard { .. }
+            | Command::SaveOrganizationDraft { .. }
+            | Command::PublishOrganization { .. }
+            | Command::CreateConnectorProfile(_)
+            | Command::UpdateConnectorProfile { .. }
+            | Command::ArchiveConnectorProfile { .. }
             | Command::PrepareUpdate { .. }
             | Command::ApplyUpdate { .. }
             | Command::RollbackUpdate
+            | Command::RequestOrganizationDrain { .. }
+            | Command::ResumeOrganization { .. }
+            | Command::FireAgent { .. }
     );
     if owner_only && !role.can_admin() {
         return Err(OrchestratorError::Forbidden);
@@ -114,6 +449,26 @@ pub(crate) fn validate_supervisor_proposal(
         {
             return Err(OrchestratorError::NotFound);
         }
+        if let Some(role_id) = task.target_role_id
+            && !snapshot
+                .roles
+                .iter()
+                .any(|role| role.id == role_id && !role.archived)
+        {
+            return Err(OrchestratorError::NotFound);
+        }
+        if let (Some(role_id), Some(agent_id)) = (task.target_role_id, task.assigned_agent)
+            && snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.id == agent_id)
+                .and_then(|agent| agent.role_id)
+                != Some(role_id)
+        {
+            return Err(OrchestratorError::Validation(
+                "supervisor assigned agent does not belong to target role".into(),
+            ));
+        }
         for agent_id in &task.candidate_agents {
             if !snapshot
                 .agents
@@ -121,6 +476,18 @@ pub(crate) fn validate_supervisor_proposal(
                 .any(|agent| agent.id == *agent_id && !agent.archived)
             {
                 return Err(OrchestratorError::NotFound);
+            }
+            if let Some(role_id) = task.target_role_id
+                && snapshot
+                    .agents
+                    .iter()
+                    .find(|agent| agent.id == *agent_id)
+                    .and_then(|agent| agent.role_id)
+                    != Some(role_id)
+            {
+                return Err(OrchestratorError::Validation(
+                    "supervisor candidate does not belong to target role".into(),
+                ));
             }
         }
         if let (Some(assigned), Some(requirement)) =
@@ -309,9 +676,6 @@ pub(crate) fn apply_settings_patch(
     if let Some(value) = patch.max_concurrency {
         settings.max_concurrency = value.clamp(1, 64);
     }
-    if let Some(value) = patch.max_provider_concurrency {
-        settings.max_provider_concurrency = value.clamp(1, 32);
-    }
     if let Some(budget) = patch.default_budget {
         settings.default_budget = budget;
     }
@@ -327,8 +691,17 @@ pub(crate) fn apply_settings_patch(
     if let Some(value) = patch.artifact_retention_days {
         settings.artifact_retention_days = value.clamp(1, 3_650);
     }
-    if let Some(provider) = patch.supervisor_provider {
-        settings.supervisor_provider = provider;
+    if patch.clear_supervisor_model {
+        settings.supervisor_model = None;
+    } else if let Some(model) = patch.supervisor_model {
+        if let Some(model) = &model
+            && !valid_optional_agent_text(Some(model.as_str()), 256)
+        {
+            return Err(OrchestratorError::Validation(
+                "supervisor model is invalid".into(),
+            ));
+        }
+        settings.supervisor_model = model;
     }
     Ok(())
 }
@@ -418,15 +791,28 @@ pub(crate) fn validate_task_spec(spec: &TaskSpec, tasks: &[TaskView]) -> Result<
         title: spec.title.clone(),
         objective: spec.objective.clone(),
         dependencies: spec.dependencies.clone(),
+        required_role_id: spec.required_role_id,
         priority: spec.priority,
         budget: spec.budget.clone(),
         status: TaskStatus::Backlog,
         assigned_agent: spec.assigned_agent,
+        reviewer_agent: None,
+        claimed_at: None,
+        claim_source: None,
         attempt: 0,
         max_attempts: DEFAULT_MAX_ATTEMPTS,
         worktree: None,
         branch: None,
         result_artifact: None,
+        taskboard_id: spec.taskboard_id,
+        workflow_id: spec.workflow_id,
+        parent_task_id: spec.parent_task_id,
+        child_task_ids: Vec::new(),
+        kind: spec.kind,
+        active_role_node_id: None,
+        organization_revision: None,
+        rework_limit: spec.rework_limit,
+        rework_count: 0,
     };
     validate_task_view(&candidate, tasks)
 }
@@ -515,6 +901,9 @@ pub(crate) fn dfs_cycle(
 }
 
 pub(crate) fn apply_agent_patch(agent: &mut AgentView, patch: AgentPatch) {
+    if let Some(value) = patch.role_id {
+        agent.role_id = value;
+    }
     if let Some(value) = patch.display_name {
         agent.display_name = value;
     }
@@ -566,6 +955,9 @@ pub(crate) fn apply_task_patch(task: &mut TaskView, patch: TaskPatch) {
     }
     if let Some(value) = patch.dependencies {
         task.dependencies = value;
+    }
+    if let Some(value) = patch.required_role_id {
+        task.required_role_id = value;
     }
     if let Some(value) = patch.priority {
         task.priority = value;

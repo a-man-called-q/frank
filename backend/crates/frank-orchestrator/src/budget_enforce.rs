@@ -166,12 +166,10 @@ impl Orchestrator {
             return Ok(());
         };
         if let Some(agent_id) = task.assigned_agent {
-            if let Some(agent) = snapshot.agents.iter().find(|agent| agent.id == agent_id) {
-                if let Some(session) = self.sessions.lock().await.remove(&task_id) {
-                    let _ = session.graceful_stop().await;
-                }
-                self.scheduler.lock().await.finish(task_id, agent.provider);
+            if let Some(session) = self.sessions.lock().await.remove(&task_id) {
+                let _ = session.graceful_stop().await;
             }
+            self.scheduler.lock().await.finish(task_id);
             let capabilities = self
                 .agent_capabilities
                 .lock()
@@ -299,6 +297,8 @@ impl Orchestrator {
             estimated_input_tokens: usage.estimated_input_tokens,
             estimated_output_tokens: usage.estimated_output_tokens,
             cost_micros: usage.cost_micros,
+            cached_input_tokens: usage.cached_input_tokens,
+            reasoning_tokens: usage.reasoning_tokens,
         };
         let exceeded = {
             let mut budgets = self.budgets.lock().await;
@@ -329,6 +329,8 @@ impl Orchestrator {
             estimated_input_tokens: usage.estimated_input_tokens,
             estimated_output_tokens: usage.estimated_output_tokens,
             cost_micros: usage.cost_micros,
+            cached_input_tokens: usage.cached_input_tokens,
+            reasoning_tokens: usage.reasoning_tokens,
         };
         let snapshot = self.store.snapshot().await?;
         let task_budget = snapshot

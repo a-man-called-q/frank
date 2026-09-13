@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/core/fixtures/fixture_organization.dart';
 import 'package:frank_desktop/core/models/organization_models.dart';
-import 'package:frank_desktop/features/organization/organization_flow_adapter.dart';
+import 'package:frank_desktop/features/organization/presentation/organization_flow_adapter.dart';
 
 void main() {
   test('organization graph serializes without Vyuh types', () {

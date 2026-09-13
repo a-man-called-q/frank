@@ -14,21 +14,17 @@ impl Orchestrator {
         match command {
             Command::Pair(_) => Err(OrchestratorError::Forbidden),
             Command::UpdateSettings { patch } => {
-                if let Some(Some(provider)) = patch.supervisor_provider {
-                    let probe = self
-                        .runtime
-                        .doctor()
-                        .await
-                        .into_iter()
-                        .find(|probe| probe.capability.provider == provider);
-                    if !probe.as_ref().is_some_and(|probe| {
-                        probe.capability.available && probe.capability.logged_in
-                    }) {
-                        let detail = probe
-                            .and_then(|probe| probe.capability.diagnostic)
-                            .unwrap_or_else(|| format!("{provider} is not available"));
-                        return Err(OrchestratorError::ProviderUnavailable(detail));
-                    }
+                if let Some(Some(model)) = &patch.supervisor_model
+                    && model.trim().is_empty()
+                {
+                    return Err(OrchestratorError::Validation(
+                        "supervisor model cannot be empty".into(),
+                    ));
+                }
+                if !patch.clear_supervisor_model
+                    && let Some(Some(model)) = &patch.supervisor_model
+                {
+                    self.validate_openrouter_model(Some(model)).await?;
                 }
                 apply_settings_patch(&mut snapshot.server, patch)?;
                 let settings = snapshot.server.clone();

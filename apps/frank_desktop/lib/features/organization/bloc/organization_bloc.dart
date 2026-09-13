@@ -5,279 +5,22 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/gateway/frank_gateway.dart';
 import '../../../core/models/organization_models.dart';
 import '../organization_catalog.dart';
+import '../organization_graph_editor.dart';
+import '../organization_history.dart';
 import '../organization_validator.dart';
 
-enum OrganizationLoadStatus { initial, loading, ready, failure }
-
-enum OrganizationPersistenceStatus {
-  published,
-  clean,
-  dirty,
-  saving,
-  saveFailure,
-  publishing,
-  publishFailure,
-}
-
-class OrganizationState {
-  const OrganizationState({
-    this.loadStatus = OrganizationLoadStatus.initial,
-    this.persistenceStatus = OrganizationPersistenceStatus.clean,
-    this.graph,
-    this.validation = const OrganizationValidation([]),
-    this.selectedNodeId,
-    this.selectedRelationId,
-    this.selectedGroupId,
-    this.selectedNodeIds = const [],
-    this.selectedRelationIds = const [],
-    this.selectedGroupIds = const [],
-    this.canUndo = false,
-    this.canRedo = false,
-    this.error,
-  });
-
-  static const _unset = Object();
-
-  final OrganizationLoadStatus loadStatus;
-  final OrganizationPersistenceStatus persistenceStatus;
-  final OrganizationGraph? graph;
-  final OrganizationValidation validation;
-  final String? selectedNodeId;
-  final String? selectedRelationId;
-  final String? selectedGroupId;
-  final List<String> selectedNodeIds;
-  final List<String> selectedRelationIds;
-  final List<String> selectedGroupIds;
-  final bool canUndo;
-  final bool canRedo;
-  final String? error;
-
-  bool get canPublish =>
-      loadStatus == OrganizationLoadStatus.ready &&
-      graph != null &&
-      !validation.hasErrors &&
-      persistenceStatus != OrganizationPersistenceStatus.dirty &&
-      persistenceStatus != OrganizationPersistenceStatus.saving &&
-      persistenceStatus != OrganizationPersistenceStatus.saveFailure &&
-      persistenceStatus != OrganizationPersistenceStatus.publishing;
-
-  OrganizationState copyWith({
-    OrganizationLoadStatus? loadStatus,
-    OrganizationPersistenceStatus? persistenceStatus,
-    OrganizationGraph? graph,
-    OrganizationValidation? validation,
-    Object? selectedNodeId = _unset,
-    Object? selectedRelationId = _unset,
-    Object? selectedGroupId = _unset,
-    List<String>? selectedNodeIds,
-    List<String>? selectedRelationIds,
-    List<String>? selectedGroupIds,
-    bool? canUndo,
-    bool? canRedo,
-    Object? error = _unset,
-  }) => OrganizationState(
-    loadStatus: loadStatus ?? this.loadStatus,
-    persistenceStatus: persistenceStatus ?? this.persistenceStatus,
-    graph: graph ?? this.graph,
-    validation: validation ?? this.validation,
-    selectedNodeId: identical(selectedNodeId, _unset)
-        ? this.selectedNodeId
-        : selectedNodeId as String?,
-    selectedRelationId: identical(selectedRelationId, _unset)
-        ? this.selectedRelationId
-        : selectedRelationId as String?,
-    selectedGroupId: identical(selectedGroupId, _unset)
-        ? this.selectedGroupId
-        : selectedGroupId as String?,
-    selectedNodeIds: selectedNodeIds ?? this.selectedNodeIds,
-    selectedRelationIds: selectedRelationIds ?? this.selectedRelationIds,
-    selectedGroupIds: selectedGroupIds ?? this.selectedGroupIds,
-    canUndo: canUndo ?? this.canUndo,
-    canRedo: canRedo ?? this.canRedo,
-    error: identical(error, _unset) ? this.error : error as String?,
-  );
-}
-
-sealed class OrganizationEvent {
-  const OrganizationEvent();
-}
-
-final class OrganizationStarted extends OrganizationEvent {
-  const OrganizationStarted();
-}
-
-final class OrganizationRetryRequested extends OrganizationEvent {
-  const OrganizationRetryRequested();
-}
-
-final class OrganizationNodeAdded extends OrganizationEvent {
-  const OrganizationNodeAdded(this.node);
-
-  final OrganizationNode node;
-}
-
-final class OrganizationNodeUpdated extends OrganizationEvent {
-  const OrganizationNodeUpdated(this.node);
-
-  final OrganizationNode node;
-}
-
-final class OrganizationNodeMoved extends OrganizationEvent {
-  const OrganizationNodeMoved(this.nodeId, this.position);
-
-  final String nodeId;
-  final OrganizationPoint position;
-}
-
-final class OrganizationGroupAdded extends OrganizationEvent {
-  const OrganizationGroupAdded(this.group);
-
-  final OrganizationGroup group;
-}
-
-final class OrganizationGroupUpdated extends OrganizationEvent {
-  const OrganizationGroupUpdated(this.group);
-
-  final OrganizationGroup group;
-}
-
-final class OrganizationGroupMoved extends OrganizationEvent {
-  const OrganizationGroupMoved(
-    this.groupId,
-    this.position, {
-    this.nodePositions = const {},
-  });
-
-  final String groupId;
-  final OrganizationPoint position;
-  final Map<String, OrganizationPoint> nodePositions;
-}
-
-final class OrganizationGroupResized extends OrganizationEvent {
-  const OrganizationGroupResized(this.groupId, this.position, this.size);
-
-  final String groupId;
-  final OrganizationPoint position;
-  final OrganizationSize size;
-}
-
-final class OrganizationGroupsDeleted extends OrganizationEvent {
-  const OrganizationGroupsDeleted(this.groupIds);
-
-  final List<String> groupIds;
-}
-
-final class OrganizationGroupDeleted extends OrganizationEvent {
-  const OrganizationGroupDeleted(this.groupId);
-
-  final String groupId;
-}
-
-/// A completed drag can contain several selected nodes. Keeping the batch as
-/// one event lets undo restore the whole drag with a single snapshot.
-final class OrganizationNodesMoved extends OrganizationEvent {
-  const OrganizationNodesMoved(this.positions);
-
-  final Map<String, OrganizationPoint> positions;
-}
-
-final class OrganizationNodeDuplicated extends OrganizationEvent {
-  const OrganizationNodeDuplicated(this.nodeId);
-
-  final String nodeId;
-}
-
-final class OrganizationElementsDeleted extends OrganizationEvent {
-  const OrganizationElementsDeleted({
-    this.nodeIds = const [],
-    this.relationIds = const [],
-    this.groupIds = const [],
-  });
-
-  final List<String> nodeIds;
-  final List<String> relationIds;
-  final List<String> groupIds;
-}
-
-final class OrganizationRelationAdded extends OrganizationEvent {
-  const OrganizationRelationAdded(this.relation);
-
-  final OrganizationRelation relation;
-}
-
-final class OrganizationRelationUpdated extends OrganizationEvent {
-  const OrganizationRelationUpdated(this.relation);
-
-  final OrganizationRelation relation;
-}
-
-final class OrganizationSelectionChanged extends OrganizationEvent {
-  const OrganizationSelectionChanged({
-    this.nodeId,
-    this.relationId,
-    this.groupId,
-    this.nodeIds,
-    this.relationIds,
-    this.groupIds,
-  });
-
-  final String? nodeId;
-  final String? relationId;
-  final String? groupId;
-  final List<String>? nodeIds;
-  final List<String>? relationIds;
-  final List<String>? groupIds;
-}
-
-enum OrganizationAlignment { left, right, top, bottom, centerX, centerY }
-
-final class OrganizationNodesAligned extends OrganizationEvent {
-  const OrganizationNodesAligned(this.nodeIds, this.alignment);
-
-  final List<String> nodeIds;
-  final OrganizationAlignment alignment;
-}
-
-enum OrganizationDistributionAxis { horizontal, vertical }
-
-final class OrganizationNodesDistributed extends OrganizationEvent {
-  const OrganizationNodesDistributed(this.nodeIds, this.axis);
-
-  final List<String> nodeIds;
-  final OrganizationDistributionAxis axis;
-}
-
-final class OrganizationViewportChanged extends OrganizationEvent {
-  const OrganizationViewportChanged(this.viewport);
-
-  final OrganizationViewport viewport;
-}
-
-final class OrganizationUndoRequested extends OrganizationEvent {
-  const OrganizationUndoRequested();
-}
-
-final class OrganizationRedoRequested extends OrganizationEvent {
-  const OrganizationRedoRequested();
-}
-
-final class OrganizationValidateRequested extends OrganizationEvent {
-  const OrganizationValidateRequested();
-}
-
-final class OrganizationPublishRequested extends OrganizationEvent {
-  const OrganizationPublishRequested();
-}
-
-final class _OrganizationSaveRequested extends OrganizationEvent {
-  const _OrganizationSaveRequested();
-}
+part 'organization_state.dart';
+part 'organization_events.dart';
 
 class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
   OrganizationBloc({
-    required FrankGateway gateway,
+    required OrganizationGateway gateway,
+    ConnectorGateway? connectorGateway,
     this.autosaveDelay = const Duration(milliseconds: 500),
   }) : _gateway = gateway,
+       _connectorGateway =
+           connectorGateway ??
+           (gateway is ConnectorGateway ? gateway as ConnectorGateway : null),
        super(const OrganizationState()) {
     on<OrganizationStarted>(_load);
     on<OrganizationRetryRequested>(_retry);
@@ -309,10 +52,11 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
     on<_OrganizationSaveRequested>(_save);
   }
 
-  final FrankGateway _gateway;
+  final OrganizationGateway _gateway;
+  final ConnectorGateway? _connectorGateway;
   final Duration autosaveDelay;
-  final List<OrganizationGraph> _undoStack = [];
-  final List<OrganizationGraph> _redoStack = [];
+  final OrganizationHistory _history = OrganizationHistory();
+  final OrganizationGraphEditor _editor = const OrganizationGraphEditor();
   Timer? _autosaveTimer;
   int _editGeneration = 0;
   int _idSequence = 0;
@@ -349,9 +93,11 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
     );
     try {
       final graph = await _gateway.loadOrganization();
+      final connectorProfiles = _connectorGateway == null
+          ? const <ConnectorProfile>[]
+          : await _connectorGateway.loadConnectorProfiles();
       if (isClosed) return;
-      _undoStack.clear();
-      _redoStack.clear();
+      _history.clear();
       emit(
         state.copyWith(
           loadStatus: OrganizationLoadStatus.ready,
@@ -366,6 +112,7 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
           selectedGroupIds: const [],
           canUndo: false,
           canRedo: false,
+          connectorProfiles: connectorProfiles,
           error: null,
         ),
       );
@@ -648,32 +395,14 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
     if (positions.isEmpty) {
       return;
     }
-    var changed = false;
-    final nextNodes = <OrganizationNode>[];
-    for (final node in graph.nodes) {
-      final position = positions[node.id];
-      if (position == null) {
-        nextNodes.add(node);
-        continue;
-      }
-      final snapped = OrganizationPoint(
-        _snapToGrid(position.x),
-        _snapToGrid(position.y),
-      );
-      if (node.position.x != snapped.x || node.position.y != snapped.y) {
-        changed = true;
-        final movedNode = node.copyWith(position: snapped);
-        nextNodes.add(
-          movedNode.copyWith(
-            groupId: _smallestContainingGroup(graph, movedNode)?.id,
-          ),
-        );
-      } else {
-        nextNodes.add(node);
-      }
-    }
-    if (!changed) return;
-    _commit(graph.copyWith(nodes: nextNodes), emit);
+    final next = _editor.moveNodes(graph, positions);
+    final changed = next.nodes.asMap().entries.any((entry) {
+      final before = graph.nodes[entry.key];
+      final after = entry.value;
+      return before.position != after.position ||
+          before.groupId != after.groupId;
+    });
+    if (changed) _commit(next, emit);
   }
 
   void _duplicateNode(
@@ -696,11 +425,17 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
       ),
       groupId: source.groupId,
       capability: source.capability,
-      providerLabel: source.providerLabel,
+      connectorProfileLabel: source.connectorProfileLabel,
       integrationRef: source.integrationRef,
       profileRef: source.profileRef,
       configured: source.configured,
       approvalRequired: source.approvalRequired,
+      roleId: source.roleId,
+      taskboardId: source.taskboardId,
+      childWorkflowId: source.childWorkflowId,
+      inputPort: source.inputPort,
+      outputPort: source.outputPort,
+      reworkLimit: source.reworkLimit,
     );
     _commit(
       graph.copyWith(nodes: [...graph.nodes, duplicate]),
@@ -994,17 +729,17 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
 
   void _undo(OrganizationUndoRequested event, Emitter<OrganizationState> emit) {
     final graph = state.graph;
-    if (graph == null || _undoStack.isEmpty) return;
-    _redoStack.add(graph);
-    final previous = _undoStack.removeLast();
+    if (graph == null) return;
+    final previous = _history.undo(graph);
+    if (previous == null) return;
     _emitChanged(previous, emit);
   }
 
   void _redo(OrganizationRedoRequested event, Emitter<OrganizationState> emit) {
     final graph = state.graph;
-    if (graph == null || _redoStack.isEmpty) return;
-    _undoStack.add(graph);
-    final next = _redoStack.removeLast();
+    if (graph == null) return;
+    final next = _history.redo(graph);
+    if (next == null) return;
     _emitChanged(next, emit);
   }
 
@@ -1164,9 +899,7 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
     final current = state.graph;
     if (current == null) return;
     if (recordHistory) {
-      _undoStack.add(current);
-      if (_undoStack.length > 50) _undoStack.removeAt(0);
-      _redoStack.clear();
+      _history.record(current);
     }
     _editGeneration++;
     emit(
@@ -1180,8 +913,8 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
         selectedNodeIds: _selectionOverride(selectedNodeIds),
         selectedRelationIds: _selectionOverride(selectedRelationIds),
         selectedGroupIds: _selectionOverride(selectedGroupIds),
-        canUndo: _undoStack.isNotEmpty,
-        canRedo: _redoStack.isNotEmpty,
+        canUndo: _history.canUndo,
+        canRedo: _history.canRedo,
         error: null,
       ),
     );
@@ -1201,8 +934,8 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
         selectedNodeIds: const [],
         selectedRelationIds: const [],
         selectedGroupIds: const [],
-        canUndo: _undoStack.isNotEmpty,
-        canRedo: _redoStack.isNotEmpty,
+        canUndo: _history.canUndo,
+        canRedo: _history.canRedo,
         error: null,
       ),
     );
@@ -1217,11 +950,20 @@ class OrganizationBloc extends Bloc<OrganizationEvent, OrganizationState> {
     );
   }
 
-  double _nodeWidth(OrganizationNode node) =>
-      node.kind == OrganizationNodeKind.staff ? 220 : 190;
+  double _nodeWidth(OrganizationNode node) => switch (node.kind) {
+    OrganizationNodeKind.staff => 220,
+    OrganizationNodeKind.capability || OrganizationNodeKind.approval => 190,
+    OrganizationNodeKind.role => 220,
+    OrganizationNodeKind.taskboard => 210,
+    OrganizationNodeKind.childWorkflow => 230,
+  };
 
-  double _nodeHeight(OrganizationNode node) =>
-      node.kind == OrganizationNodeKind.staff ? 126 : 112;
+  double _nodeHeight(OrganizationNode node) => switch (node.kind) {
+    OrganizationNodeKind.staff || OrganizationNodeKind.role => 126,
+    OrganizationNodeKind.capability || OrganizationNodeKind.approval => 112,
+    OrganizationNodeKind.taskboard => 118,
+    OrganizationNodeKind.childWorkflow => 126,
+  };
 
   OrganizationPoint _snapPoint(OrganizationPoint point) =>
       OrganizationPoint(_snapToGrid(point.x), _snapToGrid(point.y));

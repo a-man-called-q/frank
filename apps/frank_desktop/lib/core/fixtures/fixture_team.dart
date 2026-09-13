@@ -15,15 +15,52 @@ List<TeamAgentProfile> fixtureTeamProfiles(OfficeWorkspace workspace) {
 
   return [
     for (final employee in workspace.employees)
-      profiles[employee.id] ?? _fallbackProfile(employee),
+      profiles[employee.id] == null
+          ? _fallbackProfile(employee)
+          : _projectProfile(employee, profiles[employee.id]!),
   ];
+}
+
+TeamAgentProfile _projectProfile(
+  OfficeEmployee employee,
+  TeamAgentProfile metadata,
+) {
+  return TeamAgentProfile(
+    employeeId: employee.id,
+    roleId: metadata.roleId,
+    roleRevision: metadata.roleRevision,
+    name: employee.name,
+    role: employee.role,
+    specialization: metadata.specialization,
+    initials: employee.initials,
+    status: _teamStatusFor(employee.status),
+    accentColor: metadata.accentColor,
+    imageAsset: metadata.imageAsset,
+    tagline: metadata.tagline,
+    currentProject: metadata.currentProject,
+    assignment: metadata.assignment,
+    model: metadata.model,
+    modelOverride: metadata.modelOverride,
+    modelSource: metadata.modelSource,
+    roleDefaultModel: metadata.roleDefaultModel,
+    pendingModelOverride: metadata.pendingModelOverride,
+    pendingModelChange: metadata.pendingModelChange,
+    revision: metadata.revision,
+    promptPack: metadata.promptPack,
+    level: metadata.level,
+    traits: metadata.traits,
+    capabilities: metadata.capabilities,
+    activity: metadata.activity,
+  );
 }
 
 const _profiles = <TeamAgentProfile>[
   TeamAgentProfile(
     employeeId: 'ae-maya',
+    roleId: 'role-account-executive',
     name: 'Maya Chen',
-    role: 'Generalist',
+    role: 'Account Executive',
+    specialization: 'Generalist',
     initials: 'MC',
     status: TeamAgentStatus.available,
     accentColor: 0xFF9A68A5,
@@ -31,8 +68,8 @@ const _profiles = <TeamAgentProfile>[
     tagline: 'Turns a fuzzy brief into a focused way forward.',
     currentProject: 'Meridian Finance',
     assignment: 'Define finance workflow',
-    provider: 'Claude',
-    model: 'Default',
+    model: 'openai/gpt-4o-mini',
+    roleDefaultModel: 'openai/gpt-4o-mini',
     promptPack: 'caveman',
     level: 'full',
     traits: ['Warm', 'Decisive', 'Client-minded'],
@@ -64,8 +101,10 @@ const _profiles = <TeamAgentProfile>[
   ),
   TeamAgentProfile(
     employeeId: 'analyst-budi',
+    roleId: 'role-system-analyst',
     name: 'Budi Santoso',
-    role: 'Researcher',
+    role: 'System Analyst',
+    specialization: 'Researcher',
     initials: 'BS',
     status: TeamAgentStatus.working,
     accentColor: 0xFF82B7E8,
@@ -73,8 +112,8 @@ const _profiles = <TeamAgentProfile>[
     tagline: 'Finds the shape of a system before anyone builds it.',
     currentProject: 'Northstar Inventory',
     assignment: 'Map warehouse intake',
-    provider: 'Codex',
-    model: 'Default',
+    model: 'anthropic/claude-3.5-sonnet',
+    roleDefaultModel: 'anthropic/claude-3.5-sonnet',
     promptPack: 'caveman',
     level: 'full',
     traits: ['Analytical', 'Patient', 'Thorough'],
@@ -106,8 +145,10 @@ const _profiles = <TeamAgentProfile>[
   ),
   TeamAgentProfile(
     employeeId: 'programmer-nia',
+    roleId: 'role-junior-programmer',
     name: 'Nia Alvarez',
-    role: 'Builder',
+    role: 'Junior Programmer',
+    specialization: 'Builder',
     initials: 'NA',
     status: TeamAgentStatus.idle,
     accentColor: 0xFF77C69B,
@@ -115,8 +156,8 @@ const _profiles = <TeamAgentProfile>[
     tagline: 'Makes practical things feel surprisingly simple.',
     currentProject: 'Northstar Inventory',
     assignment: 'Design replenishment dashboard',
-    provider: 'Codex',
-    model: 'Default',
+    model: 'openai/gpt-4o-mini',
+    roleDefaultModel: 'openai/gpt-4o-mini',
     promptPack: 'caveman',
     level: 'full',
     traits: ['Curious', 'Practical', 'Methodical'],
@@ -148,8 +189,10 @@ const _profiles = <TeamAgentProfile>[
   ),
   TeamAgentProfile(
     employeeId: 'accountant-dimas',
+    roleId: 'role-accountant',
     name: 'Dimas Pratama',
-    role: 'Reviewer',
+    role: 'Accountant',
+    specialization: 'Reviewer',
     initials: 'DP',
     status: TeamAgentStatus.reviewing,
     accentColor: 0xFFBE9DEB,
@@ -157,8 +200,8 @@ const _profiles = <TeamAgentProfile>[
     tagline: 'Keeps the important details honest and easy to audit.',
     currentProject: 'Meridian Finance',
     assignment: 'Review approval controls',
-    provider: 'Claude',
-    model: 'Default',
+    model: 'google/gemini-2.5-flash',
+    roleDefaultModel: 'google/gemini-2.5-flash',
     promptPack: 'caveman',
     level: 'full',
     traits: ['Precise', 'Cautious', 'Fair'],
@@ -191,27 +234,19 @@ const _profiles = <TeamAgentProfile>[
 ];
 
 TeamAgentProfile _fallbackProfile(OfficeEmployee employee) {
-  final status = switch (employee.status.toLowerCase()) {
-    'available' => TeamAgentStatus.available,
-    'working' => TeamAgentStatus.working,
-    'reviewing' => TeamAgentStatus.reviewing,
-    'blocked' => TeamAgentStatus.blocked,
-    'offline' => TeamAgentStatus.offline,
-    _ => TeamAgentStatus.idle,
-  };
   return TeamAgentProfile(
     employeeId: employee.id,
     name: employee.name,
     role: employee.role,
+    specialization: null,
     initials: employee.initials,
-    status: status,
+    status: _teamStatusFor(employee.status),
     accentColor: employee.color,
     imageAsset: 'assets/branding/frank-logo.png',
     tagline: 'A new member of the Frank office.',
     currentProject: 'No active project',
     assignment: 'Waiting for an assignment',
-    provider: 'Unconfigured',
-    model: 'Default',
+    model: 'Unconfigured',
     promptPack: 'caveman',
     level: 'full',
     traits: const ['Ready', 'Helpful', 'Reliable'],
@@ -219,3 +254,12 @@ TeamAgentProfile _fallbackProfile(OfficeEmployee employee) {
     activity: const [],
   );
 }
+
+TeamAgentStatus _teamStatusFor(String status) => switch (status.toLowerCase()) {
+  'available' => TeamAgentStatus.available,
+  'working' => TeamAgentStatus.working,
+  'reviewing' => TeamAgentStatus.reviewing,
+  'blocked' => TeamAgentStatus.blocked,
+  'offline' => TeamAgentStatus.offline,
+  _ => TeamAgentStatus.idle,
+};

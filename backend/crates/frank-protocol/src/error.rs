@@ -41,6 +41,10 @@ pub enum ErrorCode {
     NotFound,
     Conflict,
     StaleRevision,
+    /// A draft or published Organization revision is stale. This is kept
+    /// separate from the global snapshot revision because unrelated task
+    /// events must not make an autosave fail.
+    OrganizationRevisionConflict,
     BudgetExceeded,
     ProviderUnavailable,
     ResyncRequired,
@@ -51,4 +55,6 @@ pub enum ErrorCode {
     PairingReused,
     CertificateMismatch,
     LeaseUnavailable,
+    RateLimited,
+    PairingDisabled,
 }

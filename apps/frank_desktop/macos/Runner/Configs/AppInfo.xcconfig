@@ -11,4 +11,4 @@ PRODUCT_NAME = frank_desktop
 PRODUCT_BUNDLE_IDENTIFIER = dev.frank.frankDesktop
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 dev.frank. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Frank Contributors.

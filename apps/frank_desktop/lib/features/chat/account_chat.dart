@@ -16,12 +16,29 @@ import '../../core/models/workspace_models.dart';
 import '../floor/office_scene_floor.dart';
 import 'presentation/focusable_composer.dart';
 
+const _composerMaxWidth = 760.0;
+const _floorControlGap = 0.0;
+const _floorControlWidth = 40.0;
+const _floorControlButtonSize = 32.0;
+const _floorControlIconSize = 14.0;
+const _floorControlSlotWidth = _floorControlGap + _floorControlWidth;
+const _chatRailMaxWidth = _composerMaxWidth + _floorControlSlotWidth;
+const _chatLogMinHeight = 72.0;
+const _chatLogMaxHeight = 280.0;
+
+/// The composer card's own corner radius.
+///
+/// The transcript sits directly on top of that card, so it is inset by this
+/// much on both sides: its square bottom corners then stop exactly where the
+/// composer's border starts curving away, instead of overhanging it.
+const _composerCornerRadius = 19.0;
+
 class AccountExecutiveChat extends StatefulWidget {
   const AccountExecutiveChat({
     required this.executive,
     required this.project,
     required this.mission,
-    required this.officeView,
+    required this.showNoMissionsNotice,
     required this.messages,
     required this.generating,
     required this.onSend,
@@ -34,7 +51,10 @@ class AccountExecutiveChat extends StatefulWidget {
   final OfficeEmployee executive;
   final OfficeProject project;
   final OfficeMission? mission;
-  final bool officeView;
+
+  /// Whether the Office conversation should explain that the selected project
+  /// has no missions yet.
+  final bool showNoMissionsNotice;
   final List<OfficeMessage> messages;
   final bool generating;
   final ValueChanged<String> onSend;
@@ -78,10 +98,13 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
           final availableHeight = constraints.maxHeight.isFinite
               ? constraints.maxHeight
               : 640.0;
-          final railWidth = math.min(760.0, math.max(1.0, availableWidth - 32));
+          final railWidth = math.min(
+            _chatRailMaxWidth,
+            math.max(1.0, availableWidth - 32),
+          );
           final railHeight = math.min(
             560.0,
-            math.max(260.0, availableHeight * 0.50),
+            math.max(1.0, availableHeight - 36),
           );
           final showConversationRail =
               availableWidth >= 360 && availableHeight >= 340;
@@ -107,7 +130,7 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
                           executive: widget.executive,
                           project: widget.project,
                           mission: widget.mission,
-                          officeView: widget.officeView,
+                          showNoMissionsNotice: widget.showNoMissionsNotice,
                           messages: widget.messages,
                           generating: widget.generating,
                           onSend: widget.onSend,
@@ -181,7 +204,7 @@ class _ConversationRail extends StatelessWidget {
     required this.executive,
     required this.project,
     required this.mission,
-    required this.officeView,
+    required this.showNoMissionsNotice,
     required this.messages,
     required this.generating,
     required this.onSend,
@@ -192,7 +215,7 @@ class _ConversationRail extends StatelessWidget {
   final OfficeEmployee executive;
   final OfficeProject project;
   final OfficeMission? mission;
-  final bool officeView;
+  final bool showNoMissionsNotice;
   final List<OfficeMessage> messages;
   final bool generating;
   final ValueChanged<String> onSend;
@@ -201,104 +224,134 @@ class _ConversationRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Localizations(
-      locale: const Locale('en', 'US'),
-      delegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-        mui.DefaultMaterialLocalizations.delegate,
-      ],
-      child: mui.Material(
-        // A canvas Material absorbs hit tests even with a transparent color.
-        // Transparency keeps Flow UI's inherited Material context without
-        // turning the whole rail into an interaction shield over the floor.
-        type: mui.MaterialType.transparency,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (!officeView && project.missions.isEmpty) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Semantics(
-                  container: true,
-                  label: 'No missions yet',
-                  child: Text(
-                    'No missions yet',
-                    style: TextStyle(color: FrankColors.muted, fontSize: 12),
-                  ),
-                ),
-              ),
-            ],
-            Expanded(
-              child: _PassiveConversationLog(
-                executive: executive,
-                messages: messages,
-              ),
-            ),
-            if (messages.isEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                child: FlowSuggestionGroup(
-                  layout: FlowSuggestionLayout.column,
-                  suggestions: [
-                    FlowSuggestion(
-                      label: 'Turn a rough idea into a project brief',
-                      icon: FrankIcons.editNote,
-                      onTap: () => onSend(
-                        'Help me turn this rough idea into a project brief.',
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final railWidth = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : _chatRailMaxWidth;
+        final composerWidth = math.max(1.0, railWidth - _floorControlSlotWidth);
+
+        return Localizations(
+          locale: const Locale('en', 'US'),
+          delegates: const [
+            DefaultMaterialLocalizations.delegate,
+            DefaultWidgetsLocalizations.delegate,
+            mui.DefaultMaterialLocalizations.delegate,
+          ],
+          child: mui.Material(
+            // A canvas Material absorbs hit tests even with a transparent color.
+            // Transparency keeps Flow UI's inherited Material context without
+            // turning the whole rail into an interaction shield over the floor.
+            type: mui.MaterialType.transparency,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (showNoMissionsNotice && project.missions.isEmpty) ...[
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Semantics(
+                      container: true,
+                      label: 'No missions yet',
+                      child: Text(
+                        'No missions yet',
+                        style: TextStyle(
+                          color: FrankColors.muted,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
-                    FlowSuggestion(
-                      label: 'Suggest a team for my next project',
-                      icon: FrankIcons.users,
-                      onTap: () => onSend(
-                        'Suggest the smallest team for my next project.',
+                  ),
+                ],
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: SizedBox(
+                      width: composerWidth,
+                      child: messages.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: FlowSuggestionGroup(
+                                layout: FlowSuggestionLayout.column,
+                                suggestions: [
+                                  FlowSuggestion(
+                                    label:
+                                        'Turn a rough idea into a project brief',
+                                    icon: FrankIcons.editNote,
+                                    onTap: () => onSend(
+                                      'Help me turn this rough idea into a project brief.',
+                                    ),
+                                  ),
+                                  FlowSuggestion(
+                                    label: 'Suggest a team for my next project',
+                                    icon: FrankIcons.users,
+                                    onTap: () => onSend(
+                                      'Suggest the smallest team for my next project.',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: _composerCornerRadius,
+                              ),
+                              child: _PassiveConversationLog(
+                                executive: executive,
+                                messages: messages,
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+                if (messages.isEmpty) const SizedBox(height: 8),
+                Stack(
+                  children: [
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: composerWidth,
+                          child: FocusableComposer(
+                            generating: generating,
+                            onSend: onSend,
+                            onStop: onStop,
+                            executive: executive,
+                            project: project,
+                            mission: mission,
+                          ),
+                        ),
+                        const SizedBox(width: _floorControlSlotWidth),
+                      ],
+                    ),
+                    Positioned(
+                      top: _composerCornerRadius,
+                      right: 0,
+                      bottom: _composerCornerRadius,
+                      width: _floorControlWidth,
+                      child: AnimatedBuilder(
+                        animation: sceneController,
+                        builder: (context, child) => _FloorControlPanel(
+                          enabled: sceneController.canReset,
+                          onPressed: sceneController.reset,
+                        ),
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 8),
-            ],
-            Row(
-              // Keep the row's height driven by the composer. A stretch row
-              // receives an unbounded height from the surrounding Column and
-              // can otherwise expand to the rail's entire viewport.
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: FocusableComposer(
-                    generating: generating,
-                    onSend: onSend,
-                    onStop: onStop,
-                    executive: executive,
-                    project: project,
-                    mission: mission,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                AnimatedBuilder(
-                  animation: sceneController,
-                  builder: (context, child) => _FloorControlPanel(
-                    enabled: sceneController.canReset,
-                    onPressed: sceneController.reset,
-                  ),
-                ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
 
-/// A transcript that is visually present but never wins pointer hit testing.
+/// A compact, content-sized MMORPG-style transcript.
 ///
-/// The reversed, non-scrollable list keeps the newest messages at the bottom
-/// of the viewport. Once the history is taller than the available space, the
-/// older rows remain in state but are clipped above the visible log, just like
-/// a compact MMORPG chat window.
+/// Message content is pointer-passive, while the viewport itself owns wheel
+/// and trackpad scrolling once the history exceeds its maximum height.
 class _PassiveConversationLog extends StatefulWidget {
   const _PassiveConversationLog({
     required this.executive,
@@ -314,58 +367,99 @@ class _PassiveConversationLog extends StatefulWidget {
 }
 
 class _PassiveConversationLogState extends State<_PassiveConversationLog> {
-  bool _hovered = false;
+  static const _latestThreshold = 24.0;
+
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void didUpdateWidget(covariant _PassiveConversationLog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final wasNearLatest =
+        !_scrollController.hasClients ||
+        _scrollController.offset <= _latestThreshold;
+    if (!wasNearLatest) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final hasMessages = widget.messages.isNotEmpty;
-    return MouseRegion(
-      opaque: false,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: Padding(
-        // Leave a small breathing rail at either side; the lower edge stays
-        // flush and square so the transcript can sit on the composer cleanly.
-        padding: const EdgeInsets.symmetric(horizontal: 18),
+    return AnimatedSize(
+      key: const ValueKey('passive-chat-transcript'),
+      duration: const Duration(milliseconds: 140),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: _chatLogMinHeight,
+          maxHeight: _chatLogMaxHeight,
+        ),
         child: ClipRRect(
           key: const ValueKey('passive-chat-transcript-clip'),
           borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(14),
             topRight: Radius.circular(14),
           ),
-          child: IgnorePointer(
-            key: const ValueKey('passive-chat-transcript'),
-            child: AnimatedContainer(
-              key: const ValueKey('passive-chat-transcript-background'),
-              duration: const Duration(milliseconds: 120),
-              curve: Curves.easeOut,
-              decoration: BoxDecoration(
-                color: hasMessages && _hovered
-                    ? Colors.black.withValues(alpha: .07)
-                    : Colors.transparent,
+          child: DecoratedBox(
+            key: const ValueKey('passive-chat-transcript-background'),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: .15),
+            ),
+            child: ScrollbarTheme(
+              data: ScrollbarTheme.of(context).copyWith(
+                thickness: const WidgetStatePropertyAll(4),
+                radius: const Radius.circular(4),
+                trackVisibility: const WidgetStatePropertyAll(false),
+                thumbColor: WidgetStatePropertyAll(
+                  FrankColors.muted.withValues(alpha: .56),
+                ),
               ),
-              child: ListView.builder(
-                key: const ValueKey('chat-transcript-list'),
-                reverse: true,
-                primary: false,
-                physics: const NeverScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
-                itemCount: widget.messages.length,
-                itemBuilder: (context, index) {
-                  // A reversed list starts with the newest message at the bottom.
-                  final message =
-                      widget.messages[widget.messages.length - 1 - index];
-                  return Padding(
-                    key: ValueKey('chat-log-message-${message.id}'),
-                    padding: EdgeInsets.only(
-                      top: index == widget.messages.length - 1 ? 0 : 12,
-                    ),
-                    child: _ChatLogMessage(
-                      executive: widget.executive,
-                      message: message,
-                    ),
-                  );
-                },
+              child: RawScrollbar(
+                key: const ValueKey('chat-transcript-scrollbar'),
+                controller: _scrollController,
+                thumbVisibility: false,
+                trackVisibility: false,
+                interactive: true,
+                thickness: 4,
+                radius: const Radius.circular(4),
+                mainAxisMargin: 8,
+                crossAxisMargin: 4,
+                child: ListView.builder(
+                  key: const ValueKey('chat-transcript-list'),
+                  controller: _scrollController,
+                  reverse: true,
+                  shrinkWrap: true,
+                  primary: false,
+                  physics: const ClampingScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: widget.messages.length,
+                  itemBuilder: (context, index) {
+                    // A reversed list starts with the newest message at the bottom.
+                    final message =
+                        widget.messages[widget.messages.length - 1 - index];
+                    return Padding(
+                      key: ValueKey('chat-log-message-${message.id}'),
+                      padding: EdgeInsets.only(
+                        top: index == widget.messages.length - 1 ? 0 : 12,
+                      ),
+                      child: IgnorePointer(
+                        child: _ChatLogMessage(
+                          executive: widget.executive,
+                          message: message,
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
@@ -375,11 +469,11 @@ class _PassiveConversationLogState extends State<_PassiveConversationLog> {
   }
 }
 
-/// Dedicated floor-control panel rendered beside the composer.
+/// Dedicated floor-control panel attached to the composer's right edge.
 ///
-/// This is intentionally a separate surface from the chat transcript. The
-/// panel stretches to the composer's height and keeps the center button in its
-/// own hit-test region, while the transcript above remains click-through.
+/// This is intentionally a separate surface from the chat transcript. It
+/// mirrors the transcript's 19px vertical inset and keeps the center button in
+/// its own hit-test region, while the transcript above owns history scrolling.
 class _FloorControlPanel extends StatelessWidget {
   const _FloorControlPanel({required this.enabled, required this.onPressed});
 
@@ -394,24 +488,17 @@ class _FloorControlPanel extends StatelessWidget {
       label: 'Floor controls',
       child: Container(
         key: const ValueKey('floor-control-panel'),
-        width: 56,
-        // Matches the default two-line composer surface. Keeping the panel's
-        // height explicit avoids an unbounded flex while preserving the
-        // dedicated, full-height control surface beside the composer.
-        height: 110,
-        padding: const EdgeInsets.symmetric(horizontal: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
-          color: FrankColors.panel.withValues(alpha: 0.97),
-          borderRadius: BorderRadius.circular(19),
-          border: Border.all(color: FrankColors.border.withValues(alpha: 0.92)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.32),
-              blurRadius: 18,
-              spreadRadius: -6,
-              offset: const Offset(0, 8),
-            ),
-          ],
+          // Neutral raised surface matches the composer while allowing a
+          // little of the floor to show through.
+          color: FrankColors.panelRaised.withValues(alpha: 0.8),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.zero,
+            bottomLeft: Radius.zero,
+            topRight: Radius.circular(14),
+            bottomRight: Radius.circular(14),
+          ),
         ),
         child: Center(
           child: _RecenterFloorButton(enabled: enabled, onPressed: onPressed),
@@ -434,33 +521,30 @@ class _RecenterFloorButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: 'Reset floor view',
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.35),
-          borderRadius: BorderRadius.circular(14),
+      child: TooltipTheme(
+        data: TooltipTheme.of(context).copyWith(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         ),
         child: IconButton(
           key: const ValueKey('floor-reset-view-button'),
           onPressed: enabled ? onPressed : null,
           tooltip: 'Reset floor view',
-          constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+          constraints: const BoxConstraints.tightFor(
+            width: _floorControlButtonSize,
+            height: _floorControlButtonSize,
+          ),
           padding: EdgeInsets.zero,
           style: ButtonStyle(
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
             shape: const WidgetStatePropertyAll(
               RoundedRectangleBorder(
                 borderRadius: BorderRadius.all(Radius.circular(14)),
               ),
             ),
-            overlayColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered) ||
-                  states.contains(WidgetState.focused)) {
-                return FrankColors.aubergineSoft;
-              }
-              return Colors.transparent;
-            }),
+            // Keep the 32px hit target, but make the ghost control visually
+            // icon-only in every interaction state.
+            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
             foregroundColor: WidgetStateProperty.resolveWith((states) {
               if (!enabled) return FrankColors.muted.withValues(alpha: 0.4);
               if (states.contains(WidgetState.hovered) ||
@@ -472,7 +556,7 @@ class _RecenterFloorButton extends StatelessWidget {
             splashFactory: NoSplash.splashFactory,
             animationDuration: Duration.zero,
           ),
-          icon: const Icon(FrankIcons.recenter, size: 16),
+          icon: const Icon(FrankIcons.recenter, size: _floorControlIconSize),
         ),
       ),
     );

@@ -2,365 +2,332 @@
 
 use frank_protocol::*;
 
+use crate::reduce::materialize_role;
 use crate::*;
+
+mod assignment;
+mod create_update;
+mod status_review;
 
 impl Orchestrator {
     pub(crate) async fn reduce_task(
         &self,
-        mut snapshot: Snapshot,
+        snapshot: Snapshot,
         command: Command,
-        _actor: &ActorRef,
+        actor: &ActorRef,
     ) -> Result<(Snapshot, Event, CommandResult)> {
         match command {
-            Command::CreateTask(spec) => {
-                let mission = snapshot
-                    .missions
-                    .iter()
-                    .find(|mission| mission.id == spec.mission_id)
-                    .ok_or(OrchestratorError::NotFound)?;
-                if matches!(
-                    mission.status,
-                    MissionStatus::Completed | MissionStatus::Failed | MissionStatus::Cancelled
-                ) {
-                    return Err(OrchestratorError::Validation(
-                        "cannot add a task to a final mission".into(),
-                    ));
-                }
-                if let Some(agent_id) = spec.assigned_agent
-                    && !snapshot
-                        .agents
-                        .iter()
-                        .any(|agent| agent.id == agent_id && !agent.archived)
-                {
-                    return Err(OrchestratorError::NotFound);
-                }
-                validate_task_spec(&spec, &snapshot.tasks)?;
-                let id = TaskId::new();
-                let task = TaskView {
-                    id,
-                    mission_id: spec.mission_id,
-                    title: spec.title,
-                    objective: spec.objective,
-                    dependencies: spec.dependencies,
-                    priority: spec.priority,
-                    budget: spec.budget,
-                    status: TaskStatus::Backlog,
-                    assigned_agent: spec.assigned_agent,
-                    attempt: 0,
-                    max_attempts: DEFAULT_MAX_ATTEMPTS,
-                    worktree: None,
-                    branch: Some(format!("frank/task-{id}")),
-                    result_artifact: None,
-                };
-                snapshot.tasks.push(task.clone());
-                Ok((
-                    snapshot,
-                    Event::TaskCreated { task },
-                    CommandResult::Created { id: id.to_string() },
-                ))
-            }
+            Command::CreateTask(spec) => self.reduce_create_task(snapshot, spec, actor).await,
             Command::UpdateTask { task_id, patch } => {
-                let mut candidate = snapshot
-                    .tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .cloned()
-                    .ok_or(OrchestratorError::NotFound)?;
-                apply_task_patch(&mut candidate, patch);
-                if let Some(agent_id) = candidate.assigned_agent
-                    && !snapshot
-                        .agents
-                        .iter()
-                        .any(|agent| agent.id == agent_id && !agent.archived)
-                {
-                    return Err(OrchestratorError::NotFound);
-                }
-                validate_task_view(&candidate, &snapshot.tasks)?;
-                let task = snapshot
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == task_id)
-                    .expect("task checked");
-                *task = candidate.clone();
-                Ok((
-                    snapshot,
-                    Event::TaskUpdated { task: candidate },
-                    CommandResult::Accepted,
-                ))
+                self.reduce_update_task(snapshot, task_id, patch, actor)
+                    .await
             }
             Command::SetTaskStatus { task_id, status } => {
-                let task_index = snapshot
-                    .tasks
-                    .iter()
-                    .position(|task| task.id == task_id)
-                    .ok_or(OrchestratorError::NotFound)?;
-                let current_status = snapshot.tasks[task_index].status;
-                if !current_status.can_transition_to(status) {
-                    return Err(OrchestratorError::InvalidTransition(format!(
-                        "task cannot transition from {:?} to {:?}",
-                        current_status, status
-                    )));
-                }
-                if matches!(status, TaskStatus::Ready | TaskStatus::Running)
-                    && snapshot.tasks[task_index]
-                        .dependencies
-                        .iter()
-                        .any(|dependency| {
-                            snapshot
-                                .tasks
-                                .iter()
-                                .find(|candidate| candidate.id == *dependency)
-                                .is_none_or(|candidate| candidate.status != TaskStatus::Done)
-                        })
-                {
-                    return Err(OrchestratorError::Validation(
-                        "task dependencies must be done before starting this task".into(),
-                    ));
-                }
-                if status == TaskStatus::Running {
-                    let assigned_agent = snapshot.tasks[task_index].assigned_agent;
-                    if assigned_agent.is_none_or(|agent_id| {
-                        !snapshot
-                            .agents
-                            .iter()
-                            .any(|agent| agent.id == agent_id && !agent.archived)
-                    }) {
-                        return Err(OrchestratorError::Validation(
-                            "assign an active agent before running this task".into(),
-                        ));
-                    }
-                }
-                let mut worktree_operation = None;
-                if status == TaskStatus::Running {
-                    let task = snapshot.tasks[task_index].clone();
-                    let mission = snapshot
-                        .missions
-                        .iter()
-                        .find(|mission| mission.id == task.mission_id)
-                        .cloned()
-                        .ok_or(OrchestratorError::NotFound)?;
-                    if mission.status != MissionStatus::Active {
-                        return Err(OrchestratorError::Validation(
-                            "a task can run only while its mission is active".into(),
-                        ));
-                    }
-                    let project = snapshot
-                        .projects
-                        .iter()
-                        .find(|project| project.id == mission.project_id && !project.archived)
-                        .cloned()
-                        .ok_or(OrchestratorError::NotFound)?;
-                    let workflow = GitWorkflow::new(
-                        project,
-                        snapshot
-                            .server
-                            .allowed_project_roots
-                            .iter()
-                            .map(PathBuf::from)
-                            .collect(),
-                    )
-                    .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-                    // Worktree creation is a filesystem mutation and is
-                    // intentionally delayed until after this state
-                    // transition commits. `start_task_session` performs the
-                    // idempotent create/reuse step before launching a
-                    // provider, so a crash cannot leave a Running task with
-                    // no durable intent.
-                    let mission_plan =
-                        workflow.branch_plan(&mission.branch, &workflow.project.base_branch);
-                    let task_plan = workflow.task_plan_from_base(task.id, &mission.branch);
-                    let task = &mut snapshot.tasks[task_index];
-                    task.worktree = Some(task_plan.path.to_string_lossy().into_owned());
-                    task.branch = Some(task_plan.branch.clone());
-                    let has_pending_worktree = snapshot.operations.iter().any(|operation| {
-                        operation.kind == OperationKind::CreateWorktree
-                            && worktree_operation_matches_task(operation, task_id)
-                            && !matches!(
-                                operation.status,
-                                OperationStatus::Succeeded
-                                    | OperationStatus::Cancelled
-                                    | OperationStatus::Failed
-                            )
-                    });
-                    if !has_pending_worktree {
-                        let now = timestamp_now();
-                        let operation = OperationView {
-                            id: OperationId::new(),
-                            kind: OperationKind::CreateWorktree,
-                            status: OperationStatus::Queued,
-                            resource: task_id.to_string(),
-                            phase: "queued".into(),
-                            attempt: 0,
-                            error: None,
-                            created_at: now.clone(),
-                            updated_at: now,
-                        };
-                        let operation_request = CreateWorktreeOperation {
-                            project_id: mission.project_id,
-                            mission_id: mission.id,
-                            mission_branch: mission_plan.branch,
-                            mission_base: mission_plan.base,
-                            mission_path: mission_plan.path.to_string_lossy().into_owned(),
-                            task_id,
-                            task_branch: task_plan.branch,
-                            task_base: task_plan.base,
-                            task_path: task_plan.path.to_string_lossy().into_owned(),
-                        };
-                        let resource = serde_json::to_string(&operation_request)
-                            .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-                        let mut operation = operation;
-                        operation.resource = resource;
-                        snapshot.operations.push(operation);
-                        worktree_operation = Some(());
-                    }
-                }
-                let task = &mut snapshot.tasks[task_index];
-                task.status = status;
-                let task_value = task.clone();
-                if worktree_operation.is_some() {
-                    let operation = snapshot
-                        .operations
-                        .iter()
-                        .find(|operation| {
-                            operation.kind == OperationKind::CreateWorktree
-                                && worktree_operation_matches_task(operation, task_id)
-                                && operation.status == OperationStatus::Queued
-                        })
-                        .cloned()
-                        .ok_or_else(|| {
-                            OrchestratorError::Validation(
-                                "worktree operation disappeared before commit".into(),
-                            )
-                        })?;
-                    Ok((
-                        snapshot,
-                        Event::TaskWorktreeProvisioning {
-                            task: task_value,
-                            operation: operation.clone(),
-                        },
-                        CommandResult::Operation(operation),
-                    ))
-                } else {
-                    Ok((
-                        snapshot,
-                        Event::TaskStatusChanged { task_id, status },
-                        CommandResult::Accepted,
-                    ))
-                }
+                self.reduce_set_task_status(snapshot, task_id, status, actor)
+                    .await
             }
             Command::AssignTask { task_id, agent_id } => {
-                let agent = snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| agent.id == agent_id && !agent.archived)
-                    .ok_or(OrchestratorError::NotFound)?;
-                if matches!(agent.status, AgentStatus::Failed | AgentStatus::Stopping) {
-                    return Err(OrchestratorError::Validation(
-                        "cannot assign work to a failed or stopping agent".into(),
-                    ));
-                }
-                let task = snapshot
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == task_id)
-                    .ok_or(OrchestratorError::NotFound)?;
-                let mission = snapshot
-                    .missions
-                    .iter()
-                    .find(|mission| mission.id == task.mission_id)
-                    .ok_or(OrchestratorError::NotFound)?;
-                if matches!(
-                    mission.status,
-                    MissionStatus::Completed | MissionStatus::Failed | MissionStatus::Cancelled
-                ) {
-                    return Err(OrchestratorError::Validation(
-                        "cannot assign work on a final mission".into(),
-                    ));
-                }
-                task.assigned_agent = Some(agent_id);
-                Ok((
-                    snapshot,
-                    Event::TaskAssigned { task_id, agent_id },
-                    CommandResult::Accepted,
-                ))
+                self.reduce_assign_task(snapshot, task_id, agent_id, actor)
+                    .await
+            }
+            Command::ClaimTask {
+                task_id,
+                agent_id,
+                source,
+            } => {
+                self.reduce_claim_task(snapshot, task_id, agent_id, source, actor)
+                    .await
+            }
+            Command::ReleaseTask { task_id } => {
+                self.reduce_release_task(snapshot, task_id, actor).await
+            }
+            Command::AddTaskComment {
+                task_id,
+                body,
+                artifact_ids,
+            } => {
+                self.reduce_add_task_comment(snapshot, task_id, body, artifact_ids, actor)
+                    .await
             }
             Command::TaskAccept { task_id } => {
-                let task = snapshot
-                    .tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .cloned()
-                    .ok_or(OrchestratorError::NotFound)?;
-                if task.status != TaskStatus::Review {
-                    return Err(OrchestratorError::InvalidTransition(
-                        "only a task in review can be accepted".into(),
-                    ));
-                }
-                // A task without a worktree is a manual/fake-provider card
-                // and can be accepted immediately. A real worker task is
-                // represented by a durable Git operation; the operation
-                // worker performs checks, captures the diff, commits, and
-                // squash-merges after this transaction has committed.
-                if let Some(worktree) = task.worktree.as_deref() {
-                    if !is_allowed_path(worktree, &snapshot.server.allowed_project_roots)
-                        || !Path::new(worktree).is_dir()
-                    {
-                        return Err(OrchestratorError::Validation(
-                            "task worktree is outside the allowed project roots".into(),
-                        ));
-                    }
-                    if snapshot.operations.iter().any(|operation| {
-                        operation.kind == OperationKind::CommitTask
-                            && operation.resource == task_id.to_string()
-                            && matches!(
-                                operation.status,
-                                OperationStatus::Queued
-                                    | OperationStatus::Running
-                                    | OperationStatus::Waiting
-                                    | OperationStatus::Recovering
-                            )
-                    }) {
-                        return Err(OrchestratorError::InvalidTransition(
-                            "task acceptance is already queued".into(),
-                        ));
-                    }
-                    let now = timestamp_now();
-                    let operation = OperationView {
-                        id: OperationId::new(),
-                        kind: OperationKind::CommitTask,
-                        status: OperationStatus::Queued,
-                        resource: task_id.to_string(),
-                        phase: "validate".into(),
-                        attempt: 0,
-                        error: None,
-                        created_at: now.clone(),
-                        updated_at: now,
-                    };
-                    snapshot.operations.push(operation.clone());
-                    return Ok((
-                        snapshot,
-                        Event::OperationChanged {
-                            operation: operation.clone(),
-                        },
-                        CommandResult::Operation(operation),
-                    ));
-                }
-                let task = snapshot
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == task_id)
-                    .expect("task checked");
-                task.status = TaskStatus::Done;
-                Ok((
-                    snapshot,
-                    Event::TaskStatusChanged {
-                        task_id,
-                        status: TaskStatus::Done,
-                    },
-                    CommandResult::Accepted,
-                ))
+                self.reduce_task_accept(snapshot, task_id, actor).await
+            }
+            Command::DecideReview {
+                review_item_id,
+                decision,
+                reason,
+            } => {
+                self.reduce_decide_review(snapshot, review_item_id, decision, reason, actor)
+                    .await
             }
             _ => super::misrouted(),
         }
     }
+}
+
+fn assign_task(
+    snapshot: &mut Snapshot,
+    task_id: TaskId,
+    agent_id: AgentId,
+    source: TaskClaimSource,
+    feed_kind: TaskFeedKind,
+    actor: &ActorRef,
+) -> Result<()> {
+    if !organization_allows_agent(snapshot, agent_id) {
+        return Err(OrchestratorError::Validation(
+            "agent is not an active Organization staff member".into(),
+        ));
+    }
+    let agent = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id && !agent.archived)
+        .cloned()
+        .ok_or(OrchestratorError::NotFound)?;
+    if actor.kind == ActorKind::Agent {
+        let source = actor
+            .id
+            .as_deref()
+            .and_then(|id| AgentId::parse(id).ok())
+            .ok_or(OrchestratorError::Forbidden)?;
+        if !organization_allows_handoff(snapshot, source, agent_id) {
+            return Err(OrchestratorError::Forbidden);
+        }
+    }
+    if !matches!(agent.status, AgentStatus::Offline | AgentStatus::Idle) {
+        return Err(OrchestratorError::Validation(
+            "only an idle agent can claim a task".into(),
+        ));
+    }
+    let task = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+        .ok_or(OrchestratorError::NotFound)?;
+    if snapshot.organization_runtime.status == OrganizationDrainStatus::Draining {
+        return Err(OrchestratorError::Validation(
+            "Organization is draining; no new work may be claimed".into(),
+        ));
+    }
+    if snapshot.tasks.iter().any(|candidate| {
+        candidate.id != task_id
+            && candidate.assigned_agent == Some(agent_id)
+            && !matches!(candidate.status, TaskStatus::Done | TaskStatus::Cancelled)
+    }) {
+        return Err(OrchestratorError::Validation(
+            "an agent can claim only one unfinished task at a time".into(),
+        ));
+    }
+    if matches!(
+        task.status,
+        TaskStatus::Done | TaskStatus::Cancelled | TaskStatus::Running | TaskStatus::Review
+    ) {
+        return Err(OrchestratorError::Validation(
+            "only an available task can be claimed".into(),
+        ));
+    }
+    if let Some(role_id) = task.required_role_id
+        && agent.role_id != Some(role_id)
+    {
+        return Err(OrchestratorError::Validation(
+            "agent does not belong to the task's required role".into(),
+        ));
+    }
+    let mission = snapshot
+        .missions
+        .iter()
+        .find(|mission| mission.id == task.mission_id)
+        .ok_or(OrchestratorError::NotFound)?;
+    if matches!(
+        mission.status,
+        MissionStatus::Completed | MissionStatus::Failed | MissionStatus::Cancelled
+    ) {
+        return Err(OrchestratorError::Validation(
+            "cannot claim work on a final mission".into(),
+        ));
+    }
+    if task.dependencies.iter().any(|dependency| {
+        snapshot
+            .tasks
+            .iter()
+            .find(|candidate| candidate.id == *dependency)
+            .is_none_or(|candidate| candidate.status != TaskStatus::Done)
+    }) {
+        return Err(OrchestratorError::Validation(
+            "task dependencies must be done before claiming this task".into(),
+        ));
+    }
+    let claimed_at = timestamp_now();
+    let claimed_at_value = {
+        let task = snapshot
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .expect("task checked");
+        if task
+            .assigned_agent
+            .is_some_and(|id| id != agent_id || !matches!(source, TaskClaimSource::Reclaim))
+        {
+            return Err(OrchestratorError::Validation(
+                "task is already claimed; release it before claiming again".into(),
+            ));
+        }
+        task.assigned_agent = Some(agent_id);
+        task.claimed_at = Some(claimed_at);
+        task.claim_source = Some(source);
+        if task.status == TaskStatus::Backlog {
+            task.status = TaskStatus::Ready;
+        }
+        task.claimed_at.clone()
+    };
+    let agent_name = {
+        let agent = snapshot
+            .agents
+            .iter_mut()
+            .find(|agent| agent.id == agent_id)
+            .expect("agent checked");
+        if let Some(role_id) = agent.role_id
+            && let Some(role) = snapshot
+                .roles
+                .iter()
+                .find(|role| role.id == role_id && !role.archived)
+                .cloned()
+            && role.revision > agent.role_revision
+        {
+            materialize_role(agent, &role);
+        }
+        agent.last_claimed_at = claimed_at_value;
+        agent.display_name.clone()
+    };
+    let feed_body = if feed_kind == TaskFeedKind::Assigned {
+        format!("Task assigned to {agent_name}")
+    } else {
+        format!("Task claimed by {agent_name}")
+    };
+    append_task_feed(snapshot, task_id, actor, feed_kind, feed_body, Vec::new());
+    Ok(())
+}
+
+pub(crate) fn update_dependency_locks(
+    snapshot: &mut Snapshot,
+    dependency_id: TaskId,
+    actor: &ActorRef,
+    dependency_status: TaskStatus,
+) {
+    let dependent_ids = snapshot
+        .tasks
+        .iter()
+        .filter(|task| task.dependencies.contains(&dependency_id))
+        .map(|task| task.id)
+        .collect::<Vec<_>>();
+    for dependent_id in dependent_ids {
+        let Some(index) = snapshot
+            .tasks
+            .iter()
+            .position(|task| task.id == dependent_id)
+        else {
+            continue;
+        };
+        let unblocked = snapshot.tasks[index].dependencies.iter().all(|dependency| {
+            snapshot
+                .tasks
+                .iter()
+                .find(|task| task.id == *dependency)
+                .is_some_and(|task| task.status == TaskStatus::Done)
+        });
+        if dependency_status == TaskStatus::Done
+            && unblocked
+            && snapshot.tasks[index].status == TaskStatus::Blocked
+        {
+            snapshot.tasks[index].status = TaskStatus::Ready;
+            append_task_feed(
+                snapshot,
+                dependent_id,
+                actor,
+                TaskFeedKind::DependencyUnlocked,
+                "Dependency completed; task is now available".into(),
+                Vec::new(),
+            );
+        } else if dependency_status != TaskStatus::Done
+            && snapshot.tasks[index].status == TaskStatus::Ready
+        {
+            snapshot.tasks[index].status = TaskStatus::Blocked;
+            append_task_feed(
+                snapshot,
+                dependent_id,
+                actor,
+                TaskFeedKind::DependencyLocked,
+                "Task unavailable until its dependency is done".into(),
+                Vec::new(),
+            );
+        }
+    }
+}
+
+/// Child fan-out is a structural dependency in addition to the explicit DAG
+/// dependencies. A parent stays blocked while any child is unfinished and is
+/// promoted once the final child reaches Done.
+pub(crate) fn update_parent_child_locks(
+    snapshot: &mut Snapshot,
+    child_id: TaskId,
+    actor: &ActorRef,
+) {
+    let Some(parent_id) = snapshot
+        .tasks
+        .iter()
+        .find(|task| task.id == child_id)
+        .and_then(|task| task.parent_task_id)
+    else {
+        return;
+    };
+    let Some(parent_index) = snapshot.tasks.iter().position(|task| task.id == parent_id) else {
+        return;
+    };
+    let all_done = snapshot.tasks[parent_index]
+        .child_task_ids
+        .iter()
+        .all(|child| {
+            snapshot
+                .tasks
+                .iter()
+                .find(|task| task.id == *child)
+                .is_some_and(|task| task.status == TaskStatus::Done)
+        });
+    if all_done && snapshot.tasks[parent_index].status == TaskStatus::Blocked {
+        snapshot.tasks[parent_index].status = TaskStatus::Ready;
+        append_task_feed(
+            snapshot,
+            parent_id,
+            actor,
+            TaskFeedKind::DependencyUnlocked,
+            "All child work items completed; parent is ready".into(),
+            Vec::new(),
+        );
+    }
+}
+
+pub(crate) fn append_task_feed(
+    snapshot: &mut Snapshot,
+    task_id: TaskId,
+    actor: &ActorRef,
+    kind: TaskFeedKind,
+    body: String,
+    artifact_ids: Vec<ArtifactId>,
+) -> TaskFeedEntry {
+    let entry = TaskFeedEntry {
+        id: TaskFeedId::new(),
+        task_id,
+        actor: actor.clone(),
+        kind,
+        body,
+        artifact_ids,
+        created_at: timestamp_now(),
+    };
+    snapshot.task_feed.insert(0, entry.clone());
+    // Keep the wire snapshot bounded. The SQLite projection is likewise
+    // capped during replay, while older events remain available in the
+    // append-only event/audit log when an operator needs historical evidence.
+    snapshot.task_feed.truncate(2_048);
+    entry
 }

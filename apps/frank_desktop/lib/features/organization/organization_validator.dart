@@ -71,11 +71,28 @@ OrganizationValidation validateOrganization(OrganizationGraph graph) {
     }
   }
 
-  if (!graph.nodes.any((node) => node.kind == OrganizationNodeKind.staff)) {
+  final v2 = graph.nodes.any(
+    (node) =>
+        node.kind == OrganizationNodeKind.role ||
+        node.kind == OrganizationNodeKind.taskboard ||
+        node.kind == OrganizationNodeKind.childWorkflow ||
+        graph.relations.any(
+          (relation) =>
+              relation.kind == OrganizationRelationKind.pickup ||
+              relation.kind == OrganizationRelationKind.drop ||
+              relation.kind == OrganizationRelationKind.rework,
+        ),
+  );
+  final hasWorker = v2
+      ? graph.nodes.any((node) => node.kind == OrganizationNodeKind.role)
+      : graph.nodes.any((node) => node.kind == OrganizationNodeKind.staff);
+  if (!hasWorker) {
     issues.add(
-      const OrganizationValidationIssue(
+      OrganizationValidationIssue(
         severity: OrganizationIssueSeverity.error,
-        message: 'Add at least one staff member before publishing.',
+        message: v2
+            ? 'Add at least one role node before publishing an executable workflow.'
+            : 'Add at least one staff member before publishing.',
       ),
     );
   }
@@ -164,6 +181,37 @@ OrganizationValidation validateOrganization(OrganizationGraph graph) {
         OrganizationValidationIssue(
           severity: OrganizationIssueSeverity.error,
           message: 'Staff “${node.label}” is missing its employee reference.',
+          nodeId: node.id,
+        ),
+      );
+    }
+    if (node.kind == OrganizationNodeKind.role &&
+        (node.roleId == null || node.roleId!.isEmpty)) {
+      issues.add(
+        OrganizationValidationIssue(
+          severity: OrganizationIssueSeverity.error,
+          message: 'Role “${node.label}” is missing its Team role reference.',
+          nodeId: node.id,
+        ),
+      );
+    }
+    if (node.kind == OrganizationNodeKind.taskboard &&
+        (node.taskboardId == null || node.taskboardId!.isEmpty)) {
+      issues.add(
+        OrganizationValidationIssue(
+          severity: OrganizationIssueSeverity.error,
+          message: 'Taskboard “${node.label}” is missing its board reference.',
+          nodeId: node.id,
+        ),
+      );
+    }
+    if (node.kind == OrganizationNodeKind.childWorkflow &&
+        (node.childWorkflowId == null || node.childWorkflowId!.isEmpty)) {
+      issues.add(
+        OrganizationValidationIssue(
+          severity: OrganizationIssueSeverity.error,
+          message:
+              'Child workflow “${node.label}” is missing its workflow reference.',
           nodeId: node.id,
         ),
       );
@@ -275,6 +323,19 @@ OrganizationRelationKind? inferOrganizationRelationKind({
           target.kind == OrganizationNodeKind.staff)) {
     return OrganizationRelationKind.review;
   }
+  if (source.kind == OrganizationNodeKind.taskboard &&
+      target.kind == OrganizationNodeKind.role) {
+    return OrganizationRelationKind.pickup;
+  }
+  if ((source.kind == OrganizationNodeKind.role ||
+          source.kind == OrganizationNodeKind.childWorkflow) &&
+      target.kind == OrganizationNodeKind.taskboard) {
+    return OrganizationRelationKind.drop;
+  }
+  if (source.kind == OrganizationNodeKind.taskboard &&
+      target.kind == OrganizationNodeKind.taskboard) {
+    return OrganizationRelationKind.rework;
+  }
   return null;
 }
 
@@ -294,6 +355,16 @@ bool _isValidPair(
             target == OrganizationNodeKind.approval) ||
         (source == OrganizationNodeKind.approval &&
             target == OrganizationNodeKind.staff),
+  OrganizationRelationKind.pickup =>
+    source == OrganizationNodeKind.taskboard &&
+        target == OrganizationNodeKind.role,
+  OrganizationRelationKind.drop =>
+    (source == OrganizationNodeKind.role ||
+            source == OrganizationNodeKind.childWorkflow) &&
+        target == OrganizationNodeKind.taskboard,
+  OrganizationRelationKind.rework =>
+    source == OrganizationNodeKind.taskboard &&
+        target == OrganizationNodeKind.taskboard,
 };
 
 extension OrganizationRelationKindLabel on OrganizationRelationKind {
@@ -301,6 +372,9 @@ extension OrganizationRelationKindLabel on OrganizationRelationKind {
     OrganizationRelationKind.handoff => 'Handoff',
     OrganizationRelationKind.toolAccess => 'Tool access',
     OrganizationRelationKind.review => 'Review',
+    OrganizationRelationKind.pickup => 'Pickup',
+    OrganizationRelationKind.drop => 'Drop',
+    OrganizationRelationKind.rework => 'Rework',
   };
 }
 
@@ -309,5 +383,8 @@ extension OrganizationNodeKindLabel on OrganizationNodeKind {
     OrganizationNodeKind.staff => 'staff',
     OrganizationNodeKind.capability => 'capability',
     OrganizationNodeKind.approval => 'approval desk',
+    OrganizationNodeKind.role => 'role',
+    OrganizationNodeKind.taskboard => 'taskboard',
+    OrganizationNodeKind.childWorkflow => 'child workflow',
   };
 }

@@ -13,14 +13,16 @@ sealed class ShellDestination {
   const ShellDestination();
 }
 
+/// The project and mission inbox, chat, and retained office floor.
 final class OfficeDestination extends ShellDestination {
-  const OfficeDestination([this.section = OfficeSection.organization]);
-
-  final OfficeSection section;
+  const OfficeDestination();
 }
 
-final class ProjectsDestination extends ShellDestination {
-  const ProjectsDestination();
+/// Configuration and operational surfaces grouped under Settings.
+final class SettingsDestination extends ShellDestination {
+  const SettingsDestination([this.section = SettingsSection.organization]);
+
+  final SettingsSection section;
 }
 
 class ShellState {
@@ -51,11 +53,11 @@ class ShellState {
 
   WorkspaceView get activeView => switch (destination) {
     OfficeDestination() => WorkspaceView.office,
-    ProjectsDestination() => WorkspaceView.projects,
+    SettingsDestination() => WorkspaceView.settings,
   };
 
-  OfficeSection? get officeSection => switch (destination) {
-    OfficeDestination(:final section) => section,
+  SettingsSection? get settingsSection => switch (destination) {
+    SettingsDestination(:final section) => section,
     _ => null,
   };
 
@@ -114,10 +116,10 @@ final class ShellViewSelected extends ShellEvent {
   final WorkspaceView view;
 }
 
-final class ShellOfficeSectionSelected extends ShellEvent {
-  const ShellOfficeSectionSelected(this.section);
+final class ShellSettingsSectionSelected extends ShellEvent {
+  const ShellSettingsSectionSelected(this.section);
 
-  final OfficeSection section;
+  final SettingsSection section;
 }
 
 final class ShellSidebarToggled extends ShellEvent {
@@ -143,21 +145,21 @@ final class ShellPinnedMissionOrderChanged extends ShellEvent {
 }
 
 class ShellBloc extends Bloc<ShellEvent, ShellState> {
-  ShellBloc({required FrankGateway gateway, ShellPreferences? preferences})
+  ShellBloc({required WorkspaceGateway gateway, ShellPreferences? preferences})
     : _gateway = gateway,
       _preferences = preferences ?? SharedShellPreferences(),
       super(const ShellState()) {
     on<ShellStarted>((_, emit) => _loadWorkspace(emit));
     on<ShellRetryRequested>((_, emit) => _loadWorkspace(emit));
     on<ShellViewSelected>(_selectView);
-    on<ShellOfficeSectionSelected>(_selectOfficeSection);
+    on<ShellSettingsSectionSelected>(_selectSettingsSection);
     on<ShellSidebarToggled>(_toggleSidebar);
     on<ShellSidebarResizeEnded>(_resizeSidebar);
     on<ShellProjectScopeChanged>(_changeProjectScope);
     on<ShellPinnedMissionOrderChanged>(_changePinnedMissionOrder);
   }
 
-  final FrankGateway _gateway;
+  final WorkspaceGateway _gateway;
   final ShellPreferences _preferences;
   int _loadGeneration = 0;
 
@@ -228,18 +230,18 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
   void _selectView(ShellViewSelected event, Emitter<ShellState> emit) {
     final destination = switch (event.view) {
       WorkspaceView.office => const OfficeDestination(),
-      WorkspaceView.projects => const ProjectsDestination(),
+      WorkspaceView.settings => const SettingsDestination(),
     };
     emit(state.copyWith(destination: destination, clearError: true));
   }
 
-  void _selectOfficeSection(
-    ShellOfficeSectionSelected event,
+  void _selectSettingsSection(
+    ShellSettingsSectionSelected event,
     Emitter<ShellState> emit,
   ) {
     emit(
       state.copyWith(
-        destination: OfficeDestination(event.section),
+        destination: SettingsDestination(event.section),
         clearError: true,
       ),
     );

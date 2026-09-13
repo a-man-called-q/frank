@@ -171,16 +171,16 @@ Open an issue with:
 3. **Make your changes**
 4. **Run all verification checks** (see "Before Committing")
 5. **Write tests** for new functionality
-6. **Update documentation** if changing public APIs
-7. **Commit with clear messages**
+7. **Update documentation** if changing public APIs
+8. **Commit with clear messages**
    ```bash
    git commit -m "feat(ledger): add per-session cost breakdown"
    ```
-8. **Push to your fork**
+9. **Push to your fork**
    ```bash
    git push origin feature/my-feature
    ```
-9. **Open a pull request** against `main`
+10. **Open a pull request** against `main`
 
 ### Commit Message Format
 
@@ -345,7 +345,9 @@ Be respectful and constructive. We're all here to make Frank better.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License. See [`LICENSE.md`](LICENSE.md) for details.
+Frank is distributed under the [MIT License](LICENSE.md). By submitting a
+contribution, you agree that it may be distributed under the same license. You
+retain copyright in your contribution.
 
 ## Recognition
 

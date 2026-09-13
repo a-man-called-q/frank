@@ -137,7 +137,7 @@ final class ChatMessageStopRequested extends ChatEvent {
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc({
-    required FrankGateway gateway,
+    required ChatGateway gateway,
     MessageIdFactory? messageIdFactory,
   })  : _gateway = gateway,
         _messageIdFactory = messageIdFactory ?? _defaultMessageId,
@@ -151,7 +151,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<ChatMessageStopRequested>(_stopMessage);
   }
 
-  final FrankGateway _gateway;
+  final ChatGateway _gateway;
   final MessageIdFactory _messageIdFactory;
   StreamSubscription<String>? _replySubscription;
   int _replyToken = 0;

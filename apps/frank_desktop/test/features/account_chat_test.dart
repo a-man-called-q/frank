@@ -1,11 +1,14 @@
 import 'dart:ui' as ui;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flow_ui/flow_ui.dart';
+import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
 import 'package:frank_desktop/features/chat/account_chat.dart';
 import 'package:frank_desktop/features/chat/presentation/focusable_composer.dart';
+import 'package:frank_desktop/features/floor/office_scene_floor.dart';
 
 void main() {
   const executive = OfficeEmployee(
@@ -55,44 +58,32 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const ValueKey('chat-transcript-list')), findsOneWidget);
-    expect(
-      tester
-          .widget<IgnorePointer>(
-            find.byKey(const ValueKey('passive-chat-transcript')),
-          )
-          .ignoring,
-      isTrue,
-    );
-    final transcriptBackground = tester.widget<AnimatedContainer>(
+    final transcriptBackground = tester.widget<DecoratedBox>(
       find.byKey(const ValueKey('passive-chat-transcript-background')),
     );
     final backgroundColor =
         (transcriptBackground.decoration as BoxDecoration).color!;
-    expect(backgroundColor.a, closeTo(0, 1e-6));
-    final mouse = await tester.createGesture(kind: ui.PointerDeviceKind.mouse);
-    await mouse.addPointer();
-    await mouse.moveTo(
-      tester.getCenter(
-        find.byKey(const ValueKey('passive-chat-transcript-background')),
+    expect(backgroundColor.a, closeTo(0.15, 1e-6));
+    final scrollbar = tester.widget<RawScrollbar>(
+      find.byKey(const ValueKey('chat-transcript-scrollbar')),
+    );
+    expect(scrollbar.interactive, isTrue);
+    expect(scrollbar.thickness, 4);
+    expect(scrollbar.radius, const Radius.circular(4));
+    expect(scrollbar.trackVisibility, isFalse);
+    final list = tester.widget<ListView>(
+      find.byKey(const ValueKey('chat-transcript-list')),
+    );
+    expect(list.controller, isNotNull);
+    expect(list.reverse, isTrue);
+    expect(list.shrinkWrap, isTrue);
+    expect(list.physics, isA<ClampingScrollPhysics>());
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('chat-transcript-list')),
+        matching: find.byType(IgnorePointer),
       ),
-    );
-    await tester.pump(const Duration(milliseconds: 120));
-    final hoveredBackground = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('passive-chat-transcript-background')),
-    );
-    expect(
-      (hoveredBackground.decoration as BoxDecoration).color!.a,
-      closeTo(0.07, 1e-6),
-    );
-    await mouse.moveTo(const Offset(1, 1));
-    await mouse.removePointer();
-    await tester.pump(const Duration(milliseconds: 120));
-    final idleBackground = tester.widget<AnimatedContainer>(
-      find.byKey(const ValueKey('passive-chat-transcript-background')),
-    );
-    expect(
-      (idleBackground.decoration as BoxDecoration).color!.a,
-      closeTo(0, 1e-6),
+      findsWidgets,
     );
     final clip = tester.widget<ClipRRect>(
       find.byKey(const ValueKey('passive-chat-transcript-clip')),
@@ -110,6 +101,7 @@ void main() {
     final composerRect = tester.getRect(
       find.byKey(const ValueKey('composer-surface')),
     );
+    final chatRect = tester.getRect(find.byType(AccountExecutiveChat));
     final floorPanel = find.byKey(const ValueKey('floor-control-panel'));
     expect(floorPanel, findsOneWidget);
     expect(
@@ -119,19 +111,42 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(
-      tester.getRect(floorPanel).left,
-      closeTo(composerRect.right + 8, 0.1),
+    final resetButton = tester.widget<IconButton>(
+      find.byKey(const ValueKey('floor-reset-view-button')),
     );
     expect(
-      tester.getRect(floorPanel).height,
-      closeTo(composerRect.height, 0.1),
+      resetButton.style?.overlayColor?.resolve(const <WidgetState>{
+        WidgetState.hovered,
+      }),
+      Colors.transparent,
     );
-    expect(transcriptRect.left, closeTo(composerRect.left + 18, 0.1));
-    // The floor recenter control sits beside the composer in the shared
-    // office rail, so the passive transcript extends beyond the composer by
-    // the control panel's reserved width rather than ending at the same inset.
-    expect(transcriptRect.right, closeTo(composerRect.right + 46, 0.1));
+    final floorPanelRect = tester.getRect(floorPanel);
+    final floorPanelDecoration =
+        (tester.widget<Container>(floorPanel).decoration as BoxDecoration);
+    expect(
+      floorPanelDecoration.color,
+      FrankColors.panelRaised.withValues(alpha: 0.8),
+    );
+    expect(
+      floorPanelDecoration.borderRadius,
+      const BorderRadius.only(
+        topLeft: Radius.zero,
+        bottomLeft: Radius.zero,
+        topRight: Radius.circular(14),
+        bottomRight: Radius.circular(14),
+      ),
+    );
+    expect(floorPanelDecoration.border, isNull);
+    expect(floorPanelDecoration.boxShadow, isNull);
+    expect(floorPanelRect.left, closeTo(composerRect.right, 0.1));
+    expect(floorPanelRect.width, closeTo(40, 0.1));
+    expect(floorPanelRect.right, closeTo(chatRect.right - 16, 0.1));
+    expect(floorPanelRect.top, closeTo(composerRect.top + 19, 0.1));
+    expect(floorPanelRect.bottom, closeTo(composerRect.bottom - 19, 0.1));
+    expect(floorPanelRect.height, closeTo(composerRect.height - 38, 0.1));
+    // The transcript stops where the composer's corner radius starts curving.
+    expect(transcriptRect.left, closeTo(composerRect.left + 19, 0.1));
+    expect(transcriptRect.right, closeTo(composerRect.right - 19, 0.1));
     expect(find.text('You:'), findsOneWidget);
     expect(find.text('Maya:'), findsOneWidget);
     expect(find.byType(FlowMarkdown), findsNWidgets(2));
@@ -159,10 +174,168 @@ void main() {
 
     expect(find.text('Maya:'), findsOneWidget);
     expect(find.text('is thinking…'), findsOneWidget);
+    expect(
+      tester
+          .getRect(
+            find.byKey(const ValueKey('passive-chat-transcript-background')),
+          )
+          .height,
+      closeTo(72, 0.1),
+    );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('long transcripts stay bottom anchored and clip old rows', (
+  testWidgets('streaming stopped error and multiline Markdown stay visual', (
+    tester,
+  ) async {
+    await _pumpChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: const [
+        OfficeMessage(
+          id: 'streaming-reply',
+          role: ChatRole.assistant,
+          text: 'Streaming **now**',
+          status: OfficeMessageStatus.streaming,
+        ),
+        OfficeMessage(
+          id: 'stopped-reply',
+          role: ChatRole.assistant,
+          text: 'Response stopped.',
+          status: OfficeMessageStatus.stopped,
+        ),
+        OfficeMessage(
+          id: 'error-reply',
+          role: ChatRole.assistant,
+          text: 'Gateway unavailable.\n\n- Try again',
+          status: OfficeMessageStatus.error,
+        ),
+      ],
+    );
+
+    final markdown = tester.widgetList<FlowMarkdown>(find.byType(FlowMarkdown));
+    expect(markdown, hasLength(3));
+    expect(
+      markdown
+          .singleWhere((widget) => widget.text == 'Streaming **now**')
+          .isStreaming,
+      isTrue,
+    );
+    expect(
+      markdown.singleWhere((widget) => widget.text == 'Response stopped.'),
+      isNotNull,
+    );
+    expect(
+      markdown
+          .singleWhere(
+            (widget) => widget.text == 'Gateway unavailable.\n\n- Try again',
+          )
+          .style
+          ?.color,
+      Theme.of(
+        tester.element(find.byType(AccountExecutiveChat)),
+      ).colorScheme.error,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('chat log grows with content between its height bounds', (
+    tester,
+  ) async {
+    await _pumpChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: List.generate(
+        5,
+        (index) => OfficeMessage(
+          id: 'medium-$index',
+          role: index.isEven ? ChatRole.user : ChatRole.assistant,
+          text: 'Message $index',
+        ),
+      ),
+    );
+
+    final height = tester
+        .getRect(
+          find.byKey(const ValueKey('passive-chat-transcript-background')),
+        )
+        .height;
+    expect(height, greaterThan(72));
+    expect(height, lessThan(280));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('right panel keeps its inset after multiline input', (
+    tester,
+  ) async {
+    await _pumpChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: const [
+        OfficeMessage(
+          id: 'assistant-message',
+          role: ChatRole.assistant,
+          text: 'Ready.',
+        ),
+      ],
+    );
+
+    final composer = find.byKey(const ValueKey('composer-surface'));
+    final panel = find.byKey(const ValueKey('floor-control-panel'));
+    final initialHeight = tester.getRect(composer).height;
+    await tester.enterText(
+      find.byType(TextField),
+      'one\ntwo\nthree\nfour\nfive\nsix',
+    );
+    await tester.pumpAndSettle();
+
+    final composerRect = tester.getRect(composer);
+    final panelRect = tester.getRect(panel);
+    expect(composerRect.height, greaterThan(initialHeight));
+    expect(panelRect.top, closeTo(composerRect.top + 19, 0.1));
+    expect(panelRect.bottom, closeTo(composerRect.bottom - 19, 0.1));
+    expect(panelRect.height, closeTo(composerRect.height - 38, 0.1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('chat and composer stay aligned on a narrow viewport', (
+    tester,
+  ) async {
+    await _pumpChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: const [
+        OfficeMessage(
+          id: 'narrow-message',
+          role: ChatRole.assistant,
+          text: 'Narrow layout.',
+        ),
+      ],
+      size: const Size(400, 700),
+    );
+
+    final chatRect = tester.getRect(
+      find.byKey(const ValueKey('passive-chat-transcript-background')),
+    );
+    final composerRect = tester.getRect(
+      find.byKey(const ValueKey('composer-surface')),
+    );
+    final panelRect = tester.getRect(
+      find.byKey(const ValueKey('floor-control-panel')),
+    );
+    final accountChatRect = tester.getRect(find.byType(AccountExecutiveChat));
+    expect(chatRect.left, closeTo(composerRect.left + 19, 0.1));
+    expect(chatRect.right, closeTo(composerRect.right - 19, 0.1));
+    expect(panelRect.left, closeTo(composerRect.right, 0.1));
+    expect(panelRect.right, closeTo(accountChatRect.right - 16, 0.1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('long transcripts stay bottom anchored and become scrollable', (
     tester,
   ) async {
     final messages = [
@@ -187,14 +360,120 @@ void main() {
       messages: messages,
     );
 
-    final transcript = find.byKey(const ValueKey('passive-chat-transcript'));
+    final transcript = find.byKey(
+      const ValueKey('passive-chat-transcript-background'),
+    );
+    final list = tester.widget<ListView>(
+      find.byKey(const ValueKey('chat-transcript-list')),
+    );
     final latest = find.byKey(const ValueKey('chat-log-row-latest-message'));
     expect(latest, findsOneWidget);
     expect(find.byKey(const ValueKey('chat-log-row-old-0')), findsNothing);
+    expect(tester.getRect(transcript).height, closeTo(280, 0.1));
+    expect(list.controller!.position.maxScrollExtent, greaterThan(0));
+    expect(list.controller!.offset, closeTo(0, 0.1));
     expect(
       tester.getRect(latest).bottom,
-      closeTo(tester.getRect(transcript).bottom - 8, 1),
+      closeTo(tester.getRect(transcript).bottom - 16, 1),
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('wheel over chat scrolls history without zooming the floor', (
+    tester,
+  ) async {
+    final sceneController = OfficeSceneController()..setReady(true);
+    addTearDown(sceneController.dispose);
+    await _pumpChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: List.generate(
+        48,
+        (index) => OfficeMessage(
+          id: 'wheel-$index',
+          role: index.isEven ? ChatRole.user : ChatRole.assistant,
+          text: 'Scrollable message $index',
+        ),
+      ),
+      sceneController: sceneController,
+      withFloorInteraction: true,
+    );
+
+    final list = tester.widget<ListView>(
+      find.byKey(const ValueKey('chat-transcript-list')),
+    );
+    final initialZoom = sceneController.zoom;
+    expect(list.controller!.offset, 0);
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        kind: ui.PointerDeviceKind.mouse,
+        position: tester.getCenter(
+          find.byKey(const ValueKey('passive-chat-transcript-background')),
+        ),
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+
+    expect(list.controller!.offset, greaterThan(0));
+    expect(sceneController.zoom, initialZoom);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('new messages follow latest unless history is being read', (
+    tester,
+  ) async {
+    final messages = ValueNotifier<List<OfficeMessage>>(
+      List.generate(
+        48,
+        (index) => OfficeMessage(
+          id: 'history-$index',
+          role: index.isEven ? ChatRole.user : ChatRole.assistant,
+          text: 'History message $index',
+        ),
+      ),
+    );
+    addTearDown(messages.dispose);
+    await _pumpMutableChat(
+      tester,
+      executive: executive,
+      project: project,
+      messages: messages,
+    );
+
+    var list = tester.widget<ListView>(
+      find.byKey(const ValueKey('chat-transcript-list')),
+    );
+    list.controller!.jumpTo(120);
+    await tester.pump();
+    final readingOffset = list.controller!.offset;
+    messages.value = [
+      ...messages.value,
+      const OfficeMessage(
+        id: 'new-while-reading',
+        role: ChatRole.assistant,
+        text: 'Do not steal the scroll position.',
+      ),
+    ];
+    await tester.pump();
+    list = tester.widget<ListView>(
+      find.byKey(const ValueKey('chat-transcript-list')),
+    );
+    expect(list.controller!.offset, closeTo(readingOffset, 0.1));
+
+    list.controller!.jumpTo(0);
+    messages.value = [
+      ...messages.value,
+      const OfficeMessage(
+        id: 'new-at-latest',
+        role: ChatRole.assistant,
+        text: 'Follow this message.',
+      ),
+    ];
+    await tester.pump();
+    await tester.pump();
+    expect(list.controller!.offset, closeTo(0, 0.1));
     expect(tester.takeException(), isNull);
   });
 
@@ -226,6 +505,51 @@ Future<void> _pumpChat(
   required OfficeProject project,
   required List<OfficeMessage> messages,
   ValueChanged<String>? onSend,
+  Size size = const Size(900, 700),
+  OfficeSceneController? sceneController,
+  bool withFloorInteraction = false,
+}) async {
+  Widget chat = AccountExecutiveChat(
+    executive: executive,
+    project: project,
+    mission: null,
+    showNoMissionsNotice: true,
+    messages: messages,
+    generating: false,
+    onSend: onSend ?? (_) {},
+    onStop: () {},
+    renderFloor: !withFloorInteraction,
+    sceneController: sceneController,
+  );
+  if (withFloorInteraction) {
+    chat = Stack(
+      fit: StackFit.expand,
+      children: [
+        OfficeSceneInteractionSurface(
+          controller: sceneController!,
+          child: const ColoredBox(color: Colors.transparent),
+        ),
+        chat,
+      ],
+    );
+  }
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: SizedBox(width: size.width, height: size.height, child: chat),
+      ),
+    ),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 50));
+}
+
+Future<void> _pumpMutableChat(
+  WidgetTester tester, {
+  required OfficeEmployee executive,
+  required OfficeProject project,
+  required ValueNotifier<List<OfficeMessage>> messages,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -233,15 +557,18 @@ Future<void> _pumpChat(
         body: SizedBox(
           width: 900,
           height: 700,
-          child: AccountExecutiveChat(
-            executive: executive,
-            project: project,
-            mission: null,
-            officeView: true,
-            messages: messages,
-            generating: false,
-            onSend: onSend ?? (_) {},
-            onStop: () {},
+          child: ValueListenableBuilder<List<OfficeMessage>>(
+            valueListenable: messages,
+            builder: (context, value, child) => AccountExecutiveChat(
+              executive: executive,
+              project: project,
+              mission: null,
+              showNoMissionsNotice: true,
+              messages: value,
+              generating: false,
+              onSend: (_) {},
+              onStop: () {},
+            ),
           ),
         ),
       ),

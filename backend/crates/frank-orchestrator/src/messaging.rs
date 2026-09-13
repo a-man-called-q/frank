@@ -166,14 +166,25 @@ impl Orchestrator {
             return;
         };
         if let Some(session) = self.sessions.lock().await.get(&task_id).cloned() {
+            let content = format!(
+                "[Frank broker message from {}]\n{}",
+                message.sender.display_name.as_deref().unwrap_or("agent"),
+                message.body
+            );
+            if let Some(session_id) = session.provider_session_id.lock().await.clone() {
+                let _ = self
+                    .store
+                    .append_provider_session_item(
+                        &session_id,
+                        &format!("message-{}", message.id),
+                        &serde_json::json!({"message": {"role": "user", "content": content.clone()}}),
+                    )
+                    .await;
+            }
             let _ = session
                 .send(&ProviderMessage {
                     role: "user".into(),
-                    content: format!(
-                        "[Frank broker message from {}]\n{}",
-                        message.sender.display_name.as_deref().unwrap_or("agent"),
-                        message.body
-                    ),
+                    content,
                     correlation_id: Some(message.id.to_string()),
                 })
                 .await;
@@ -197,6 +208,16 @@ impl Orchestrator {
             "[Frank broker message from {sender}; act={:?}; message_id={}]:\n{}",
             message.act, message.id, message.body
         );
+        if let Some(session_id) = session.provider_session_id.lock().await.clone() {
+            let _ = self
+                .store
+                .append_provider_session_item(
+                    &session_id,
+                    &format!("message-{}", message.id),
+                    &serde_json::json!({"message": {"role": "user", "content": content.clone()}}),
+                )
+                .await;
+        }
         let _ = session
             .send(&ProviderMessage {
                 role: "user".into(),
@@ -246,25 +267,31 @@ impl Orchestrator {
             cwd: project.path,
             instructions: supervisor.instructions,
             policy: supervisor.policy,
-            model: supervisor.model,
+            model: snapshot
+                .server
+                .supervisor_model
+                .clone()
+                .or_else(|| supervisor.effective_model.clone())
+                .or(supervisor.model),
             resume_session_id: mission.supervisor_session_id.clone(),
             server_url: local_server_url(&snapshot.server),
             server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
                 .then(|| snapshot.server.tls_fingerprint.clone()),
             session_capability: None,
+            initial_transcript: crate::provider_transcript(
+                self.store
+                    .provider_session_items(
+                        mission.supervisor_session_id.as_deref().unwrap_or_default(),
+                    )
+                    .await?,
+            ),
         };
         let session = if let Some(provider_session_id) = request.resume_session_id.as_deref() {
             self.runtime
-                .resume(
-                    mission.supervisor_provider,
-                    request.clone(),
-                    provider_session_id,
-                )
+                .resume(request.clone(), provider_session_id)
                 .await
         } else {
-            self.runtime
-                .start(mission.supervisor_provider, request.clone())
-                .await
+            self.runtime.start(request.clone()).await
         }
         .map_err(|error| OrchestratorError::ProviderUnavailable(error.to_string()))?;
         let session = Arc::new(session);

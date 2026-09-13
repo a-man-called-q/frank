@@ -6,6 +6,7 @@ import 'package:flutter_scene/scene.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 import 'package:frank_desktop/features/chat/presentation/focusable_composer.dart';
+import 'package:frank_desktop/features/floor/office_scene_floor.dart';
 import 'package:frank_desktop/features/shell/sidebar_layout.dart';
 import 'package:vector_math/vector_math.dart' as vm;
 
@@ -13,7 +14,7 @@ void main() {
   testWidgets('macOS renders the scene and survives sidebar changes', (
     tester,
   ) async {
-    await tester.pumpWidget(const FrankApp());
+    await tester.pumpWidget(const FrankApp(showLogin: false));
 
     // GPU shader compilation is asynchronous on a real host. Give the scene
     // a bounded window to reveal; a failed initialization must surface in the
@@ -49,7 +50,9 @@ void main() {
       await tester.pump(const Duration(milliseconds: 320));
     }
 
-    await tester.tap(find.byKey(const ValueKey('office-section-team')));
+    await tester.tap(find.bySemanticsLabel('Settings view'));
+    await tester.pump(const Duration(milliseconds: 220));
+    await tester.tap(find.byKey(const ValueKey('settings-section-team')));
     await tester.pump(const Duration(milliseconds: 220));
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
@@ -60,7 +63,7 @@ void main() {
     expect(identical(retainedScene, teamSceneView.scene), isTrue);
     expect(identical(retainedCamera, teamSceneView.camera), isTrue);
     expect(
-      find.byKey(const ValueKey('office-section-content-team')),
+      find.byKey(const ValueKey('settings-section-content-team')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -114,14 +117,14 @@ void main() {
     expect(identical(retainedCamera, collapsedSceneView.camera), isTrue);
     expect(tester.takeException(), isNull);
 
-    // Projects reuses the shell's retained floor and controller. Verify the
-    // desktop mouse contract against that same camera: the passive transcript
-    // forwards left drag and wheel input to the floor, right drag only changes
-    // horizontal orbit, and the floor reset action restores the initial view.
+    // Office reuses the shell's retained floor and controller. Verify the
+    // desktop mouse contract against that same camera: the floor remains
+    // interactive outside chat, the transcript owns wheel input, and reset
+    // restores the initial view.
     await tester.tap(find.byTooltip('Show the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 420));
-    final projectsView = find.bySemanticsLabel('Projects view');
-    await tester.tap(projectsView, warnIfMissed: false);
+    final officeSelector = find.bySemanticsLabel('Office view');
+    await tester.tap(officeSelector, warnIfMissed: false);
     await tester.pump(const Duration(milliseconds: 420));
     final conversation = find.bySemanticsLabel(RegExp(r'^Conversation with '));
     final chatSceneFinder = find.byKey(const ValueKey('office-scene-view'));
@@ -138,8 +141,8 @@ void main() {
       // The shell's sidebar animation and BLoC dispatch can finish on
       // different frames on a real macOS host. Re-send the idempotent view
       // selection until the chat surface and its floor are both mounted.
-      if (projectsView.evaluate().isNotEmpty) {
-        await tester.tap(projectsView, warnIfMissed: false);
+      if (officeSelector.evaluate().isNotEmpty) {
+        await tester.tap(officeSelector, warnIfMissed: false);
       }
       await tester.pump(const Duration(milliseconds: 250));
     }
@@ -156,7 +159,7 @@ void main() {
     );
     expect(transcriptFinder, findsOneWidget);
     final transcriptRect = tester.getRect(transcriptFinder);
-    final floorPoint = transcriptRect.center;
+    final floorPoint = Offset(chatRect.left + 24, chatRect.top + 24);
 
     final composerFinder = find.byType(FocusableComposer);
     expect(composerFinder, findsOneWidget);
@@ -216,6 +219,24 @@ void main() {
         .storage[5];
     await tester.sendEventToBinding(
       PointerScrollEvent(
+        position: transcriptRect.center,
+        scrollDelta: const Offset(0, -120),
+      ),
+    );
+    await tester.pump();
+    final projectionScaleAfterTranscriptScroll = tester
+        .widget<SceneView>(chatSceneFinder)
+        .camera!
+        .projection
+        .getProjectionMatrix(chatRect.width / chatRect.height)
+        .storage[5];
+    expect(
+      projectionScaleAfterTranscriptScroll,
+      closeTo(initialProjectionScale, 1e-6),
+    );
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
         position: floorPoint,
         scrollDelta: const Offset(0, -120),
       ),
@@ -243,6 +264,39 @@ void main() {
           .storage[5],
       closeTo(initialProjectionScale, 1e-6),
     );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('login uses an empty scene and fades into the office', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const FrankApp());
+    await tester.pump();
+
+    expect(find.bySemanticsLabel('Frank login'), findsOneWidget);
+    // The empty login preset skips the renderer until the office is revealed.
+    expect(find.byType(SceneView), findsNothing);
+    final loginStage = tester.widget<OfficeSceneStage>(
+      find.byKey(const ValueKey('login-scene-stage')),
+    );
+    expect(loginStage.preset, OfficeScenePreset.empty);
+    expect(loginStage.semanticLabel, 'Login background');
+
+    await tester.enterText(
+      find.byKey(const ValueKey('login-username-field')),
+      'demo_owner',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('login-password-field')),
+      'demo-password',
+    );
+    await tester.tap(find.byKey(const ValueKey('login-submit-button')));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump(const Duration(milliseconds: 720));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('login-scene-stage')), findsNothing);
+    expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

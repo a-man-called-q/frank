@@ -97,8 +97,17 @@ impl ScopedBridge {
 
     pub async fn call(&self, token: &str, name: &str, args: Value) -> Result<Value> {
         self.authorize(token)?;
+        let descriptor = name
+            .parse::<frank_tool_catalog::ToolId>()
+            .map_err(|_| McpError::UnknownTool)?;
+        if !matches!(
+            frank_tool_catalog::descriptor(descriptor.as_str()).map(|item| item.exposure),
+            Some(frank_tool_catalog::Exposure::Mcp | frank_tool_catalog::Exposure::Both)
+        ) {
+            return Err(McpError::UnknownTool);
+        }
         match name {
-            "task_get" => {
+            "task_get" | "work_item_get" => {
                 let snapshot = self.client.snapshot().await?;
                 let task = snapshot
                     .tasks
@@ -138,6 +147,255 @@ impl ScopedBridge {
                 let response = self
                     .client
                     .command(Command::CreateTask(spec), Some(snapshot.revision))
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_list_board" => {
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let current = snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == self.capability.task_id)
+                    .cloned()
+                    .ok_or(McpError::OutOfScope)?;
+                Ok(json!({
+                    "tasks": snapshot
+                        .tasks
+                        .into_iter()
+                        .filter(|task| {
+                            task.mission_id == current.mission_id
+                                && task.taskboard_id == current.taskboard_id
+                        })
+                        .collect::<Vec<_>>()
+                }))
+            }
+            "work_item_drop" => {
+                let taskboard_id: TaskboardId = serde_json::from_value(
+                    args.get("taskboard_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("taskboard_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let role_id = args
+                    .get("role_id")
+                    .filter(|value| !value.is_null())
+                    .cloned()
+                    .map(serde_json::from_value)
+                    .transpose()
+                    .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::DropWorkItem {
+                            task_id: self.capability.task_id,
+                            taskboard_id,
+                            role_id,
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_spawn_children" => {
+                let children = args
+                    .get("children")
+                    .cloned()
+                    .ok_or_else(|| McpError::Arguments("children is required".into()))?;
+                let mut specs: Vec<WorkItemSpec> = serde_json::from_value(children)
+                    .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let current = snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == self.capability.task_id)
+                    .ok_or(McpError::OutOfScope)?;
+                for spec in &mut specs {
+                    spec.mission_id = Some(current.mission_id);
+                    spec.parent_task_id = Some(self.capability.task_id);
+                    if spec.taskboard_id == TaskboardId::nil() {
+                        spec.taskboard_id = current.taskboard_id.ok_or_else(|| {
+                            McpError::Arguments("current work item has no board".into())
+                        })?;
+                    }
+                    if !spec.dependencies.contains(&self.capability.task_id) {
+                        spec.dependencies.push(self.capability.task_id);
+                    }
+                }
+                let response = self
+                    .client
+                    .command(
+                        Command::SpawnChildWorkItems {
+                            parent_task_id: self.capability.task_id,
+                            children: specs,
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_complete" => {
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::SetTaskStatus {
+                            task_id: self.capability.task_id,
+                            status: TaskStatus::Done,
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_request_human_input" => {
+                let kind: HumanInputKind = serde_json::from_value(
+                    args.get("kind")
+                        .cloned()
+                        .unwrap_or_else(|| json!("question")),
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let prompt = args
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| McpError::Arguments("prompt is required".into()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::RequestHumanInput {
+                            task_id: self.capability.task_id,
+                            kind,
+                            prompt: prompt.to_owned(),
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_rework" => {
+                let reason = args
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| McpError::Arguments("reason is required".into()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::RequestTaskRework {
+                            task_id: self.capability.task_id,
+                            reason: reason.to_owned(),
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "work_item_offer_respond" => {
+                let offer_id: WorkOfferId = serde_json::from_value(
+                    args.get("offer_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("offer_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let accept = args
+                    .get("accept")
+                    .and_then(Value::as_bool)
+                    .ok_or_else(|| McpError::Arguments("accept is required".into()))?;
+                let snapshot = self.client.snapshot().await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::RespondWorkOffer { offer_id, accept },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "taskboard_read" => {
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let mission_id = snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == self.capability.task_id)
+                    .map(|task| task.mission_id)
+                    .ok_or(McpError::OutOfScope)?;
+                Ok(json!({
+                    "tasks": snapshot
+                        .tasks
+                        .into_iter()
+                        .filter(|task| task.mission_id == mission_id)
+                        .collect::<Vec<_>>()
+                }))
+            }
+            "taskboard_create" => {
+                let mut spec: TaskSpec = serde_json::from_value(args)
+                    .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let mission_id = snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == self.capability.task_id)
+                    .map(|task| task.mission_id)
+                    .ok_or(McpError::OutOfScope)?;
+                spec.mission_id = mission_id;
+                if !spec.dependencies.contains(&self.capability.task_id) {
+                    spec.dependencies.push(self.capability.task_id);
+                }
+                let response = self
+                    .client
+                    .command(Command::CreateTask(spec), Some(snapshot.revision))
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "taskboard_update" => {
+                let task_id: TaskId = serde_json::from_value(
+                    args.get("task_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("task_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let mut patch = args.clone();
+                if let Some(object) = patch.as_object_mut() {
+                    object.remove("task_id");
+                }
+                let patch: TaskPatch = serde_json::from_value(patch)
+                    .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                if !snapshot.tasks.iter().any(|task| {
+                    task.id == task_id && task.mission_id == self.task_mission(&snapshot)
+                }) {
+                    return Err(McpError::OutOfScope);
+                }
+                let response = self
+                    .client
+                    .command(
+                        Command::UpdateTask { task_id, patch },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            "taskboard_assign" => {
+                let task_id: TaskId = serde_json::from_value(
+                    args.get("task_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("task_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let agent_id: AgentId = serde_json::from_value(
+                    args.get("agent_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("agent_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let response = self
+                    .client
+                    .command(
+                        Command::AssignTask { task_id, agent_id },
+                        Some(snapshot.revision),
+                    )
                     .await?;
                 Ok(serde_json::to_value(response)?)
             }
@@ -250,9 +508,70 @@ impl ScopedBridge {
                     .collect::<Vec<_>>();
                 Ok(serde_json::to_value(approvals)?)
             }
+            "review_decide" => {
+                let review_item_id: ReviewWorkItemId = serde_json::from_value(
+                    args.get("review_item_id")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("review_item_id is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let decision: ReviewDecision = serde_json::from_value(
+                    args.get("decision")
+                        .cloned()
+                        .ok_or_else(|| McpError::Arguments("decision is required".into()))?,
+                )
+                .map_err(|error| McpError::Arguments(error.to_string()))?;
+                let reason = args
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                let snapshot = self.client.snapshot().await?;
+                let review = snapshot
+                    .review_items
+                    .iter()
+                    .find(|review| review.id == review_item_id)
+                    .ok_or(McpError::OutOfScope)?;
+                if review.reviewer_agent != self.capability.agent_id
+                    || review.source_task_id != self.capability.task_id
+                    || review.status != ReviewWorkItemStatus::Pending
+                {
+                    return Err(McpError::OutOfScope);
+                }
+                let response = self
+                    .client
+                    .command(
+                        Command::DecideReview {
+                            review_item_id,
+                            decision,
+                            reason,
+                        },
+                        Some(snapshot.revision),
+                    )
+                    .await?;
+                Ok(serde_json::to_value(response)?)
+            }
             "mcp_auth_tool" => self.permission_prompt(args).await,
+            name @ ("email_search" | "email_read" | "email_send" | "calendar_list"
+            | "calendar_create" | "calendar_update" | "drive_search" | "drive_read"
+            | "drive_write" | "drive_share" | "browser_browse" | "browser_extract"
+            | "browser_download" | "terminal_execute" | "database_inspect"
+            | "database_read" | "database_write") => {
+                // frankd owns the Organization grant, connector credential,
+                // and durable approval wait. The child only forwards the
+                // task-scoped request with its short-lived capability.
+                self.client.agent_tool(name, args).await.map_err(Into::into)
+            }
             _ => Err(McpError::UnknownTool),
         }
+    }
+
+    fn task_mission(&self, snapshot: &Snapshot) -> MissionId {
+        snapshot
+            .tasks
+            .iter()
+            .find(|task| task.id == self.capability.task_id)
+            .map(|task| task.mission_id)
+            .unwrap_or(MissionId::nil())
     }
 
     /// Claude's non-interactive stream requires an MCP permission callback.
@@ -504,21 +823,7 @@ async fn read_bounded_line<R: AsyncBufRead + Unpin>(
 }
 
 fn tool_descriptors() -> Vec<Value> {
-    [
-        ("task_get", "Read the current task"),
-        ("task_update", "Update the current task"),
-        ("task_create_child", "Create a child task"),
-        ("message_send", "Send a brokered message"),
-        ("message_ack", "Acknowledge a message"),
-        ("artifact_publish", "Publish an artifact"),
-        ("memory_read", "Read scoped memory"),
-        ("memory_propose", "Propose a memory update"),
-        ("approval_status", "Read approvals for this task"),
-        ("mcp_auth_tool", "Request and wait for a Frank permission decision"),
-    ]
-    .into_iter()
-    .map(|(name, description)| json!({"name": name, "description": description, "inputSchema": {"type": "object"}}))
-    .collect()
+    frank_tool_catalog::mcp_definitions()
 }
 
 async fn snapshot_for_task(client: &RemoteClient, task_id: TaskId) -> Result<Snapshot> {

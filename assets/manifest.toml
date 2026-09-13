@@ -1,0 +1,22 @@
+# Root-owned runtime assets. Keep generated/packaged copies out of this file;
+# `xtask assets-check` verifies the hashes before a release is assembled.
+
+[[asset]]
+name = "geist"
+path = "apps/frank_desktop/assets/fonts/Geist-Variable.ttf"
+source = "assets/fonts/geist/Geist-Variable.ttf"
+sha256 = "73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659"
+
+[[asset]]
+name = "geist-mono"
+path = "apps/frank_desktop/assets/fonts/GeistMono-Variable.ttf"
+source = "assets/fonts/geist/GeistMono-Variable.ttf"
+sha256 = "87c2aff9723544a9adaea19d92e42a33705c9723624801b6e0224c2206a6af0d"
+
+[[asset]]
+name = "frank-character-model"
+path = "apps/frank_desktop/assets/character_model/frank.glb"
+source = "assets/character_model/frank/frank.blend"
+promotion = "assets/character_model/frank/qa/promotion.json"
+promotion_key = "glb"
+sha256 = "c0fffeee515dcb2172fe525a1d5935cca81a883edf81499adf1857614789964e"

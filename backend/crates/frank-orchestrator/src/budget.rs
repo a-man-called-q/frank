@@ -78,6 +78,8 @@ impl BudgetLedger {
                 estimated_input_tokens: usage.estimated_input_tokens,
                 estimated_output_tokens: usage.estimated_output_tokens,
                 cost_micros: usage.cost_micros,
+                cached_input_tokens: usage.cached_input_tokens,
+                reasoning_tokens: usage.reasoning_tokens,
             };
             self.record(usage.scope_id.clone(), &telemetry);
             if usage.scope != BudgetScope::Task {

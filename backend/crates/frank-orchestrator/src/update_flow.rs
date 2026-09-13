@@ -3,13 +3,7 @@
 //! Signing, target selection and rollback validation belong to `frank-update`;
 //! this module only sequences them and records progress on the snapshot.
 //!
-//! OPEN QUESTION: the HTTP client here means the orchestrator reaches the
-//! network directly. Moving the fetch/download half into `frank-update` would
-//! keep that dependency out of the orchestration crate, but it changes the
-//! dependency graph (which xtask's architecture-check pins) and pulls reqwest
-//! across a crate boundary. Deliberately left as a design decision.
-
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use frank_protocol::*;
 
@@ -47,104 +41,6 @@ pub(crate) fn current_update_target() -> String {
         other => other,
     };
     format!("{arch}-{os}")
-}
-
-/// Download and verify the signed release feed. The response advertises and
-/// enforces a hard body cap before parsing so an endpoint cannot make the
-/// daemon retain an unbounded manifest. Signature verification happens before
-/// the JSON manifest is deserialized or any artifact metadata is used.
-pub(crate) async fn fetch_update_manifest()
--> std::result::Result<frank_update::UpdateManifest, String> {
-    const MAX_MANIFEST_BYTES: usize = 256 * 1024;
-    const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
-    if std::env::var_os("FRANK_UPDATE_DISABLE_NETWORK").is_some() {
-        return Err("network update checks are disabled".into());
-    }
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(20))
-        .user_agent(format!("frank/{}", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|error| error.to_string())?;
-    let manifest_response = client
-        .get(frank_update::UPDATE_FEED_URL)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?;
-    let manifest = read_bounded_http_body(manifest_response, MAX_MANIFEST_BYTES).await?;
-    let signature_response = client
-        .get(frank_update::UPDATE_SIGNATURE_URL)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?
-        .error_for_status()
-        .map_err(|error| error.to_string())?;
-    let signature = read_bounded_http_body(signature_response, MAX_SIGNATURE_BYTES).await?;
-    let signature = std::str::from_utf8(&signature).map_err(|error| error.to_string())?;
-    let public_key = base64::engine::general_purpose::STANDARD
-        .decode(frank_update::EMBEDDED_PUBLIC_KEY_B64)
-        .map_err(|error| error.to_string())?;
-    frank_update::parse_verified_manifest(&manifest, signature, &public_key)
-        .map_err(|error| error.to_string())
-}
-
-/// Fetch one manifest-selected payload with the same bounded streaming rules
-/// used for the signed feed. Tests and air-gapped operators may provide a
-/// local file through `FRANK_UPDATE_ARTIFACT`; that path is checked as a
-/// regular file and still passes through the exact digest/size verifier.
-pub(crate) async fn download_update_artifact(
-    artifact: &frank_update::UpdateArtifact,
-) -> Result<Vec<u8>> {
-    let bytes = if let Some(path) = std::env::var_os("FRANK_UPDATE_ARTIFACT") {
-        let path = PathBuf::from(path);
-        let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
-            OrchestratorError::Validation(format!(
-                "update artifact could not be inspected: {error}"
-            ))
-        })?;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            return Err(OrchestratorError::Validation(
-                "update artifact path is not a regular file".into(),
-            ));
-        }
-        if metadata.len() > frank_update::MAX_UPDATE_ARTIFACT_BYTES {
-            return Err(OrchestratorError::Validation(
-                "update artifact exceeds the configured size cap".into(),
-            ));
-        }
-        let file = std::fs::File::open(&path).map_err(|error| {
-            OrchestratorError::Validation(format!("update artifact could not be opened: {error}"))
-        })?;
-        let mut bytes = Vec::new();
-        let mut limited = file.take(frank_update::MAX_UPDATE_ARTIFACT_BYTES.saturating_add(1));
-        limited.read_to_end(&mut bytes).map_err(|error| {
-            OrchestratorError::Validation(format!("update artifact could not be read: {error}"))
-        })?;
-        bytes
-    } else {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .timeout(std::time::Duration::from_secs(300))
-            .user_agent(format!("frank/{}", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-        let response = client
-            .get(&artifact.url)
-            .send()
-            .await
-            .map_err(|error| OrchestratorError::Validation(error.to_string()))?
-            .error_for_status()
-            .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-        let cap = usize::try_from(frank_update::MAX_UPDATE_ARTIFACT_BYTES).unwrap_or(usize::MAX);
-        read_bounded_http_body(response, cap)
-            .await
-            .map_err(OrchestratorError::Validation)?
-    };
-    frank_update::verify_artifact_bytes(artifact, &bytes)
-        .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-    Ok(bytes)
 }
 
 /// Resolve the daemon-owned staging root without exposing it through a
@@ -193,26 +89,6 @@ pub(crate) fn select_update_artifact<'a>(
         .find(|artifact| artifact.target == target && artifact.package_kind == package_kind)
 }
 
-pub(crate) async fn read_bounded_http_body(
-    mut response: reqwest::Response,
-    cap: usize,
-) -> std::result::Result<Vec<u8>, String> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > cap as u64)
-    {
-        return Err("update response exceeds the configured size cap".into());
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
-        if chunk.len() > cap || body.len().saturating_add(chunk.len()) > cap {
-            return Err("update response exceeds the configured size cap".into());
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
 impl Orchestrator {
     /// Download, verify, and stage a release payload as a durable operation.
     /// The command that requests preparation only records this intent; the
@@ -241,9 +117,11 @@ impl Orchestrator {
             }
             self.update_operation(&operation, OperationStatus::Running, "manifest", None)
                 .await?;
-            let manifest = fetch_update_manifest()
+            let manifest = self
+                .update_source
+                .fetch_verified_manifest()
                 .await
-                .map_err(OrchestratorError::Validation)?;
+                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
             if manifest.frank_version != update.version
                 || !manifest.accepts_protocol(PROTOCOL_VERSION)
                 || manifest
@@ -272,7 +150,11 @@ impl Orchestrator {
             }
             self.update_operation(&operation, OperationStatus::Running, "download", None)
                 .await?;
-            let bytes = download_update_artifact(artifact).await?;
+            let bytes = self
+                .update_source
+                .download_verified_artifact(artifact)
+                .await
+                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
             self.update_operation(&operation, OperationStatus::Running, "stage", None)
                 .await?;
             let staging_root = update_staging_root(&self.store);

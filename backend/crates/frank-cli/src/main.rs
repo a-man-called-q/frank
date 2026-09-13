@@ -130,7 +130,8 @@ enum Command {
         #[command(subcommand)]
         command: PackCommand,
     },
-    /// Pair a device with a running frankd or inspect its health.
+    /// Inspect or administer a running frankd. Device pairing is retired;
+    /// self-hosted servers use the local owner account.
     Server {
         #[command(subcommand)]
         command: ServerCommand,

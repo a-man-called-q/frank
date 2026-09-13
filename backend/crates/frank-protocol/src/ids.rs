@@ -73,13 +73,17 @@ macro_rules! id_type {
 }
 
 id_type!(ServerId);
+id_type!(UserId);
+id_type!(SessionId);
 id_type!(DeviceId);
 id_type!(ProjectId);
 id_type!(AgentId);
+id_type!(RoleId);
 id_type!(MissionId);
 id_type!(TaskId);
 id_type!(AttemptId);
 id_type!(MessageId);
+id_type!(TaskFeedId);
 id_type!(ApprovalId);
 id_type!(ArtifactId);
 id_type!(TerminalSessionId);
@@ -88,3 +92,19 @@ id_type!(CorrelationId);
 id_type!(OperationId);
 id_type!(UploadId);
 id_type!(UpdateId);
+id_type!(OrganizationId);
+id_type!(ConnectorProfileId);
+id_type!(ReviewWorkItemId);
+// Stable id for a shared taskboard. Boards are durable routing surfaces, not
+// provider sessions, so cards keep the same task id while moving between
+// boards.
+id_type!(TaskboardId);
+// Durable offer id used by pull-mode board dispatch. An offer is independent
+// from a provider session and can therefore expire or be declined safely.
+id_type!(WorkOfferId);
+// Stable id for a human-input request attached to a work item.
+id_type!(HumanInputId);
+// Stable id for a child workflow composition node.
+id_type!(WorkflowId);
+// Stable id for a board relocation entry during an Organization upgrade.
+id_type!(RelocationId);

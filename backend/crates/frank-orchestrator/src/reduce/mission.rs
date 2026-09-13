@@ -21,11 +21,15 @@ impl Orchestrator {
                     .iter()
                     .find(|project| project.id == project_id && !project.archived)
                     .ok_or(OrchestratorError::NotFound)?;
-                let provider = snapshot.server.supervisor_provider.ok_or_else(|| {
-                    OrchestratorError::Validation(
-                        "choose Codex or Claude as supervisor before creating a mission".into(),
-                    )
-                })?;
+                let supervisor_model =
+                    snapshot.server.supervisor_model.as_deref().ok_or_else(|| {
+                        OrchestratorError::Validation(
+                            "choose an OpenRouter supervisor model before creating a mission"
+                                .into(),
+                        )
+                    })?;
+                self.validate_openrouter_model(Some(supervisor_model))
+                    .await?;
                 if objective.trim().is_empty() || objective.len() > MAX_MESSAGE_BODY_BYTES {
                     return Err(OrchestratorError::Validation(
                         "mission objective is empty or too large".into(),
@@ -42,7 +46,6 @@ impl Orchestrator {
                     project_id: project.id,
                     objective,
                     status: MissionStatus::Draft,
-                    supervisor_provider: provider,
                     supervisor_session_id: None,
                     branch,
                     budget: snapshot.server.default_budget.clone(),

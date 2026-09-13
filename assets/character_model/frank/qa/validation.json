@@ -1,0 +1,336 @@
+{
+  "asset_hashes": {
+    "blend": "7c1d01c045d5431fcb472bc54af2be6a60ca4b13fb2a33b2d934c284c642e372",
+    "glb": "c0fffeee515dcb2172fe525a1d5935cca81a883edf81499adf1857614789964e"
+  },
+  "master": {
+    "meshes": 13,
+    "triangles": 29388,
+    "armatures": 1,
+    "bones": [
+      "fingers.L",
+      "fingers.R",
+      "foot.L",
+      "foot.R",
+      "forearm.L",
+      "forearm.R",
+      "hand.L",
+      "hand.R",
+      "head",
+      "neck",
+      "pelvis",
+      "root",
+      "shin.L",
+      "shin.R",
+      "shoulder.L",
+      "shoulder.R",
+      "spine",
+      "thigh.L",
+      "thigh.R",
+      "toes.L",
+      "toes.R",
+      "upper_arm.L",
+      "upper_arm.R"
+    ],
+    "max_influences": 3,
+    "unweighted": 0,
+    "weight_sum_error": 3.864988684654236e-08,
+    "height_m": 1.4997010324150324,
+    "floor_z": -9.313225746154785e-09,
+    "finite_vertices": true,
+    "cameras": 0,
+    "lights": 0
+  },
+  "body": {
+    "components": 1,
+    "nonmanifold_edges": 0,
+    "inconsistent_winding_edges": 0,
+    "degenerate_faces": 0,
+    "signed_volume": 0.055140462874162736
+  },
+  "three_finger_sections": {
+    "L": 3,
+    "R": 3
+  },
+  "sole_contact": {
+    "L": {
+      "vertices": 225,
+      "width": 0.11028105765581131,
+      "depth": 0.1620509773492813
+    },
+    "R": {
+      "vertices": 225,
+      "width": 0.11028105020523071,
+      "depth": 0.1620509810745716
+    }
+  },
+  "visual_status": "requires separate visual-review.json; technical success is not likeness",
+  "master_mesh_topology": {
+    "Frank_Body": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.055140462874162736
+    },
+    "Head": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.14325689248088436
+    },
+    "Ear.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0003757933206352306
+    },
+    "Bolt_Washer.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00021608803170751335
+    },
+    "Bolt_Stem.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00012387284088715678
+    },
+    "Bolt_Rim.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 2.9366761765844265e-05
+    },
+    "Bolt_Cap.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0002700924535580068
+    },
+    "Ear.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0003757364341241533
+    },
+    "Bolt_Washer.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00021608803170751335
+    },
+    "Bolt_Stem.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00012387284088715678
+    },
+    "Bolt_Rim.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 2.9366761765844265e-05
+    },
+    "Bolt_Cap.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0002700924535580068
+    },
+    "Nose": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0002151123907026454
+    }
+  },
+  "glb_contract": {
+    "skins": 1,
+    "images": 6,
+    "embedded_images": true,
+    "animations": 0,
+    "bytes": 1258260
+  },
+  "positive_finger_flexion_inward": {
+    "L": true,
+    "R": true
+  },
+  "importer_only_helpers": [
+    "Icosphere"
+  ],
+  "glb_reimport": {
+    "meshes": 13,
+    "triangles": 29388,
+    "armatures": 1,
+    "bones": [
+      "fingers.L",
+      "fingers.R",
+      "foot.L",
+      "foot.R",
+      "forearm.L",
+      "forearm.R",
+      "hand.L",
+      "hand.R",
+      "head",
+      "neck",
+      "pelvis",
+      "root",
+      "shin.L",
+      "shin.R",
+      "shoulder.L",
+      "shoulder.R",
+      "spine",
+      "thigh.L",
+      "thigh.R",
+      "toes.L",
+      "toes.R",
+      "upper_arm.L",
+      "upper_arm.R"
+    ],
+    "max_influences": 3,
+    "unweighted": 0,
+    "weight_sum_error": 8.940696716308594e-08,
+    "height_m": 1.4997010720977926,
+    "floor_z": -4.8995985935107456e-08,
+    "finite_vertices": true,
+    "cameras": 0,
+    "lights": 0
+  },
+  "glb_mesh_topology": {
+    "Bolt_Cap.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00027009233177821665
+    },
+    "Bolt_Cap.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0002700923317782171
+    },
+    "Bolt_Rim.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 2.93667755198923e-05
+    },
+    "Bolt_Rim.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 2.9366775519892516e-05
+    },
+    "Bolt_Stem.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00012387285951238845
+    },
+    "Bolt_Stem.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00012387285951238856
+    },
+    "Bolt_Washer.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00021608803749177202
+    },
+    "Bolt_Washer.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.00021608803749177137
+    },
+    "Ear.L": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0003757933230836742
+    },
+    "Ear.R": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0003757364338553275
+    },
+    "Frank_Body": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0551395597853234
+    },
+    "Head": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.1432568941146506
+    },
+    "Nose": {
+      "components": 1,
+      "nonmanifold_edges": 0,
+      "inconsistent_winding_edges": 0,
+      "degenerate_faces": 0,
+      "signed_volume": 0.0002151123686325512
+    }
+  },
+  "glb_body": {
+    "components": 1,
+    "nonmanifold_edges": 0,
+    "inconsistent_winding_edges": 0,
+    "degenerate_faces": 0,
+    "signed_volume": 0.0551395597853234
+  },
+  "checks": {
+    "finger_flexion_toward_palm": true,
+    "single_closed_body": true,
+    "clean_body_faces": true,
+    "three_fingers_per_hand": true,
+    "flat_soles": true,
+    "one_23_bone_rig": true,
+    "height_and_floor": true,
+    "glb_rig_preserved": true,
+    "glb_height_and_floor": true,
+    "glb_closed_body": true,
+    "embedded_textures": true,
+    "runtime_contract": true,
+    "master_budget": true,
+    "master_weights": true,
+    "master_finite": true,
+    "glb_budget": true,
+    "glb_weights": true,
+    "glb_finite": true,
+    "all_master_meshes_clean": true,
+    "all_glb_meshes_clean": true
+  },
+  "technical_passed": true
+}

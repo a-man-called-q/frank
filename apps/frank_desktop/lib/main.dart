@@ -2,15 +2,38 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
-import 'package:macos_window_utils/widgets/transparent_macos_sidebar.dart';
 
 import 'app/frank_app.dart';
+import 'core/auth/auth_repository.dart';
 import 'features/shell/sidebar_effect.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final sidebarEffectBuilder = await _initializeMacOSWindowEffects();
-  runApp(FrankApp(sidebarEffectBuilder: sidebarEffectBuilder));
+  final configuration = FrankClientConfiguration.fromEnvironment;
+  final authRepository = _createAuthRepository(configuration);
+  runApp(
+    FrankApp(
+      authRepository: authRepository,
+      sidebarEffectBuilder: sidebarEffectBuilder,
+    ),
+  );
+}
+
+AuthRepository _createAuthRepository(FrankClientConfiguration configuration) {
+  final validationError = configuration.validationError;
+  if (validationError != null) {
+    return UnconfiguredAuthRepository(configuration);
+  }
+  try {
+    return HttpAuthRepository(configuration);
+  } on Object catch (error) {
+    return UnconfiguredAuthRepository(
+      configuration,
+      configurationMessage:
+          'The configured Frank CA certificate could not be loaded: $error',
+    );
+  }
 }
 
 Future<SidebarEffectBuilder?> _initializeMacOSWindowEffects() async {
@@ -21,17 +44,10 @@ Future<SidebarEffectBuilder?> _initializeMacOSWindowEffects() async {
     await WindowManipulator.setWindowBackgroundColorToClear();
     await WindowManipulator.makeTitlebarTransparent();
     await WindowManipulator.enableFullSizeContentView();
-    await WindowManipulator.setMaterial(
-      NSVisualEffectViewMaterial.windowBackground,
-    );
+    await WindowManipulator.setMaterial(NSVisualEffectViewMaterial.sidebar);
     await WindowManipulator.overrideMacOSBrightness(dark: true);
 
-    return (child) => TransparentMacOSSidebar(
-      material: NSVisualEffectViewMaterial.sidebar,
-      state: NSVisualEffectViewState.followsWindowActiveState,
-      alphaValue: 1.0,
-      child: child,
-    );
+    return (Widget child) => child;
   } on Object catch (error, stackTrace) {
     debugPrint('macOS sidebar visual effect unavailable: $error');
     debugPrint('$stackTrace');

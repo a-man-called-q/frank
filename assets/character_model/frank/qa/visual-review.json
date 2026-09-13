@@ -1,0 +1,60 @@
+{
+  "revision": "1.4",
+  "asset_hashes": {
+    "blend": "7c1d01c045d5431fcb472bc54af2be6a60ca4b13fb2a33b2d934c284c642e372",
+    "glb": "c0fffeee515dcb2172fe525a1d5935cca81a883edf81499adf1857614789964e"
+  },
+  "visual_passed": true,
+  "reviewer": "Codex visual inspection of rendered evidence",
+  "items": [
+    {
+      "area": "head",
+      "status": "passed",
+      "finding": "Crown and jaw use independent sections, cheeks curve into sides; five traced head widths differ by less than 5%.",
+      "evidence": "comparison_head.png"
+    },
+    {
+      "area": "ear",
+      "status": "passed",
+      "finding": "Embedded pinna has a medial indentation, rounded lobe and variable thickness; painted rim/concha/short fold remain readable. Internal detail remains a texture approximation.",
+      "evidence": "comparison_detail_ear.png"
+    },
+    {
+      "area": "face",
+      "status": "passed",
+      "finding": "Brow tips taper without the former central cusp; nose has a wider lower base and blunt rounded triangle profile. Eyes and expression remain painted.",
+      "evidence": "comparison_head.png"
+    },
+    {
+      "area": "side_volume",
+      "status": "passed",
+      "finding": "Anterior belly and posterior seat are fuller; torso side contour no longer reads as a thin straight slab. Front widths remain within the baseline tolerances.",
+      "evidence": "comparison_side_matched.png"
+    },
+    {
+      "area": "junctions_uv",
+      "status": "passed",
+      "finding": "Clay pelvis and shoulder transitions are continuous; no black texture spill onto hands or legs observed in the rendered views.",
+      "evidence": "review_contact_sheet.png"
+    },
+    {
+      "area": "poses",
+      "status": "passed",
+      "finding": "The early sitting spikes were eliminated by preserving weighted joint loops. Reviewed elbow/knee, shoulder, grip and sitting renders; no runaway vertices observed. Soft FK compression at the inner knee and hip remains.",
+      "evidence": "pose_sit.png"
+    },
+    {
+      "area": "roundtrip_runtime",
+      "status": "passed",
+      "finding": "Imported GLB renders retain the silhouette, materials and rig; macOS character-smoke passed for the same GLB hash.",
+      "evidence": "glb_three_quarter.png"
+    }
+  ],
+  "unresolved": [],
+  "limitations": [
+    "Side-camera yaw 7.8 degrees and depth are estimates; reference views are not a calibrated orthographic set.",
+    "Painted ear/face details remain static approximations, with no geometric internal ear grooves or facial rig.",
+    "The simple FK rig retains compression creases at tightly bent knees/hips; no corrective shapes were introduced.",
+    "Additional head/ear/side calibration was recorded after initial construction preview; the chronology is stated in reference-calibration-1.4.json."
+  ]
+}

@@ -17,6 +17,21 @@ tasks:
       runFromWorkspaceRoot: true
       cache: false
 
+  auth-docker-smoke:
+    command: './scripts/auth-docker-smoke.sh'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/Dockerfile'
+      - '/docker-compose.yml'
+      - '/scripts/auth-docker-smoke.sh'
+      - '/scripts/dev-cert.sh'
+      - '/backend/crates/**/*'
+      - '/packs/**/*'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+
   nightly:
     command: './scripts/scrutiny-nightly.sh'
     deps: ['~:strict']

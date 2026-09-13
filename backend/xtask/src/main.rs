@@ -31,6 +31,8 @@ enum Command {
     LintTargets,
     /// Write dist/SHA256SUMS for every published CLI or desktop artifact.
     Checksums,
+    /// Verify hashes for root-managed fonts and the desktop character model.
+    AssetsCheck,
     /// Ensure CLI, GUI, and package metadata use one workspace version.
     VersionCheck,
     /// Validate the allowed direct dependency edges between Frank crates.
@@ -59,6 +61,7 @@ fn main() -> Result<()> {
         Command::BuildPacks => build_packs(&root),
         Command::LintTargets => lint_targets(&root).map(|_| ()),
         Command::Checksums => checksums(&root),
+        Command::AssetsCheck => assets_check(&root),
         Command::VersionCheck => version_check(&root),
         Command::ArchitectureCheck => architecture_check(&root),
         Command::CoverageCheck { report, policy } => coverage::check(&report, &policy),
@@ -141,12 +144,20 @@ fn architecture_check(root: &Path) -> Result<()> {
         ("frank-app", "backend/crates/frank-app/Cargo.toml"),
         ("frank-agent", "backend/crates/frank-agent/Cargo.toml"),
         (
+            "frank-tool-catalog",
+            "backend/crates/frank-tool-catalog/Cargo.toml",
+        ),
+        (
             "frank-agent-mcp",
             "backend/crates/frank-agent-mcp/Cargo.toml",
         ),
         ("frank-client", "backend/crates/frank-client/Cargo.toml"),
         ("frank-cli", "backend/crates/frank-cli/Cargo.toml"),
         ("frank-compress", "backend/crates/frank-compress/Cargo.toml"),
+        (
+            "frank-credential",
+            "backend/crates/frank-credential/Cargo.toml",
+        ),
         ("frank-ledger", "backend/crates/frank-ledger/Cargo.toml"),
         ("frank-mcp", "backend/crates/frank-mcp/Cargo.toml"),
         (
@@ -223,24 +234,29 @@ fn expected_architecture_dependencies(package: &str) -> Option<&'static [&'stati
             "frank-target",
         ],
         "frank-compress" => &["frank-safeio"],
+        "frank-credential" => &["frank-safeio"],
         "frank-ledger" => &["frank-pack", "frank-safeio", "frank-state"],
         "frank-mcp" => &["frank-compress"],
-        "frank-agent" => &["frank-protocol"],
-        "frank-agent-mcp" => &["frank-client", "frank-protocol"],
-        "frank-client" => &["frank-protocol", "frank-safeio"],
+        "frank-agent" => &["frank-protocol", "frank-tool-catalog"],
+        "frank-agent-mcp" => &["frank-client", "frank-protocol", "frank-tool-catalog"],
+        "frank-client" => &["frank-credential", "frank-protocol"],
         "frank-orchestrator" => &[
             "frank-agent",
             "frank-ledger",
             "frank-protocol",
+            "frank-safeio",
             "frank-store",
+            "frank-tool-catalog",
             "frank-update",
         ],
         "frank-pack" => &["frank-safeio"],
         "frank-protocol" => &[],
+        "frank-tool-catalog" => &[],
         "frank-safeio" => &[],
         "frank-service" => &["frank-safeio"],
         "frank-server" => &[
             "frank-agent",
+            "frank-credential",
             "frank-orchestrator",
             "frank-protocol",
             "frank-safeio",
@@ -854,8 +870,98 @@ fn checksums(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Verify the immutable runtime copies of assets against the root manifest.
+/// The manifest is intentionally data-only so a package/build task cannot
+/// silently replace a font or model while leaving the source tree apparently
+/// clean.
+fn assets_check(root: &Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
+
+    let manifest_path = root.join("assets/manifest.toml");
+    let manifest: toml::Value = toml::from_str(
+        &std::fs::read_to_string(&manifest_path)
+            .with_context(|| format!("reading {}", manifest_path.display()))?,
+    )
+    .with_context(|| format!("parsing {}", manifest_path.display()))?;
+    let entries = manifest
+        .get("asset")
+        .and_then(toml::Value::as_array)
+        .context("assets/manifest.toml must contain [[asset]] entries")?;
+    if entries.is_empty() {
+        anyhow::bail!("assets/manifest.toml contains no assets");
+    }
+
+    for entry in entries {
+        let path = entry
+            .get("path")
+            .and_then(toml::Value::as_str)
+            .context("asset entry is missing path")?;
+        let expected = entry
+            .get("sha256")
+            .and_then(toml::Value::as_str)
+            .context("asset entry is missing sha256")?;
+        if Path::new(path).is_absolute() || path.contains("..") {
+            anyhow::bail!("asset path must be relative and contained: {path}");
+        }
+        if expected.len() != 64
+            || !expected
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            anyhow::bail!("asset has an invalid SHA-256 digest: {path}");
+        }
+        let asset_path = root.join(path);
+        let bytes = std::fs::read(&asset_path)
+            .with_context(|| format!("reading managed asset {}", asset_path.display()))?;
+        let digest = Sha256::digest(bytes);
+        let actual = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        if actual != expected {
+            anyhow::bail!(
+                "managed asset hash mismatch for {path}: expected {expected}, got {actual}"
+            );
+        }
+        if let Some(promotion) = entry.get("promotion").and_then(toml::Value::as_str) {
+            if Path::new(promotion).is_absolute() || promotion.contains("..") {
+                anyhow::bail!(
+                    "promotion metadata path must be relative and contained: {promotion}"
+                );
+            }
+            let promotion_key = entry
+                .get("promotion_key")
+                .and_then(toml::Value::as_str)
+                .context("asset promotion entry is missing promotion_key")?;
+            let metadata: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(root.join(promotion))
+                    .with_context(|| format!("reading asset promotion metadata {promotion}"))?,
+            )
+            .with_context(|| format!("parsing asset promotion metadata {promotion}"))?;
+            let promoted = metadata
+                .get("asset_hashes")
+                .and_then(|hashes| hashes.get(promotion_key))
+                .and_then(serde_json::Value::as_str)
+                .with_context(|| {
+                    format!("promotion metadata {promotion} has no asset_hashes.{promotion_key}")
+                })?;
+            if promoted != expected || promoted != actual {
+                anyhow::bail!(
+                    "promotion hash mismatch for {path}: manifest {expected}, actual {actual}, metadata {promoted}"
+                );
+            }
+        }
+    }
+    println!(
+        "xtask assets-check: verified {} managed asset(s)",
+        entries.len()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use sha2::Digest as _;
     use std::fmt::Write as _;
     use std::fs;
     use std::io::Write as _;
@@ -863,7 +969,7 @@ mod tests {
     use std::process::Command as ProcessCommand;
 
     use super::{
-        architecture_check, archive_name, binary_name, build_one_pack, build_packs,
+        architecture_check, archive_name, assets_check, binary_name, build_one_pack, build_packs,
         check_path_scope, checksums, dist, frank_dependencies, lint_targets, opt_f64, opt_str,
         opt_u32, package_zip, powershell_quote, str_slice, version_check,
     };
@@ -1033,6 +1139,34 @@ off = []
         let dependencies = frank_dependencies(&manifest);
         assert!(dependencies.is_empty());
         assert!(!dependencies.contains("frank-app"));
+    }
+
+    #[test]
+    fn assets_check_verifies_relative_runtime_hashes() {
+        let root = tempfile::tempdir().unwrap();
+        let asset = root.path().join("runtime/model.bin");
+        fs::create_dir_all(asset.parent().unwrap()).unwrap();
+        fs::write(&asset, b"stable asset").unwrap();
+        let digest = sha2::Sha256::digest(b"stable asset");
+        let hash = digest
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        fs::create_dir_all(root.path().join("assets")).unwrap();
+        fs::create_dir_all(root.path().join("meta")).unwrap();
+        fs::write(
+            root.path().join("meta/promotion.json"),
+            format!(r#"{{"asset_hashes":{{"model":"{hash}"}}}}"#),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("assets/manifest.toml"),
+            format!(
+                "[[asset]]\npath = \"runtime/model.bin\"\npromotion = \"meta/promotion.json\"\npromotion_key = \"model\"\nsha256 = \"{hash}\"\n"
+            ),
+        )
+        .unwrap();
+        assets_check(root.path()).unwrap();
     }
 
     #[test]

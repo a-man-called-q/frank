@@ -7,26 +7,38 @@
 //! event stream; they never mutate projections directly.
 
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use base64::Engine;
+mod approval_flow;
 mod budget;
 mod budget_enforce;
 mod capability;
+mod connectors;
 pub mod git;
 mod helpers;
 mod mailbox;
 mod messaging;
+mod mission_flow;
+mod openrouter_tools;
+mod reconcile;
+mod runtime_flow;
+
 mod operations;
 mod reduce;
 mod scheduler;
+mod tools;
 mod update_flow;
 mod validate;
 
 pub use budget::{BudgetLedger, UsageTotals};
 use capability::*;
+pub use connectors::{
+    BrowserCdpSession, BrowserLaunchConfig, BrowserPolicy, ConnectorError, ConnectorSecretResolver,
+    DatabaseStatementClass, GOOGLE_WORKSPACE_SCOPES, GoogleOAuthClient, GooglePkceChallenge,
+    classify_database_statement, safe_terminal_environment, validate_postgres_profile_config,
+    validate_sqlite_path, validate_terminal_command,
+};
 use helpers::*;
 pub use mailbox::Mailbox;
 use operations::*;
@@ -38,18 +50,64 @@ use validate::*;
 pub mod supervisor;
 
 use crate::git::GitWorkflow;
+use crate::reduce::materialize_role;
 use frank_agent::{ProviderMessage, RuntimeEvent, RuntimeManager, StartRequest, UsageTelemetry};
 use frank_protocol::*;
 use frank_store::{Store, StoreError};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::process::Command as AsyncCommand;
 use tokio::sync::Mutex;
 
+fn provider_transcript(items: Vec<frank_store::StoredProviderSessionItem>) -> Vec<Value> {
+    let completed_calls = items
+        .iter()
+        .filter_map(|item| {
+            item.value
+                .get("tool_result")
+                .and_then(|result| result.get("call_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    items
+        .into_iter()
+        .filter_map(|item| {
+            if let Some(message) = item.value.get("message").cloned()
+                && matches!(
+                    message.get("role").and_then(Value::as_str),
+                    Some("user" | "assistant" | "tool")
+                )
+            {
+                return Some(message);
+            }
+            if let Some(tool_result) = item.value.get("tool_result") {
+                let call_id = tool_result.get("call_id").and_then(Value::as_str)?;
+                let content = tool_result.get("content").and_then(Value::as_str)?;
+                return Some(serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                }));
+            }
+            let pending = item.value.get("tool_call")?;
+            let call_id = pending.get("call_id").and_then(Value::as_str)?;
+            if completed_calls.contains(call_id) {
+                return None;
+            }
+            Some(serde_json::json!({
+                "role": "tool",
+                "tool_call_id": call_id,
+                "content": "{\"ok\":false,\"error\":\"Frank daemon restarted before approval completed\"}",
+            }))
+        })
+        .collect()
+}
+
 pub const DEFAULT_MAX_ATTEMPTS: u8 = 2;
 pub const DEFAULT_MESSAGE_HOP_LIMIT: u8 = 6;
 pub const DEFAULT_MAX_CONCURRENCY: usize = 4;
-pub const DEFAULT_MAX_PROVIDER_CONCURRENCY: usize = 2;
 
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
@@ -59,6 +117,8 @@ pub enum OrchestratorError {
     InvalidTransition(String),
     #[error("validation failed: {0}")]
     Validation(String),
+    #[error("organization revision conflict (expected {expected}, actual {actual})")]
+    OrganizationRevisionConflict { expected: u64, actual: u64 },
     #[error("permission denied")]
     Forbidden,
     #[error("resource not found")]
@@ -73,27 +133,46 @@ pub type Result<T> = std::result::Result<T, OrchestratorError>;
 
 #[derive(Clone)]
 pub struct Orchestrator {
-    pub store: Store,
-    pub runtime: RuntimeManager,
-    pub scheduler: Arc<Mutex<Scheduler>>,
-    pub mailbox: Arc<Mutex<Mailbox>>,
-    pub budgets: Arc<Mutex<BudgetLedger>>,
-    pub max_message_bytes: usize,
-    pub memory_root: PathBuf,
+    store: Store,
+    runtime: RuntimeManager,
+    scheduler: Arc<Mutex<Scheduler>>,
+    mailbox: Arc<Mutex<Mailbox>>,
+    budgets: Arc<Mutex<BudgetLedger>>,
+    max_message_bytes: usize,
+    memory_root: PathBuf,
     /// Live provider sessions are owned by the daemon and keyed by task. The
     /// map is deliberately not part of the persisted snapshot; provider
     /// session IDs in the agent projection are used for resume after restart.
-    pub sessions: Arc<Mutex<HashMap<TaskId, Arc<frank_agent::RuntimeSession>>>>,
+    sessions: Arc<Mutex<HashMap<TaskId, Arc<frank_agent::RuntimeSession>>>>,
     /// Live supervisor processes are keyed by mission. The stable provider
     /// session ID is persisted on `MissionView`; this map only prevents two
     /// daemon reconciler ticks from spawning duplicate supervisors.
-    pub supervisor_sessions: Arc<Mutex<HashMap<MissionId, Arc<frank_agent::RuntimeSession>>>>,
+    supervisor_sessions: Arc<Mutex<HashMap<MissionId, Arc<frank_agent::RuntimeSession>>>>,
     /// Monotonic-enough wall-clock anchors for active budget scopes. These
     /// are kept outside the wire snapshot because timestamps are only used
     /// for a live hard-stop; token/cost/turn accounting remains durable in
     /// `Snapshot::usage` and is rebuilt on restart.
     scope_started_at: Arc<Mutex<HashMap<String, u64>>>,
     agent_capabilities: Arc<Mutex<HashMap<String, AgentCapability>>>,
+    /// Tool calls that are waiting on an explicit owner decision. The
+    /// approval row is durable; this in-memory entry only holds the
+    /// task-scoped continuation needed to resume the live OpenRouter turn.
+    tool_approvals: Arc<Mutex<HashMap<ApprovalId, PendingToolCall>>>,
+    /// Connector credentials are resolved only inside the daemon. `None` is
+    /// the safe default used by standalone orchestrator tests and makes every
+    /// external connector fail closed until frankd injects its keychain
+    /// boundary.
+    connector_secrets: Option<Arc<dyn ConnectorSecretResolver>>,
+    update_source: Arc<dyn frank_update::UpdateSource>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingToolCall {
+    task_id: TaskId,
+    agent_id: AgentId,
+    call_id: String,
+    name: String,
+    input: Value,
 }
 
 impl Orchestrator {
@@ -115,6 +194,9 @@ impl Orchestrator {
             supervisor_sessions: Arc::new(Mutex::new(HashMap::new())),
             scope_started_at: Arc::new(Mutex::new(HashMap::new())),
             agent_capabilities: Arc::new(Mutex::new(HashMap::new())),
+            tool_approvals: Arc::new(Mutex::new(HashMap::new())),
+            connector_secrets: None,
+            update_source: Arc::new(frank_update::HttpUpdateSource::default()),
         }
     }
 
@@ -125,13 +207,135 @@ impl Orchestrator {
         }
     }
 
+    /// Narrow health boundary used by the HTTP diagnostics surface. Runtime
+    /// internals stay owned by the orchestrator rather than becoming a server
+    /// dependency.
+    pub async fn runtime_doctor(&self) -> Vec<frank_agent::RuntimeProbe> {
+        self.runtime.doctor().await
+    }
+
+    pub fn with_connector_secrets(mut self, resolver: Arc<dyn ConnectorSecretResolver>) -> Self {
+        self.connector_secrets = Some(resolver);
+        self
+    }
+
+    /// Inject the verified update boundary for air-gapped and deterministic
+    /// tests. Durable operation state remains owned by the orchestrator.
+    pub fn with_update_source(mut self, source: Arc<dyn frank_update::UpdateSource>) -> Self {
+        self.update_source = source;
+        self
+    }
+
+    pub(crate) async fn connector_secret(
+        &self,
+        profile_id: ConnectorProfileId,
+    ) -> std::result::Result<Option<String>, String> {
+        let Some(resolver) = self.connector_secrets.as_ref() else {
+            return Ok(None);
+        };
+        resolver
+            .secret(profile_id)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
     pub async fn snapshot(&self) -> Result<Snapshot> {
         Ok(self.store.snapshot().await?)
     }
 
+    /// Validate an exact OpenRouter canonical model slug against the current
+    /// tool-capable catalog. A missing model is allowed for dormant profiles;
+    /// attempting to start one without a model fails at the runtime boundary.
+    pub(crate) async fn validate_openrouter_model(&self, model: Option<&str>) -> Result<()> {
+        let Some(model) = model else {
+            return Ok(());
+        };
+        if model.trim().is_empty() {
+            return Err(OrchestratorError::Validation(
+                "OpenRouter model cannot be empty".into(),
+            ));
+        }
+        let catalog = self
+            .runtime
+            .model_catalog(false)
+            .await
+            .map_err(|error| OrchestratorError::ProviderUnavailable(error.to_string()))?;
+        if !catalog.iter().any(|descriptor| {
+            descriptor
+                .canonical_slug
+                .as_deref()
+                .unwrap_or(&descriptor.id)
+                == model
+        }) {
+            return Err(OrchestratorError::Validation(format!(
+                "OpenRouter model '{model}' is not available in the current catalog"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Seed the default worker role without probing or starting a provider.
+    /// Roles are dormant templates, so first-run bootstrap stays usable even
+    /// before the owner configures an OpenRouter credential and model.
+    pub async fn ensure_builtin_role(&self) -> Result<RoleId> {
+        for _ in 0..4 {
+            let snapshot = self.store.snapshot().await?;
+            if let Some(role) = snapshot
+                .roles
+                .iter()
+                .find(|role| role.name.eq_ignore_ascii_case("Generalist") && !role.archived)
+            {
+                return Ok(role.id);
+            }
+            let role = RoleView {
+                id: RoleId::new(),
+                name: "Generalist".into(),
+                description: "A dependable general-purpose worker role.".into(),
+                template: AgentTemplate::Generalist,
+                model: None,
+                pack_id: Some("caveman".into()),
+                pack_level: Some("full".into()),
+                instructions:
+                    "Complete the assigned task and document every handoff on its taskboard card."
+                        .into(),
+                policy: AgentPolicy::default(),
+                budget: Budget::unlimited(),
+                avatar: AvatarSpec {
+                    palette: "frank-generalist".into(),
+                    seed: 1,
+                },
+                revision: 1,
+                archived: false,
+            };
+            let mut next = snapshot.clone();
+            next.roles.push(role.clone());
+            match self
+                .store
+                .commit_command(
+                    CommandId::new(),
+                    Some(snapshot.revision),
+                    ActorRef::system(),
+                    Event::RoleUpserted { role: role.clone() },
+                    next,
+                    CommandResult::Created {
+                        id: role.id.to_string(),
+                    },
+                )
+                .await
+            {
+                Ok(_) => return Ok(role.id),
+                Err(StoreError::StaleRevision { .. }) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(OrchestratorError::Store(StoreError::StaleRevision {
+            current: self.store.current_revision().await?,
+        }))
+    }
+
     /// Seed the persistent Frank supervisor profile.  The profile is always
-    /// present, but `server.supervisor_provider` remains `None` until
-    /// onboarding explicitly chooses Codex or Claude for future missions.
+    /// present, but the supervisor remains unconfigured until the owner
+    /// selects an OpenRouter model.
     pub async fn ensure_builtin_supervisor(&self) -> Result<AgentId> {
         for _ in 0..4 {
             let mut snapshot = self.store.snapshot().await?;
@@ -148,10 +352,18 @@ impl Orchestrator {
                 // using a sentinel UUID that could collide with imported
                 // data.
                 id: AgentId::new(),
+                // The built-in supervisor is a coordination process, not a
+                // worker slot, and intentionally has no primary worker role.
+                role_id: None,
+                role_revision: 0,
                 display_name: "Frank supervisor".to_string(),
                 template: AgentTemplate::Generalist,
-                provider: Provider::Codex,
                 model: None,
+                effective_model: None,
+                model_source: ModelSource::Role,
+                model_override: None,
+                pending_model_override: None,
+                pending_model_change: false,
                 pack_id: Some("caveman".to_string()),
                 pack_level: Some("full".to_string()),
                 instructions:
@@ -168,8 +380,9 @@ impl Orchestrator {
                     palette: "frank-supervisor".to_string(),
                     seed: 1,
                 },
-                status: AgentStatus::Idle,
+                status: AgentStatus::Offline,
                 provider_session_id: None,
+                last_claimed_at: None,
                 archived: false,
             };
             let expected_revision = snapshot.revision;
@@ -209,6 +422,7 @@ impl Orchestrator {
         actor: ActorRef,
         role: DeviceRole,
     ) -> CommandResponse {
+        let mut envelope = envelope;
         let command_id = envelope.command_id;
         let mission_to_plan = match &envelope.command {
             Command::CreateMission {
@@ -273,11 +487,35 @@ impl Orchestrator {
                 );
             }
         }
-        // Validate optimistic concurrency before reducing the command. Some
-        // reductions allocate worktrees or prepare delivery state as
-        // daemon-owned side effects, so a stale command must not leave those
-        // resources behind. The transactional store repeats this check at
-        // commit time for concurrent races.
+        // Organization autosave uses its own draft/published revision.  It
+        // must not conflict merely because an unrelated task event advanced
+        // the global snapshot between the desktop read and this command.
+        // Re-reduce against the newest snapshot and commit with the current
+        // global revision so unrelated task state is never overwritten.
+        if envelope.expected_revision.is_none()
+            && matches!(
+                &envelope.command,
+                Command::SaveOrganizationDraft { .. }
+                    | Command::PublishOrganization { .. }
+                    | Command::CreateConnectorProfile(_)
+                    | Command::UpdateConnectorProfile { .. }
+                    | Command::ArchiveConnectorProfile { .. }
+            )
+        {
+            return match self.commit_organization_with_retry(envelope, actor).await {
+                Ok(response) => response,
+                Err(error) => self.error_response(command_id, error).await,
+            };
+        }
+        // Every mutation is bound to the revision observed at the start of
+        // this request, even when a legacy client omits an explicit
+        // `expected_revision`. Without this default, two concurrent claims or
+        // comments could both reduce the same snapshot and the later commit
+        // would silently erase the first feed entry. The transactional store
+        // repeats the check at commit time for the final race window.
+        if envelope.expected_revision.is_none() {
+            envelope.expected_revision = Some(current_revision);
+        }
         if let Some(expected_revision) = envelope.expected_revision
             && expected_revision != current_revision
         {
@@ -330,1785 +568,6 @@ impl Orchestrator {
             Err(error) => self.error_response(command_id, error).await,
         }
     }
-
-    async fn respond_to_provider_approval(
-        &self,
-        approval_id: ApprovalId,
-        decision: ApprovalDecision,
-    ) {
-        let Ok(snapshot) = self.store.snapshot().await else {
-            return;
-        };
-        let Some(approval) = snapshot
-            .approvals
-            .iter()
-            .find(|approval| approval.id == approval_id)
-            .cloned()
-        else {
-            return;
-        };
-        if !matches!(
-            (approval.status, decision),
-            (ApprovalStatus::Approved, ApprovalDecision::AllowOnce)
-                | (ApprovalStatus::Denied, ApprovalDecision::DenyOnce)
-        ) {
-            return;
-        }
-        let session = self.sessions.lock().await.get(&approval.task_id).cloned();
-        if let Some(session) = session {
-            let _ = session
-                .respond_to_approval(&approval.operation, decision)
-                .await;
-        }
-    }
-
-    async fn pause_for_terminal(&self, session_id: TerminalSessionId) -> Result<()> {
-        let snapshot = self.store.snapshot().await?;
-        let Some(session) = snapshot
-            .terminals
-            .iter()
-            .find(|session| session.id == session_id)
-        else {
-            return Ok(());
-        };
-        let task_id = session.task_id;
-        let Some(task) = snapshot.tasks.iter().find(|task| task.id == task_id) else {
-            return Ok(());
-        };
-        if let Some(provider) = task
-            .assigned_agent
-            .and_then(|agent_id| snapshot.agents.iter().find(|agent| agent.id == agent_id))
-            .map(|agent| agent.provider)
-        {
-            let provider_session = { self.sessions.lock().await.remove(&task_id) };
-            if let Some(provider_session) = provider_session {
-                let _ = provider_session.graceful_stop().await;
-            }
-            self.scheduler.lock().await.finish(task_id, provider);
-        }
-        if let Some(capability) = self
-            .agent_capabilities
-            .lock()
-            .await
-            .iter()
-            .find(|(_, capability)| capability.task_id == task_id)
-            .map(|(token, _)| token.clone())
-        {
-            self.revoke_agent_capability(&capability).await;
-        }
-        if let Some(agent_id) = task.assigned_agent {
-            let _ = self
-                .clear_agent_session(agent_id, AgentStatus::Paused)
-                .await;
-        }
-        Ok(())
-    }
-
-    async fn resume_after_terminal(&self, session_id: TerminalSessionId) -> Result<()> {
-        let snapshot = self.store.snapshot().await?;
-        let Some(session) = snapshot
-            .terminals
-            .iter()
-            .find(|session| session.id == session_id)
-        else {
-            return Ok(());
-        };
-        let Some(task) = snapshot
-            .tasks
-            .iter()
-            .find(|task| task.id == session.task_id)
-        else {
-            return Ok(());
-        };
-        if let Some(agent_id) = task.assigned_agent {
-            let _ = self.set_agent(agent_id, AgentStatus::Idle, None).await;
-        }
-        // The daemon reconciler observes the still-running task on its next
-        // tick and starts a fresh provider session after the lease is
-        // released. Avoid recursively calling reconcile from execute.
-        Ok(())
-    }
-
-    pub async fn plan_mission(
-        &self,
-        mission_id: MissionId,
-        objective: &str,
-    ) -> Result<Vec<TaskId>> {
-        // CreateMission is idempotent at the storage layer, but its
-        // deterministic task expansion happens after that commit. A client
-        // retry must therefore short-circuit here as well or it would append
-        // a second copy of the same DAG after the original response was
-        // already durably recorded.
-        let existing = self
-            .store
-            .snapshot()
-            .await?
-            .tasks
-            .into_iter()
-            .filter(|task| task.mission_id == mission_id)
-            .map(|task| task.id)
-            .collect::<Vec<_>>();
-        if !existing.is_empty() {
-            return Ok(existing);
-        }
-        let plan = if std::env::var_os("FRANK_DETERMINISTIC_SUPERVISOR").is_some() {
-            // This switch exists for deterministic CI/fake-provider runs only.
-            // A normal daemon must receive a structured proposal from the
-            // selected Codex or Claude supervisor.
-            supervisor::decompose_objective(mission_id, objective, 32)
-        } else {
-            self.request_supervisor_plan(mission_id, objective).await?
-        };
-        self.materialize_supervisor_plan(plan).await
-    }
-
-    async fn materialize_supervisor_plan(
-        &self,
-        plan: supervisor::SupervisorPlan,
-    ) -> Result<Vec<TaskId>> {
-        let mut ids = Vec::with_capacity(plan.tasks.len());
-        let mut root_tasks = Vec::new();
-        let mut ids_by_key = HashMap::<String, TaskId>::new();
-        for (index, mut spec) in plan.tasks.into_iter().enumerate() {
-            let key = plan
-                .task_keys
-                .get(index)
-                .cloned()
-                .unwrap_or_else(|| format!("task-{index}"));
-            let dependency_keys = plan.dependency_keys.get(index).cloned().unwrap_or_default();
-            spec.dependencies = dependency_keys
-                .iter()
-                .map(|dependency| {
-                    ids_by_key.get(dependency).copied().ok_or_else(|| {
-                        OrchestratorError::Validation(
-                            "supervisor plan dependency was not materialized".into(),
-                        )
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let is_root = spec.dependencies.is_empty();
-            // Use the public daemon command path so every generated task is
-            // durably committed. The old planner called `apply()` directly,
-            // which built an in-memory card but never persisted it.
-            let response = self
-                .commit_reduced(
-                    CommandEnvelope {
-                        protocol_version: PROTOCOL_VERSION,
-                        command_id: CommandId::new(),
-                        expected_revision: None,
-                        command: Command::CreateTask(spec),
-                    },
-                    ActorRef::system(),
-                )
-                .await?;
-            if let Some(CommandResult::Created { id }) = response.result {
-                if let Ok(id) = TaskId::parse(&id) {
-                    if is_root {
-                        root_tasks.push(id);
-                    }
-                    ids.push(id);
-                    ids_by_key.insert(key, id);
-                }
-            } else if let Some(error) = response.error {
-                return Err(match error.code {
-                    ErrorCode::NotFound => OrchestratorError::NotFound,
-                    _ => OrchestratorError::Validation(error.message),
-                });
-            }
-        }
-        // A generated supervisor DAG starts at Ready for dependency-free
-        // tasks. The reconciler will assign a worker and move it to Running
-        // once its mission is active; manually-created cards remain Backlog.
-        for task_id in root_tasks {
-            let _ = self
-                .commit_reduced(
-                    CommandEnvelope {
-                        protocol_version: PROTOCOL_VERSION,
-                        command_id: CommandId::new(),
-                        expected_revision: None,
-                        command: Command::SetTaskStatus {
-                            task_id,
-                            status: TaskStatus::Ready,
-                        },
-                    },
-                    ActorRef::system(),
-                )
-                .await?;
-        }
-        Ok(ids)
-    }
-
-    /// Commit a reducer result for an internal plan materialization step.
-    /// This deliberately does not call `execute`, avoiding recursive async
-    /// futures through the CreateMission post-hook.
-    async fn commit_reduced(
-        &self,
-        envelope: CommandEnvelope,
-        actor: ActorRef,
-    ) -> Result<CommandResponse> {
-        let command_id = envelope.command_id;
-        // Internal daemon transitions normally omit an expected revision. A
-        // concurrent client/event can still advance SQLite between the read
-        // and commit, so bind the reduction to the revision we observed and
-        // retry a bounded number of times. Reusing the same command id keeps
-        // a successful attempt idempotent if the caller is interrupted after
-        // commit but before receiving the response.
-        for _ in 0..4 {
-            let snapshot = self.store.snapshot().await?;
-            let expected_revision = envelope.expected_revision.or(Some(snapshot.revision));
-            let (next, event, result) = self
-                .reduce(snapshot, envelope.command.clone(), &actor)
-                .await?;
-            match self
-                .store
-                .commit_command(
-                    command_id,
-                    expected_revision,
-                    actor.clone(),
-                    event,
-                    next,
-                    result,
-                )
-                .await
-            {
-                Ok(commit) => return Ok(commit.response),
-                Err(StoreError::StaleRevision { .. }) if envelope.expected_revision.is_none() => {
-                    continue;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(OrchestratorError::Store(StoreError::StaleRevision {
-            current: self.store.current_revision().await?,
-        }))
-    }
-
-    /// Start the selected provider as a persistent mission supervisor and
-    /// require a structured plan proposal.  The daemon still validates the
-    /// proposal before it becomes a task DAG; provider text is never treated
-    /// as an implicit mutation.
-    async fn request_supervisor_plan(
-        &self,
-        mission_id: MissionId,
-        objective: &str,
-    ) -> Result<supervisor::SupervisorPlan> {
-        let snapshot = self.store.snapshot().await?;
-        let mission = snapshot
-            .missions
-            .iter()
-            .find(|mission| mission.id == mission_id)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let project = snapshot
-            .projects
-            .iter()
-            .find(|project| project.id == mission.project_id && !project.archived)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let supervisor = snapshot
-            .agents
-            .iter()
-            .find(|agent| agent.display_name == "Frank supervisor" && !agent.archived)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let request = StartRequest {
-            agent_id: supervisor.id.to_string(),
-            task_id: None,
-            cwd: project.path,
-            instructions: supervisor.instructions.clone(),
-            policy: supervisor.policy.clone(),
-            model: supervisor.model.clone(),
-            resume_session_id: mission.supervisor_session_id.clone(),
-            server_url: local_server_url(&snapshot.server),
-            server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
-                .then(|| snapshot.server.tls_fingerprint.clone()),
-            session_capability: None,
-        };
-        let session = if let Some(session) = self.supervisor_sessions.lock().await.get(&mission_id)
-        {
-            session.clone()
-        } else {
-            let session = if request.resume_session_id.is_some() {
-                self.runtime
-                    .resume(
-                        mission.supervisor_provider,
-                        request.clone(),
-                        request.resume_session_id.as_deref().unwrap_or_default(),
-                    )
-                    .await
-            } else {
-                self.runtime
-                    .start(mission.supervisor_provider, request.clone())
-                    .await
-            }
-            .map_err(|error| OrchestratorError::ProviderUnavailable(error.to_string()))?;
-            let session = Arc::new(session);
-            self.supervisor_sessions
-                .lock()
-                .await
-                .insert(mission_id, session.clone());
-            session
-        };
-        let mut events = session
-            .events()
-            .await
-            .map_err(|error| OrchestratorError::ProviderUnavailable(error.to_string()))?;
-        let prompt = format!(
-            "You are Frank's mission supervisor. Decompose this objective into a safe DAG.\n\
-             Return ONLY one JSON object matching SupervisorPlanProposal: \
-             {{\"mission_id\":\"{mission_id}\",\"summary\":\"...\",\"tasks\":[{{\"client_key\":\"stable-key\",\"title\":\"...\",\"objective\":\"...\",\"dependencies\":[],\"priority\":0,\"candidate_agents\":[],\"assigned_agent\":null,\"policy_requirement\":null,\"budget\":{{\"time_seconds\":null,\"turns\":null,\"measured_tokens\":null,\"cost_micros\":null}}}}]}}.\n\
-             Maximum 32 tasks. Use dependency client_key values only. Objective:\n{objective}",
-        );
-        session
-            .send(&ProviderMessage {
-                role: "user".into(),
-                content: prompt,
-                correlation_id: Some(mission_id.to_string()),
-            })
-            .await
-            .map_err(|error| OrchestratorError::ProviderUnavailable(error.to_string()))?;
-
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(45);
-        let mut text = String::new();
-        let mut proposal = None;
-        while tokio::time::Instant::now() < deadline {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            let next = tokio::time::timeout(
-                remaining.min(std::time::Duration::from_secs(2)),
-                events.recv(),
-            )
-            .await;
-            let Some(event) = (match next {
-                Ok(event) => event,
-                Err(_) => continue,
-            }) else {
-                break;
-            };
-            match event {
-                RuntimeEvent::Ready {
-                    provider_session_id,
-                } => {
-                    self.persist_supervisor_session_id(mission_id, Some(provider_session_id))
-                        .await?;
-                }
-                RuntimeEvent::Text { text: chunk } => {
-                    if text.len().saturating_add(chunk.len()) <= MAX_MESSAGE_BODY_BYTES {
-                        text.push_str(&chunk);
-                    }
-                    if let Some(parsed) = parse_supervisor_json(&text, mission_id) {
-                        proposal = Some(parsed);
-                        break;
-                    }
-                }
-                RuntimeEvent::ToolCall { input, .. } => {
-                    if let Ok(parsed) = serde_json::from_value::<SupervisorPlanProposal>(input)
-                        && parsed.mission_id == mission_id
-                    {
-                        proposal = Some(parsed);
-                        break;
-                    }
-                }
-                RuntimeEvent::Error { message } => {
-                    return Err(OrchestratorError::ProviderUnavailable(message));
-                }
-                RuntimeEvent::Stopped { code } => {
-                    return Err(OrchestratorError::ProviderUnavailable(format!(
-                        "supervisor exited before returning a plan ({code:?})"
-                    )));
-                }
-                RuntimeEvent::Usage(_)
-                | RuntimeEvent::Raw(_)
-                | RuntimeEvent::ApprovalRequest { .. } => {}
-            }
-        }
-        let plan = proposal
-            .ok_or_else(|| {
-                OrchestratorError::ProviderUnavailable(
-                    "supervisor did not return a valid structured plan".into(),
-                )
-            })
-            .and_then(|proposal| {
-                validate_supervisor_proposal(&snapshot, mission_id, &proposal)?;
-                supervisor::proposal_to_plan(proposal).map_err(OrchestratorError::Validation)
-            })?;
-
-        // Keep consuming the persistent supervisor stream after the initial
-        // plan so EOF/crash is observable and the child is removed from the
-        // live map. Subsequent user chat can be routed through the same map.
-        let supervisors = self.supervisor_sessions.clone();
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                if matches!(event, RuntimeEvent::Stopped { .. }) {
-                    break;
-                }
-            }
-            supervisors.lock().await.remove(&mission_id);
-        });
-        Ok(plan)
-    }
-
-    async fn persist_supervisor_session_id(
-        &self,
-        mission_id: MissionId,
-        provider_session_id: Option<String>,
-    ) -> Result<()> {
-        // Session readiness is emitted by a provider reader task while GUI
-        // commands may update the same mission concurrently. Bind the
-        // projection write to the revision we observed and retry a bounded
-        // number of times; committing an unguarded stale snapshot here could
-        // silently erase a just-created task or budget edit.
-        for _ in 0..4 {
-            let mut snapshot = self.store.snapshot().await?;
-            let expected_revision = snapshot.revision;
-            let mission = snapshot
-                .missions
-                .iter_mut()
-                .find(|mission| mission.id == mission_id)
-                .ok_or(OrchestratorError::NotFound)?;
-            mission.supervisor_session_id = provider_session_id.clone();
-            mission.updated_at = timestamp_now();
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(expected_revision),
-                    ActorRef::system(),
-                    Event::MissionSupervisorSessionChanged {
-                        mission_id,
-                        provider_session_id: provider_session_id.clone(),
-                    },
-                    snapshot,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(StoreError::StaleRevision { .. }) => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(OrchestratorError::Store(StoreError::StaleRevision {
-            current: self.store.current_revision().await?,
-        }))
-    }
-
-    /// Reconcile durable task state with daemon-owned provider sessions. This
-    /// loop is safe to run repeatedly and after a frankd restart: projections
-    /// are authoritative, while the in-memory session map only prevents
-    /// duplicate child processes during the current daemon lifetime.
-    pub async fn reconcile(&self) -> Result<()> {
-        self.renew_agent_capabilities().await;
-        let snapshot = self.store.snapshot().await?;
-        // A daemon can be interrupted after committing MessageQueued but
-        // before the in-process broker advances it to Delivered.  Rebuild the
-        // delivery work from the authoritative snapshot so queued messages
-        // never depend on the lifetime of the HTTP request that created them.
-        self.deliver_queued_messages(&snapshot).await?;
-        self.expire_approvals(&snapshot).await?;
-        self.expire_terminal_leases(&snapshot).await?;
-        self.expire_pending_messages(&snapshot).await?;
-        // Time limits are independent of provider telemetry.  A provider can
-        // be quiet (or crash before emitting a usage frame), so the durable
-        // SQLite clock must still stop work when its deadline elapses.
-        self.enforce_time_budgets().await?;
-        self.recover_running_worktree_intents().await?;
-        self.reconcile_operations().await?;
-        let snapshot = self.store.snapshot().await?;
-        self.budgets.lock().await.rebuild_from_snapshot(&snapshot);
-        {
-            let mut scheduler = self.scheduler.lock().await;
-            scheduler.limits.max_concurrency = snapshot.server.max_concurrency.max(1) as usize;
-            scheduler.limits.max_provider_concurrency =
-                snapshot.server.max_provider_concurrency.max(1) as usize;
-        }
-
-        // CreateMission commits before supervisor planning so the HTTP
-        // command remains idempotent.  If frankd is killed in that window,
-        // the mission is durable but has no DAG.  Re-run planning on startup
-        // for those draft missions; plan_mission is itself idempotent and
-        // will never append a second DAG when a prior attempt completed.
-        let unplanned_drafts = snapshot
-            .missions
-            .iter()
-            .filter(|mission| {
-                mission.status == MissionStatus::Draft
-                    && !snapshot
-                        .tasks
-                        .iter()
-                        .any(|task| task.mission_id == mission.id)
-            })
-            .map(|mission| (mission.id, mission.objective.clone()))
-            .collect::<Vec<_>>();
-        for (mission_id, objective) in unplanned_drafts {
-            if let Err(error) = self.plan_mission(mission_id, &objective).await {
-                // Draft has no legal blocked transition. Keep the mission
-                // visible so the owner can retry after fixing provider or
-                // runtime health. The provider error is intentionally not
-                // copied into the wire snapshot because it may contain a
-                // local executable path; the next doctor/mission attempt
-                // exposes a sanitized diagnostic.
-                let _ = error;
-            }
-        }
-        let snapshot = self.store.snapshot().await?;
-        let active_missions = snapshot
-            .missions
-            .iter()
-            .filter(|mission| mission.status == MissionStatus::Active)
-            .map(|mission| mission.id)
-            .collect::<HashSet<_>>();
-
-        // Promote dependency-complete cards to Ready. A supervisor-generated
-        // DAG already does this for roots; this branch covers later children
-        // and cards created manually in the Board.
-        for task in snapshot.tasks.iter().filter(|task| {
-            task.status == TaskStatus::Backlog
-                && active_missions.contains(&task.mission_id)
-                && task.dependencies.iter().all(|dependency| {
-                    snapshot
-                        .tasks
-                        .iter()
-                        .find(|candidate| candidate.id == *dependency)
-                        .is_some_and(|candidate| candidate.status == TaskStatus::Done)
-                })
-        }) {
-            let _ = self
-                .execute(
-                    CommandEnvelope {
-                        protocol_version: PROTOCOL_VERSION,
-                        command_id: CommandId::new(),
-                        expected_revision: None,
-                        command: Command::SetTaskStatus {
-                            task_id: task.id,
-                            status: TaskStatus::Ready,
-                        },
-                    },
-                    ActorRef::system(),
-                    DeviceRole::Owner,
-                )
-                .await;
-        }
-
-        // A conflict-resolution card is a real task. Once its worker is
-        // accepted, retry the original review task through the same durable
-        // TaskAccept -> CommitTask saga. This keeps a conflict retry from
-        // depending on a GUI reconnect and avoids silently marking the parent
-        // done merely because the child card completed.
-        self.reconcile_conflict_resolutions().await?;
-
-        let snapshot = self.store.snapshot().await?;
-        for task in snapshot.tasks.iter().filter(|task| {
-            task.status == TaskStatus::Ready && active_missions.contains(&task.mission_id)
-        }) {
-            let task = match self.ensure_task_assignment(task.id).await {
-                Ok(Some(task)) => task,
-                Ok(None) => continue,
-                Err(_) => continue,
-            };
-            let response = self
-                .execute(
-                    CommandEnvelope {
-                        protocol_version: PROTOCOL_VERSION,
-                        command_id: CommandId::new(),
-                        expected_revision: None,
-                        command: Command::SetTaskStatus {
-                            task_id: task.id,
-                            status: TaskStatus::Running,
-                        },
-                    },
-                    ActorRef::system(),
-                    DeviceRole::Owner,
-                )
-                .await;
-            if response.error.is_none() {
-                let _ = self.start_task_session(task.id).await;
-            }
-        }
-
-        // A process may have disappeared while the SQLite task remained
-        // Running. Attempt a resume using the stable provider session ID.
-        let snapshot = self.store.snapshot().await?;
-        for task in snapshot
-            .tasks
-            .iter()
-            .filter(|task| task.status == TaskStatus::Running && task.assigned_agent.is_some())
-        {
-            if !self.sessions.lock().await.contains_key(&task.id) {
-                let _ = self.start_task_session(task.id).await;
-            }
-        }
-        Ok(())
-    }
-
-    async fn reconcile_conflict_resolutions(&self) -> Result<()> {
-        let snapshot = self.store.snapshot().await?;
-        let mut parents = Vec::new();
-        for child in snapshot.tasks.iter().filter(|task| {
-            task.status == TaskStatus::Done
-                && task.title.starts_with("Resolve merge conflict for task ")
-        }) {
-            let prefix = child
-                .title
-                .strip_prefix("Resolve merge conflict for task ")
-                .and_then(|value| value.split_whitespace().next())
-                .unwrap_or_default();
-            let Ok(parent_id) = TaskId::parse(prefix) else {
-                continue;
-            };
-            let Some(parent) = snapshot.tasks.iter().find(|task| task.id == parent_id) else {
-                continue;
-            };
-            if parent.status != TaskStatus::Review || parent.worktree.is_none() {
-                continue;
-            }
-            let active_operation = snapshot.operations.iter().any(|operation| {
-                operation.kind == OperationKind::CommitTask
-                    && operation.resource == parent_id.to_string()
-                    && matches!(
-                        operation.status,
-                        OperationStatus::Queued
-                            | OperationStatus::Running
-                            | OperationStatus::Waiting
-                            | OperationStatus::Recovering
-                    )
-            });
-            if !active_operation {
-                parents.push(parent_id);
-            }
-        }
-        parents.sort_unstable_by_key(|id| id.to_string());
-        parents.dedup();
-        for task_id in parents {
-            let _ = self
-                .execute(
-                    CommandEnvelope {
-                        protocol_version: PROTOCOL_VERSION,
-                        command_id: CommandId::new(),
-                        expected_revision: None,
-                        command: Command::TaskAccept { task_id },
-                    },
-                    ActorRef::system(),
-                    DeviceRole::Owner,
-                )
-                .await;
-        }
-        Ok(())
-    }
-
-    /// Older development snapshots could contain a Running card created by
-    /// the pre-journal implementation. Reconstruct only the missing intent;
-    /// never infer completion from a directory that happens to exist. The
-    /// resulting event is the same atomic task+operation projection used for
-    /// new transitions, so subsequent reconciliation can safely resume it.
-    async fn recover_running_worktree_intents(&self) -> Result<()> {
-        let snapshot = self.store.snapshot().await?;
-        let missing = snapshot
-            .tasks
-            .iter()
-            .filter(|task| {
-                task.status == TaskStatus::Running
-                    && !snapshot
-                        .operations
-                        .iter()
-                        .any(|operation| worktree_operation_matches_task(operation, task.id))
-            })
-            .map(|task| task.id)
-            .collect::<Vec<_>>();
-        for task_id in missing {
-            let mut latest = self.store.snapshot().await?;
-            let Some(task_index) = latest.tasks.iter().position(|task| task.id == task_id) else {
-                continue;
-            };
-            if latest.tasks[task_index].status != TaskStatus::Running
-                || latest
-                    .operations
-                    .iter()
-                    .any(|operation| worktree_operation_matches_task(operation, task_id))
-            {
-                continue;
-            }
-            let task = latest.tasks[task_index].clone();
-            let mission = latest
-                .missions
-                .iter()
-                .find(|mission| mission.id == task.mission_id)
-                .cloned()
-                .ok_or(OrchestratorError::NotFound)?;
-            let project = latest
-                .projects
-                .iter()
-                .find(|project| project.id == mission.project_id && !project.archived)
-                .cloned()
-                .ok_or(OrchestratorError::NotFound)?;
-            let workflow = GitWorkflow::new(
-                project,
-                latest
-                    .server
-                    .allowed_project_roots
-                    .iter()
-                    .map(PathBuf::from)
-                    .collect(),
-            )
-            .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-            let mission_plan = workflow.branch_plan(&mission.branch, &workflow.project.base_branch);
-            let task_plan = workflow.task_plan_from_base(task.id, &mission.branch);
-            latest.tasks[task_index].worktree = Some(task_plan.path.to_string_lossy().into_owned());
-            latest.tasks[task_index].branch = Some(task_plan.branch.clone());
-            let now = timestamp_now();
-            let operation = OperationView {
-                id: OperationId::new(),
-                kind: OperationKind::CreateWorktree,
-                status: OperationStatus::Queued,
-                resource: serde_json::to_string(&CreateWorktreeOperation {
-                    project_id: mission.project_id,
-                    mission_id: mission.id,
-                    mission_branch: mission_plan.branch,
-                    mission_base: mission_plan.base,
-                    mission_path: mission_plan.path.to_string_lossy().into_owned(),
-                    task_id,
-                    task_branch: task_plan.branch,
-                    task_base: task_plan.base,
-                    task_path: task_plan.path.to_string_lossy().into_owned(),
-                })
-                .map_err(|error| OrchestratorError::Validation(error.to_string()))?,
-                phase: "recovery-queued".into(),
-                attempt: 0,
-                error: None,
-                created_at: now.clone(),
-                updated_at: now,
-            };
-            latest.operations.push(operation.clone());
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(latest.revision),
-                    ActorRef::system(),
-                    Event::TaskWorktreeProvisioning {
-                        task: latest.tasks[task_index].clone(),
-                        operation,
-                    },
-                    latest,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) | Err(StoreError::StaleRevision { .. }) => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Ok(())
-    }
-
-    /// Expire pending approvals as a daemon-owned state transition. Provider
-    /// sessions cannot be allowed to keep waiting forever on a stale prompt;
-    /// expiry blocks the affected task and tears down its scoped runtime so a
-    /// later reconcile cannot accidentally continue work without a decision.
-    async fn expire_approvals(&self, snapshot: &Snapshot) -> Result<()> {
-        let now = epoch_seconds() as u128;
-        let expired = snapshot
-            .approvals
-            .iter()
-            .filter(|approval| {
-                approval.status == ApprovalStatus::Pending
-                    && approval
-                        .expires_at
-                        .parse::<u128>()
-                        .is_ok_and(|expires_at| expires_at <= now)
-            })
-            .map(|approval| (approval.id, approval.task_id))
-            .collect::<Vec<_>>();
-        for (approval_id, task_id) in expired {
-            let mut latest = self.store.snapshot().await?;
-            let Some(approval) = latest
-                .approvals
-                .iter_mut()
-                .find(|approval| approval.id == approval_id)
-            else {
-                continue;
-            };
-            if approval.status != ApprovalStatus::Pending {
-                continue;
-            }
-            let Ok(expires_at) = approval.expires_at.parse::<u128>() else {
-                continue;
-            };
-            if expires_at > now {
-                continue;
-            }
-            approval.status = ApprovalStatus::Expired;
-            self.store
-                .commit_command(
-                    CommandId::new(),
-                    Some(latest.revision),
-                    ActorRef::system(),
-                    Event::ApprovalExpired { approval_id },
-                    latest,
-                    CommandResult::Accepted,
-                )
-                .await?;
-
-            let latest = self.store.snapshot().await?;
-            let Some(task) = latest.tasks.iter().find(|task| task.id == task_id).cloned() else {
-                continue;
-            };
-            if !matches!(task.status, TaskStatus::Running | TaskStatus::Ready) {
-                continue;
-            }
-            if let Some(agent_id) = task.assigned_agent
-                && let Some(agent) = latest.agents.iter().find(|agent| agent.id == agent_id)
-            {
-                if let Some(session) = self.sessions.lock().await.remove(&task_id) {
-                    let _ = session.graceful_stop().await;
-                }
-                self.scheduler.lock().await.finish(task_id, agent.provider);
-                if let Some(capability) = self
-                    .agent_capabilities
-                    .lock()
-                    .await
-                    .iter()
-                    .find(|(_, capability)| capability.task_id == task_id)
-                    .map(|(token, _)| token.clone())
-                {
-                    self.revoke_agent_capability(&capability).await;
-                }
-                let _ = self
-                    .clear_agent_session(agent_id, AgentStatus::Paused)
-                    .await;
-            }
-            let _ = self.transition_task(task_id, TaskStatus::Blocked).await;
-        }
-        Ok(())
-    }
-
-    /// Revoke terminal control leases whose heartbeat window elapsed while
-    /// the owner was disconnected.  Lease expiry is a server-owned state
-    /// transition rather than a client-side hint: clearing the durable lease
-    /// emits an event, removes the SQLite control-lease projection, and lets
-    /// the normal reconciler resume the paused provider on its next tick.
-    async fn expire_terminal_leases(&self, snapshot: &Snapshot) -> Result<()> {
-        let now = epoch_seconds() as u128;
-        let expired = snapshot
-            .terminals
-            .iter()
-            .filter_map(|session| {
-                let lease = session.lease.as_ref()?;
-                let expires_at = lease.expires_at.parse::<u128>().ok()?;
-                (expires_at <= now).then_some((session.id, lease.clone()))
-            })
-            .collect::<Vec<_>>();
-
-        for (session_id, previous_lease) in expired {
-            // A concurrent renew/release wins over this stale reconciliation
-            // pass. Retry the next 500 ms tick rather than clearing a fresh
-            // lease with an old event.
-            let mut latest = self.store.snapshot().await?;
-            let Some(session) = latest
-                .terminals
-                .iter_mut()
-                .find(|session| session.id == session_id)
-            else {
-                continue;
-            };
-            let still_expired = session.lease.as_ref().is_some_and(|lease| {
-                lease.lease_id == previous_lease.lease_id
-                    && lease
-                        .expires_at
-                        .parse::<u128>()
-                        .is_ok_and(|expires_at| expires_at <= now)
-            });
-            if !still_expired {
-                continue;
-            }
-            session.lease = None;
-            let released = ControlLeaseView {
-                lease_id: previous_lease.lease_id,
-                session_id,
-                actor: previous_lease.actor,
-                expires_at: "released".into(),
-            };
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(latest.revision),
-                    ActorRef::system(),
-                    Event::TerminalLeaseChanged { lease: released },
-                    latest,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) => {
-                    // `pause_for_terminal` already stopped the provider when
-                    // control was acquired. Restore the agent's idle marker
-                    // now that disconnect grace has expired; the scheduler
-                    // will start/resume the task on its next reconciliation.
-                    self.resume_after_terminal(session_id).await?;
-                }
-                Err(StoreError::StaleRevision { .. }) => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Ok(())
-    }
-
-    async fn ensure_task_assignment(&self, task_id: TaskId) -> Result<Option<TaskView>> {
-        let snapshot = self.store.snapshot().await?;
-        let Some(task) = snapshot
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-        else {
-            return Ok(None);
-        };
-        if task.assigned_agent.is_some() {
-            return Ok(Some(task));
-        }
-        let agent = snapshot
-            .agents
-            .iter()
-            .find(|agent| {
-                !agent.archived
-                    && agent.display_name != "Frank supervisor"
-                    && matches!(agent.status, AgentStatus::Offline | AgentStatus::Idle)
-            })
-            .cloned();
-        let Some(agent) = agent else {
-            return Ok(None);
-        };
-        let response = self
-            .execute(
-                CommandEnvelope {
-                    protocol_version: PROTOCOL_VERSION,
-                    command_id: CommandId::new(),
-                    expected_revision: None,
-                    command: Command::AssignTask {
-                        task_id,
-                        agent_id: agent.id,
-                    },
-                },
-                ActorRef::system(),
-                DeviceRole::Owner,
-            )
-            .await;
-        if response.error.is_some() {
-            return Ok(None);
-        }
-        Ok(self
-            .store
-            .snapshot()
-            .await?
-            .tasks
-            .into_iter()
-            .find(|task| task.id == task_id))
-    }
-
-    async fn start_task_session(&self, task_id: TaskId) -> Result<()> {
-        if self.sessions.lock().await.contains_key(&task_id) {
-            return Ok(());
-        }
-        let snapshot = self.store.snapshot().await?;
-        let task = snapshot
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id && task.status == TaskStatus::Running)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let agent_id = task.assigned_agent.ok_or_else(|| {
-            OrchestratorError::Validation("a running task must have an assigned agent".into())
-        })?;
-        let agent = snapshot
-            .agents
-            .iter()
-            .find(|agent| agent.id == agent_id && !agent.archived)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let mission = snapshot
-            .missions
-            .iter()
-            .find(|mission| mission.id == task.mission_id)
-            .cloned()
-            .ok_or(OrchestratorError::NotFound)?;
-        let provider = agent.provider;
-        let scheduler_started = self.scheduler.lock().await.start(task.id, provider);
-        if !scheduler_started {
-            return Ok(());
-        }
-        self.start_scope_clock_with_budget(task.id.to_string(), &task.budget)
-            .await;
-        self.start_scope_clock_with_budget(task.mission_id.to_string(), &mission.budget)
-            .await;
-        self.start_scope_clock_with_budget(agent.id.to_string(), &agent.budget)
-            .await;
-        let Some(cwd) = task.worktree.clone() else {
-            self.scheduler.lock().await.finish(task.id, provider);
-            return Err(OrchestratorError::Validation(
-                "running task has no worktree".into(),
-            ));
-        };
-        if cwd.trim().is_empty() {
-            self.scheduler.lock().await.finish(task.id, provider);
-            return Err(OrchestratorError::Validation(
-                "running task worktree is unavailable".into(),
-            ));
-        }
-        let workflow = GitWorkflow::new(
-            snapshot
-                .projects
-                .iter()
-                .find(|project| project.id == mission.project_id && !project.archived)
-                .cloned()
-                .ok_or(OrchestratorError::NotFound)?,
-            snapshot
-                .server
-                .allowed_project_roots
-                .iter()
-                .map(PathBuf::from)
-                .collect(),
-        )
-        .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-        let _mission_plan = workflow.branch_plan(&mission.branch, &workflow.project.base_branch);
-        let _task_plan = workflow.task_plan_from_base(task.id, &mission.branch);
-        // Worktree creation is a durable operation committed together with
-        // the Running transition. The reconciler performs the filesystem
-        // effect before this method is called. Refuse to launch a provider
-        // while that operation is still queued/recovering; doing the Git
-        // mutation here would reintroduce a crash window with no journal row.
-        let worktree_ready = snapshot.operations.iter().any(|operation| {
-            operation.kind == OperationKind::CreateWorktree
-                && worktree_operation_matches_task(operation, task.id)
-                && operation.status == OperationStatus::Succeeded
-        });
-        if !worktree_ready {
-            self.scheduler.lock().await.finish(task.id, provider);
-            return Ok(());
-        }
-        if !Path::new(&cwd).is_dir() {
-            self.scheduler.lock().await.finish(task.id, provider);
-            return Err(OrchestratorError::Validation(
-                "running task worktree is unavailable".into(),
-            ));
-        }
-        let session_capability = self.issue_agent_capability(agent.id, task.id).await;
-        let server_url = local_server_url(&snapshot.server);
-        let request = StartRequest {
-            agent_id: agent.id.to_string(),
-            task_id: Some(task.id.to_string()),
-            cwd,
-            instructions: format!(
-                "{}\n\nAgent profile:\n{}",
-                task.objective, agent.instructions
-            ),
-            policy: agent.policy.clone(),
-            model: agent.model.clone(),
-            resume_session_id: agent.provider_session_id.clone(),
-            server_url,
-            server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
-                .then(|| snapshot.server.tls_fingerprint.clone()),
-            session_capability: Some(session_capability.clone()),
-        };
-        let session = match if request.resume_session_id.is_some() {
-            self.runtime
-                .resume(
-                    provider,
-                    request.clone(),
-                    request.resume_session_id.as_deref().unwrap(),
-                )
-                .await
-        } else {
-            self.runtime.start(provider, request.clone()).await
-        } {
-            Ok(session) => session,
-            Err(error) => {
-                self.revoke_agent_capability(&session_capability).await;
-                self.scheduler.lock().await.finish(task.id, provider);
-                self.mark_task_failure(task.id, agent.id, provider, error.to_string())
-                    .await?;
-                return Err(OrchestratorError::ProviderUnavailable(error.to_string()));
-            }
-        };
-        let session = Arc::new(session);
-        let mut events = match session.events().await {
-            Ok(events) => events,
-            Err(error) => {
-                self.revoke_agent_capability(&session_capability).await;
-                self.scheduler.lock().await.finish(task.id, provider);
-                self.mark_task_failure(task.id, agent.id, provider, error.to_string())
-                    .await?;
-                return Err(OrchestratorError::ProviderUnavailable(error.to_string()));
-            }
-        };
-        self.sessions.lock().await.insert(task.id, session.clone());
-        self.set_agent(agent.id, AgentStatus::Starting, None)
-            .await?;
-        if let Err(error) = session
-            .send(&ProviderMessage {
-                role: "user".into(),
-                // Preserve persona/profile guidance from the Add Agent
-                // wizard; sending only the objective silently discarded it.
-                content: request.instructions.clone(),
-                correlation_id: Some(task.id.to_string()),
-            })
-            .await
-        {
-            self.revoke_agent_capability(&session_capability).await;
-            self.sessions.lock().await.remove(&task.id);
-            self.scheduler.lock().await.finish(task.id, provider);
-            self.mark_task_failure(task.id, agent.id, provider, error.to_string())
-                .await?;
-            return Err(OrchestratorError::ProviderUnavailable(error.to_string()));
-        }
-
-        let orchestrator = self.clone();
-        tokio::spawn(async move {
-            while let Some(event) = events.recv().await {
-                let _ = orchestrator
-                    .handle_runtime_event(task.id, agent.id, mission.id, provider, event)
-                    .await;
-            }
-        });
-        Ok(())
-    }
-
-    async fn handle_runtime_event(
-        &self,
-        task_id: TaskId,
-        agent_id: AgentId,
-        mission_id: MissionId,
-        provider: Provider,
-        event: RuntimeEvent,
-    ) -> Result<()> {
-        // A killed provider can still have one buffered frame in the reader
-        // task. Once the daemon removed the live session, that stale frame
-        // must not resurrect an agent or append usage to a retried/blocked
-        // task.
-        if !self.sessions.lock().await.contains_key(&task_id) {
-            return Ok(());
-        }
-        match event {
-            RuntimeEvent::Ready {
-                provider_session_id,
-            } => {
-                self.set_agent(agent_id, AgentStatus::Working, Some(provider_session_id))
-                    .await?
-            }
-            RuntimeEvent::Text { text } => {
-                let body = text
-                    .chars()
-                    .take(self.max_message_bytes)
-                    .collect::<String>();
-                if !body.trim().is_empty() {
-                    let _ = self
-                        .execute(
-                            CommandEnvelope {
-                                protocol_version: PROTOCOL_VERSION,
-                                command_id: CommandId::new(),
-                                expected_revision: None,
-                                command: Command::SendMessage(MessageSpec {
-                                    message_id: None,
-                                    mission_id,
-                                    task_id: Some(task_id),
-                                    recipient: ActorRef::supervisor(),
-                                    act: MessageAct::Inform,
-                                    body,
-                                    artifact_ids: Vec::new(),
-                                    reply_to: None,
-                                    hop: 0,
-                                }),
-                            },
-                            ActorRef {
-                                kind: ActorKind::Agent,
-                                id: Some(agent_id.to_string()),
-                                display_name: None,
-                            },
-                            DeviceRole::Operator,
-                        )
-                        .await;
-                }
-            }
-            RuntimeEvent::ApprovalRequest {
-                operation,
-                reason,
-                cwd,
-            } => {
-                let _ = self
-                    .execute(
-                        CommandEnvelope {
-                            protocol_version: PROTOCOL_VERSION,
-                            command_id: CommandId::new(),
-                            expected_revision: None,
-                            command: Command::RequestApproval(ApprovalSpec {
-                                agent_id,
-                                task_id,
-                                operation,
-                                cwd: cwd.unwrap_or_default(),
-                                project: format!("mission:{mission_id}"),
-                                reason,
-                            }),
-                        },
-                        ActorRef {
-                            kind: ActorKind::Agent,
-                            id: Some(agent_id.to_string()),
-                            display_name: None,
-                        },
-                        DeviceRole::Operator,
-                    )
-                    .await;
-                self.set_agent(agent_id, AgentStatus::NeedsApproval, None)
-                    .await?;
-            }
-            RuntimeEvent::Usage(usage) => {
-                // Usage is recorded once under the task scope, while the
-                // in-memory ledger attributes the same measured telemetry to
-                // its mission and agent parents. This keeps the GUI ledger
-                // from double-counting rows and still enforces all limits.
-                let usage_view = UsageView {
-                    id: AttemptId::new(),
-                    scope: BudgetScope::Task,
-                    scope_id: task_id.to_string(),
-                    provider,
-                    measured_input_tokens: usage.measured_input_tokens,
-                    measured_output_tokens: usage.measured_output_tokens,
-                    estimated_input_tokens: usage.estimated_input_tokens,
-                    estimated_output_tokens: usage.estimated_output_tokens,
-                    cost_micros: usage.cost_micros,
-                    recorded_at: timestamp_now(),
-                };
-                let budget_result = self
-                    .record_runtime_usage(usage_view, mission_id, agent_id)
-                    .await;
-                let exceeded_scope = match budget_result {
-                    Ok(scope) => scope,
-                    // A failed usage write must fail closed: stopping the
-                    // provider is safer than allowing work to continue with
-                    // an unknown budget projection. Treat it as task scoped
-                    // because that is the smallest scope we can safely stop.
-                    Err(_) => Some(BudgetScope::Task),
-                };
-                if let Some(scope) = exceeded_scope {
-                    let session = { self.sessions.lock().await.remove(&task_id) };
-                    if let Some(session) = session {
-                        let _ = session.graceful_stop().await;
-                    }
-                    self.scheduler.lock().await.finish(task_id, provider);
-                    if let Some(capability) = self
-                        .agent_capabilities
-                        .lock()
-                        .await
-                        .iter()
-                        .find(|(_, capability)| capability.task_id == task_id)
-                        .map(|(token, _)| token.clone())
-                    {
-                        self.revoke_agent_capability(&capability).await;
-                    }
-                    let _ = self.transition_task(task_id, TaskStatus::Blocked).await;
-                    // Mission budgets apply across all child tasks. Pausing
-                    // the mission as well as blocking the current task keeps
-                    // the scheduler from immediately starting another worker
-                    // and spending past the same hard limit. Task/agent limits
-                    // only stop the affected attempt.
-                    if scope == BudgetScope::Mission {
-                        let _ = self
-                            .execute(
-                                CommandEnvelope {
-                                    protocol_version: PROTOCOL_VERSION,
-                                    command_id: CommandId::new(),
-                                    expected_revision: None,
-                                    command: Command::PauseMission { mission_id },
-                                },
-                                ActorRef::system(),
-                                DeviceRole::Owner,
-                            )
-                            .await;
-                    }
-                    self.clear_agent_session(agent_id, AgentStatus::Paused)
-                        .await?;
-                }
-            }
-            RuntimeEvent::Stopped { code } => {
-                // Error/budget paths remove the live session before killing
-                // the child. Its reader may still emit EOF/Stopped; ignore
-                // that stale terminal event so it cannot overwrite a retry or
-                // a budget-blocked task.
-                if code.is_some_and(|code| code != 0) {
-                    self.mark_task_failure(
-                        task_id,
-                        agent_id,
-                        provider,
-                        format!("provider exited with status {code:?}"),
-                    )
-                    .await?;
-                    return Ok(());
-                }
-                self.scheduler.lock().await.finish(task_id, provider);
-                let _ = self.transition_task(task_id, TaskStatus::Review).await;
-                self.clear_agent_session(agent_id, AgentStatus::Idle)
-                    .await?;
-                self.sessions.lock().await.remove(&task_id);
-                if let Some(capability) = self
-                    .agent_capabilities
-                    .lock()
-                    .await
-                    .iter()
-                    .find(|(_, capability)| capability.task_id == task_id)
-                    .map(|(token, _)| token.clone())
-                {
-                    self.revoke_agent_capability(&capability).await;
-                }
-            }
-            RuntimeEvent::Error { message } => {
-                let session = self.sessions.lock().await.get(&task_id).cloned();
-                self.mark_task_failure(task_id, agent_id, provider, message)
-                    .await?;
-                if let Some(session) = session {
-                    let _ = session.graceful_stop().await;
-                }
-            }
-            RuntimeEvent::Raw(_) | RuntimeEvent::ToolCall { .. } => {}
-        }
-        Ok(())
-    }
-
-    async fn set_agent(
-        &self,
-        agent_id: AgentId,
-        status: AgentStatus,
-        provider_session_id: Option<String>,
-    ) -> Result<()> {
-        for _ in 0..4 {
-            let mut snapshot = self.store.snapshot().await?;
-            let expected_revision = snapshot.revision;
-            let agent = snapshot
-                .agents
-                .iter_mut()
-                .find(|agent| agent.id == agent_id)
-                .ok_or(OrchestratorError::NotFound)?;
-            agent.status = status;
-            if provider_session_id.is_some() {
-                agent.provider_session_id = provider_session_id.clone();
-            }
-            let agent = agent.clone();
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(expected_revision),
-                    ActorRef::system(),
-                    Event::AgentUpserted { agent },
-                    snapshot,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(StoreError::StaleRevision { .. }) => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(OrchestratorError::Store(StoreError::StaleRevision {
-            current: self.store.current_revision().await?,
-        }))
-    }
-
-    /// Clear a completed or failed provider session from the persistent
-    /// profile. Otherwise the next task assigned to the same agent would try
-    /// to resume an unrelated provider conversation.
-    async fn clear_agent_session(&self, agent_id: AgentId, status: AgentStatus) -> Result<()> {
-        for _ in 0..4 {
-            let mut snapshot = self.store.snapshot().await?;
-            let expected_revision = snapshot.revision;
-            let agent = snapshot
-                .agents
-                .iter_mut()
-                .find(|agent| agent.id == agent_id)
-                .ok_or(OrchestratorError::NotFound)?;
-            agent.status = status;
-            agent.provider_session_id = None;
-            let agent = agent.clone();
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(expected_revision),
-                    ActorRef::system(),
-                    Event::AgentUpserted { agent },
-                    snapshot,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(StoreError::StaleRevision { .. }) => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(OrchestratorError::Store(StoreError::StaleRevision {
-            current: self.store.current_revision().await?,
-        }))
-    }
-
-    async fn transition_task(&self, task_id: TaskId, status: TaskStatus) -> Result<()> {
-        let response = self
-            .execute(
-                CommandEnvelope {
-                    protocol_version: PROTOCOL_VERSION,
-                    command_id: CommandId::new(),
-                    expected_revision: None,
-                    command: Command::SetTaskStatus { task_id, status },
-                },
-                ActorRef::system(),
-                DeviceRole::Owner,
-            )
-            .await;
-        if let Some(error) = response.error {
-            return Err(OrchestratorError::Validation(error.message));
-        }
-        Ok(())
-    }
-
-    async fn block_mission(&self, mission_id: MissionId, reason: String) -> Result<()> {
-        for _ in 0..4 {
-            let mut snapshot = self.store.snapshot().await?;
-            let expected_revision = snapshot.revision;
-            let mission = snapshot
-                .missions
-                .iter_mut()
-                .find(|mission| mission.id == mission_id)
-                .ok_or(OrchestratorError::NotFound)?;
-            if !mission.status.can_transition_to(MissionStatus::Blocked) {
-                return Ok(());
-            }
-            mission.status = MissionStatus::Blocked;
-            mission.updated_at = timestamp_now();
-            match self
-                .store
-                .commit_command(
-                    CommandId::new(),
-                    Some(expected_revision),
-                    ActorRef::system(),
-                    Event::MissionBlocked {
-                        mission_id,
-                        reason: reason.clone(),
-                    },
-                    snapshot,
-                    CommandResult::Accepted,
-                )
-                .await
-            {
-                Ok(_) => return Ok(()),
-                Err(StoreError::StaleRevision { .. }) => continue,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(OrchestratorError::Store(StoreError::StaleRevision {
-            current: self.store.current_revision().await?,
-        }))
-    }
-
-    async fn mark_task_failure(
-        &self,
-        task_id: TaskId,
-        agent_id: AgentId,
-        provider: Provider,
-        message: String,
-    ) -> Result<()> {
-        self.scheduler.lock().await.finish(task_id, provider);
-        let status = 'commit: {
-            for _ in 0..4 {
-                let mut snapshot = self.store.snapshot().await?;
-                let expected_revision = snapshot.revision;
-                let task = snapshot
-                    .tasks
-                    .iter_mut()
-                    .find(|task| task.id == task_id)
-                    .ok_or(OrchestratorError::NotFound)?;
-                let status = retry_after_failure(task);
-                task.status = status;
-                let task_value = task.clone();
-                match self
-                    .store
-                    .commit_command(
-                        CommandId::new(),
-                        Some(expected_revision),
-                        ActorRef::system(),
-                        Event::TaskUpdated { task: task_value },
-                        snapshot,
-                        CommandResult::Accepted,
-                    )
-                    .await
-                {
-                    Ok(_) => break 'commit status,
-                    Err(StoreError::StaleRevision { .. }) => continue,
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            return Err(OrchestratorError::Store(StoreError::StaleRevision {
-                current: self.store.current_revision().await?,
-            }));
-        };
-        // Keep a worker reusable when the retry policy returns the task to
-        // Ready. Once attempts are exhausted, surface Failed and leave the
-        // task Blocked for explicit intervention.
-        let agent_status = if status == TaskStatus::Blocked {
-            AgentStatus::Failed
-        } else {
-            AgentStatus::Idle
-        };
-        let _ = self.clear_agent_session(agent_id, agent_status).await;
-        let _ = self
-            .execute(
-                CommandEnvelope {
-                    protocol_version: PROTOCOL_VERSION,
-                    command_id: CommandId::new(),
-                    expected_revision: None,
-                    command: Command::SendMessage(MessageSpec {
-                        message_id: None,
-                        mission_id: self
-                            .store
-                            .snapshot()
-                            .await?
-                            .tasks
-                            .iter()
-                            .find(|task| task.id == task_id)
-                            .map(|task| task.mission_id)
-                            .unwrap_or(MissionId::nil()),
-                        task_id: Some(task_id),
-                        recipient: ActorRef::supervisor(),
-                        act: MessageAct::Inform,
-                        body: format!("worker failed: {message}"),
-                        artifact_ids: Vec::new(),
-                        reply_to: None,
-                        hop: 0,
-                    }),
-                },
-                ActorRef::system(),
-                DeviceRole::Owner,
-            )
-            .await;
-        self.sessions.lock().await.remove(&task_id);
-        let capability = self
-            .agent_capabilities
-            .lock()
-            .await
-            .iter()
-            .find(|(_, capability)| capability.task_id == task_id)
-            .map(|(token, _)| token.clone());
-        if let Some(capability) = capability {
-            self.revoke_agent_capability(&capability).await;
-        }
-        Ok(())
-    }
-
-    async fn error_response(
-        &self,
-        command_id: CommandId,
-        error: OrchestratorError,
-    ) -> CommandResponse {
-        let revision = self.store.current_revision().await.unwrap_or_default();
-        let mut api = match &error {
-            OrchestratorError::Forbidden => {
-                ApiError::new(ErrorCode::Forbidden, "permission denied")
-            }
-            OrchestratorError::NotFound => ApiError::new(ErrorCode::NotFound, "resource not found"),
-            OrchestratorError::InvalidTransition(message) => {
-                ApiError::new(ErrorCode::Conflict, message)
-            }
-            OrchestratorError::Validation(message) => ApiError::new(ErrorCode::Validation, message),
-            OrchestratorError::BudgetExceeded => ApiError::new(
-                ErrorCode::BudgetExceeded,
-                "measured budget exceeded; adjust the budget or cancel the work",
-            ),
-            OrchestratorError::ProviderUnavailable(message) => {
-                ApiError::new(ErrorCode::ProviderUnavailable, message)
-            }
-            OrchestratorError::Store(StoreError::StaleRevision { .. }) => {
-                match self.store.snapshot().await {
-                    Ok(snapshot) => ApiError::conflict(snapshot),
-                    Err(_) => ApiError::new(ErrorCode::StaleRevision, "stale revision"),
-                }
-            }
-            OrchestratorError::Store(_) => ApiError::new(ErrorCode::Internal, "persistence failed"),
-        };
-        if matches!(api.code, ErrorCode::Conflict | ErrorCode::StaleRevision) {
-            api.retryable = true;
-        }
-        CommandResponse::failed(command_id, revision, api)
-    }
-
-    async fn apply(&self, envelope: CommandEnvelope, actor: ActorRef) -> Result<CommandResponse> {
-        let current = self.store.snapshot().await?;
-        let current_revision = current.revision;
-        let existing_message_id = match &envelope.command {
-            Command::SendMessage(spec) => spec.message_id,
-            _ => None,
-        }
-        .filter(|message_id| {
-            current
-                .messages
-                .iter()
-                .any(|message| message.id == *message_id)
-        });
-        let command_id = envelope.command_id;
-        let expected_revision = envelope.expected_revision;
-        let artifact_command = match &envelope.command {
-            Command::PublishArtifact(spec) => Some(spec.clone()),
-            _ => None,
-        };
-        let upload_bytes = match &envelope.command {
-            Command::FinalizeArtifactUpload { upload_id, .. } => self
-                .store
-                .artifact_upload_bytes(*upload_id)
-                .await
-                .ok()
-                .flatten(),
-            _ => None,
-        };
-        let message_command = matches!(&envelope.command, Command::SendMessage(_));
-        let (next, event, result) = self.reduce(current, envelope.command, &actor).await?;
-        // A caller may retry a broker send with the same message id but a
-        // fresh command id after losing its HTTP response. `reduce` validates
-        // that request and returns the already stored message; do not emit a
-        // second MessageQueued event or advance the global revision for that
-        // logical no-op.
-        if let Event::MessageQueued { message } = &event
-            && existing_message_id == Some(message.id)
-        {
-            return Ok(CommandResponse::ok(command_id, current_revision, result));
-        }
-        let commit = if let Some(spec) = artifact_command.as_ref() {
-            self.store
-                .commit_command_with_artifact(
-                    command_id,
-                    expected_revision,
-                    actor,
-                    event,
-                    next,
-                    result,
-                    Some(spec.bytes.as_slice()),
-                )
-                .await?
-        } else if let Some(bytes) = upload_bytes.as_deref() {
-            self.store
-                .commit_command_with_artifact(
-                    command_id,
-                    expected_revision,
-                    actor,
-                    event,
-                    next,
-                    result,
-                    Some(bytes),
-                )
-                .await?
-        } else {
-            self.store
-                .commit_command(command_id, expected_revision, actor, event, next, result)
-                .await?
-        };
-        if message_command
-            && let Some(CommandResult::Created { id }) = commit.response.result.clone()
-            && let Ok(message_id) = MessageId::parse(&id)
-        {
-            // Queueing and delivery are separate durable transitions. The
-            // queue event is committed first, then this broker step marks
-            // the message delivered without making a lost HTTP response
-            // cause a second provider wake-up or duplicate message body.
-            let _ = self.deliver_message(message_id).await;
-        }
-        Ok(commit.response)
-    }
-
-    /// Route a command to its domain reducer.
-    ///
-    /// Dispatch only: matching on a reference keeps `command` intact so the
-    /// reducer that handles it receives it by value, exactly as the single
-    /// 1902-line match used to.
-    async fn reduce(
-        &self,
-        snapshot: Snapshot,
-        command: Command,
-        actor: &ActorRef,
-    ) -> Result<(Snapshot, Event, CommandResult)> {
-        match &command {
-            Command::Pair(..) | Command::UpdateSettings { .. } => {
-                self.reduce_settings(snapshot, command, actor).await
-            }
-            Command::CreateProject(..)
-            | Command::CloneProject { .. }
-            | Command::ArchiveProject { .. } => self.reduce_project(snapshot, command, actor).await,
-            Command::CreateAgent(..)
-            | Command::UpdateAgent { .. }
-            | Command::ArchiveAgent { .. } => self.reduce_agent(snapshot, command, actor).await,
-            Command::CreateMission { .. }
-            | Command::SetMissionStatus { .. }
-            | Command::PauseMission { .. }
-            | Command::ResumeMission { .. }
-            | Command::DeliverMission { .. }
-            | Command::SubmitSupervisorPlan { .. } => {
-                self.reduce_mission(snapshot, command, actor).await
-            }
-            Command::CreateTask(..)
-            | Command::UpdateTask { .. }
-            | Command::SetTaskStatus { .. }
-            | Command::AssignTask { .. }
-            | Command::TaskAccept { .. } => self.reduce_task(snapshot, command, actor).await,
-            Command::SendMessage(..)
-            | Command::AckMessage { .. }
-            | Command::CompleteMessage { .. } => {
-                self.reduce_message(snapshot, command, actor).await
-            }
-            Command::RequestApproval(..)
-            | Command::DecideApproval { .. }
-            | Command::AdjustBudget { .. } => self.reduce_approval(snapshot, command, actor).await,
-            Command::ProposeMemory { .. } | Command::ReadMemory { .. } => {
-                self.reduce_memory(snapshot, command, actor).await
-            }
-            Command::PublishArtifact(..)
-            | Command::BeginArtifactUpload(..)
-            | Command::FinalizeArtifactUpload { .. } => {
-                self.reduce_artifact(snapshot, command, actor).await
-            }
-            Command::OpenTerminal { .. }
-            | Command::TakeControl { .. }
-            | Command::RenewControl { .. }
-            | Command::ReleaseControl { .. }
-            | Command::CloseTerminal { .. } => self.reduce_terminal(snapshot, command, actor).await,
-            Command::CancelOperation { .. } | Command::RetryOperation { .. } => {
-                self.reduce_operation(snapshot, command, actor).await
-            }
-            Command::CheckForUpdate
-            | Command::PrepareUpdate { .. }
-            | Command::ApplyUpdate { .. }
-            | Command::RollbackUpdate => self.reduce_update(snapshot, command, actor).await,
-        }
-    }
-
-    async fn pause_or_resume(
-        &self,
-        mut snapshot: Snapshot,
-        mission_id: MissionId,
-        status: MissionStatus,
-    ) -> Result<(Snapshot, Event, CommandResult)> {
-        let mission = snapshot
-            .missions
-            .iter_mut()
-            .find(|mission| mission.id == mission_id)
-            .ok_or(OrchestratorError::NotFound)?;
-        if !mission.status.can_transition_to(status) {
-            return Err(OrchestratorError::InvalidTransition(format!(
-                "mission cannot transition from {:?} to {:?}",
-                mission.status, status
-            )));
-        }
-        mission.status = status;
-        mission.updated_at = timestamp_now();
-        Ok((
-            snapshot,
-            Event::MissionStatusChanged { mission_id, status },
-            CommandResult::Accepted,
-        ))
-    }
 }
 
 #[cfg(test)]
@@ -2122,15 +581,57 @@ mod tests {
             title: "task".into(),
             objective: "objective".into(),
             dependencies: deps,
+            required_role_id: None,
             priority: 0,
             budget: Budget::unlimited(),
             status: TaskStatus::Backlog,
             assigned_agent: None,
+            reviewer_agent: None,
+            claimed_at: None,
+            claim_source: None,
             attempt: 0,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             worktree: None,
             branch: None,
             result_artifact: None,
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            child_task_ids: Vec::new(),
+            kind: WorkItemKind::Task,
+            active_role_node_id: None,
+            organization_revision: None,
+            rework_limit: DEFAULT_REWORK_LIMIT,
+            rework_count: 0,
+        }
+    }
+
+    fn review_agent(id: AgentId, name: &str) -> AgentView {
+        AgentView {
+            id,
+            role_id: None,
+            role_revision: 0,
+            display_name: name.into(),
+            template: AgentTemplate::Reviewer,
+            model: None,
+            effective_model: None,
+            model_source: ModelSource::Role,
+            model_override: None,
+            pending_model_override: None,
+            pending_model_change: false,
+            pack_id: None,
+            pack_level: None,
+            instructions: String::new(),
+            policy: AgentPolicy::default(),
+            budget: Budget::unlimited(),
+            avatar: AvatarSpec {
+                palette: "test".into(),
+                seed: 1,
+            },
+            status: AgentStatus::Idle,
+            provider_session_id: None,
+            last_claimed_at: None,
+            archived: false,
         }
     }
 
@@ -2187,12 +688,157 @@ mod tests {
             title: "task".into(),
             objective: "objective".into(),
             dependencies: vec![dependency, dependency],
+            required_role_id: None,
             priority: 0,
             assigned_agent: None,
             budget: Budget::unlimited(),
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            kind: WorkItemKind::Task,
+            rework_limit: DEFAULT_REWORK_LIMIT,
         };
         let tasks = vec![task(dependency, vec![])];
         assert!(validate_task_spec(&spec, &tasks).is_err());
+    }
+
+    #[tokio::test]
+    async fn published_review_creates_and_decides_a_durable_work_item() {
+        let store = Store::open_in_memory().await.unwrap();
+        let source = AgentId::new();
+        let reviewer = AgentId::new();
+        let mission_id = MissionId::new();
+        let task_id = TaskId::new();
+        let mut snapshot = store.snapshot().await.unwrap();
+        snapshot.agents.push(review_agent(source, "Builder"));
+        snapshot.agents.push(review_agent(reviewer, "Reviewer"));
+        snapshot.missions.push(MissionView {
+            id: mission_id,
+            project_id: ProjectId::new(),
+            objective: "review test".into(),
+            status: MissionStatus::Active,
+            supervisor_session_id: None,
+            branch: "frank/review-test".into(),
+            budget: Budget::unlimited(),
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+        });
+        let mut running = task(task_id, Vec::new());
+        running.mission_id = mission_id;
+        running.status = TaskStatus::Running;
+        running.assigned_agent = Some(source);
+        snapshot.tasks.push(running);
+        snapshot.organization.published = Some(OrganizationGraph {
+            id: OrganizationId::new(),
+            draft_revision: 1,
+            published_revision: 1,
+            nodes: vec![
+                OrganizationNode {
+                    id: "source".into(),
+                    kind: OrganizationNodeKind::Staff,
+                    label: "Builder".into(),
+                    position: OrganizationPoint::default(),
+                    group_id: None,
+                    agent_id: Some(source),
+                    capability: None,
+                    connector_profile_id: None,
+                    profile_ref: None,
+                    configured: true,
+                    approval_required: false,
+                    role_id: None,
+                    taskboard_id: None,
+                    child_workflow_id: None,
+                    input_port: None,
+                    output_port: None,
+                    rework_limit: None,
+                },
+                OrganizationNode {
+                    id: "reviewer".into(),
+                    kind: OrganizationNodeKind::Staff,
+                    label: "Reviewer".into(),
+                    position: OrganizationPoint::default(),
+                    group_id: None,
+                    agent_id: Some(reviewer),
+                    capability: None,
+                    connector_profile_id: None,
+                    profile_ref: None,
+                    configured: true,
+                    approval_required: false,
+                    role_id: None,
+                    taskboard_id: None,
+                    child_workflow_id: None,
+                    input_port: None,
+                    output_port: None,
+                    rework_limit: None,
+                },
+            ],
+            relations: vec![OrganizationRelation {
+                id: "review-edge".into(),
+                kind: OrganizationRelationKind::Review,
+                source_node_id: "source".into(),
+                target_node_id: "reviewer".into(),
+                contract: OrganizationHandoffContract::default(),
+                permissions: Vec::new(),
+            }],
+            groups: Vec::new(),
+            viewport: OrganizationViewport::default(),
+        });
+        store.replace_snapshot(&snapshot).await.unwrap();
+        let orchestrator = Orchestrator::new(store.clone());
+        let to_review = orchestrator
+            .execute(
+                CommandEnvelope {
+                    protocol_version: PROTOCOL_VERSION,
+                    command_id: CommandId::new(),
+                    expected_revision: Some(0),
+                    command: Command::SetTaskStatus {
+                        task_id,
+                        status: TaskStatus::Review,
+                    },
+                },
+                ActorRef {
+                    kind: ActorKind::Agent,
+                    id: Some(source.to_string()),
+                    display_name: None,
+                },
+                DeviceRole::Operator,
+            )
+            .await;
+        assert!(to_review.error.is_none());
+        let review = store.snapshot().await.unwrap().review_items[0].clone();
+        assert_eq!(review.reviewer_agent, reviewer);
+        assert_eq!(review.status, ReviewWorkItemStatus::Pending);
+        let decided = orchestrator
+            .execute(
+                CommandEnvelope {
+                    protocol_version: PROTOCOL_VERSION,
+                    command_id: CommandId::new(),
+                    expected_revision: Some(to_review.revision),
+                    command: Command::DecideReview {
+                        review_item_id: review.id,
+                        decision: ReviewDecision::Approve,
+                        reason: Some("looks good".into()),
+                    },
+                },
+                ActorRef {
+                    kind: ActorKind::Agent,
+                    id: Some(reviewer.to_string()),
+                    display_name: None,
+                },
+                DeviceRole::Operator,
+            )
+            .await;
+        assert!(decided.error.is_none());
+        let snapshot = store.snapshot().await.unwrap();
+        assert_eq!(snapshot.tasks[0].status, TaskStatus::Done);
+        assert_eq!(
+            snapshot.review_items[0].status,
+            ReviewWorkItemStatus::Approved
+        );
+        assert_eq!(
+            snapshot.review_items[0].decision_reason.as_deref(),
+            Some("looks good")
+        );
     }
 
     #[test]
@@ -2214,16 +860,13 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_enforces_total_and_provider_caps() {
+    fn scheduler_enforces_total_cap() {
         let mut scheduler = Scheduler {
-            limits: SchedulerLimits {
-                max_concurrency: 1,
-                max_provider_concurrency: 1,
-            },
+            limits: SchedulerLimits { max_concurrency: 1 },
             ..Default::default()
         };
-        assert!(scheduler.start(TaskId::new(), Provider::Codex));
-        assert!(!scheduler.can_start(Provider::Claude));
+        assert!(scheduler.start(TaskId::new()));
+        assert!(!scheduler.can_start());
     }
 
     #[test]
@@ -2263,7 +906,6 @@ mod tests {
             project_id: ProjectId::new(),
             objective: "message test".into(),
             status: MissionStatus::Active,
-            supervisor_provider: Provider::Codex,
             supervisor_session_id: None,
             branch: "frank/mission-message-test".into(),
             budget: Budget::unlimited(),
@@ -2355,6 +997,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn runtime_failure_cleanup_releases_worker_after_approval_failure() {
+        let store = Store::open_in_memory().await.unwrap();
+        let orchestrator = Orchestrator::new(store.clone());
+        let mission_id = MissionId::new();
+        let task_id = TaskId::new();
+        let agent_id = AgentId::new();
+        let mut snapshot = store.snapshot().await.unwrap();
+        snapshot.missions.push(MissionView {
+            id: mission_id,
+            project_id: ProjectId::new(),
+            objective: "approval cleanup test".into(),
+            status: MissionStatus::Active,
+            supervisor_session_id: None,
+            branch: "frank/approval-cleanup-test".into(),
+            budget: Budget::unlimited(),
+            created_at: timestamp_now(),
+            updated_at: timestamp_now(),
+        });
+        snapshot.agents.push(review_agent(agent_id, "worker"));
+        let mut running = task(task_id, Vec::new());
+        running.mission_id = mission_id;
+        running.status = TaskStatus::Running;
+        running.assigned_agent = Some(agent_id);
+        snapshot.tasks.push(running);
+        store.replace_snapshot(&snapshot).await.unwrap();
+
+        orchestrator
+            .fail_runtime_task(task_id, agent_id, "approval request failed".into())
+            .await
+            .unwrap();
+
+        let after = store.snapshot().await.unwrap();
+        assert_eq!(after.tasks[0].status, TaskStatus::Ready);
+        assert_eq!(after.agents[0].status, AgentStatus::Idle);
+        assert!(orchestrator.sessions.lock().await.is_empty());
+        assert!(
+            after
+                .messages
+                .iter()
+                .any(|message| message.body == "worker failed: approval request failed")
+        );
+    }
+
+    #[tokio::test]
     async fn usage_event_is_retained_in_the_authoritative_snapshot() {
         let store = Store::open_in_memory().await.unwrap();
         let orchestrator = Orchestrator::new(store.clone());
@@ -2362,12 +1048,15 @@ mod tests {
             id: AttemptId::new(),
             scope: BudgetScope::Task,
             scope_id: TaskId::new().to_string(),
-            provider: Provider::Codex,
+            provider: UsageProviderId("codex".into()),
+            model: None,
             measured_input_tokens: Some(4),
             measured_output_tokens: Some(6),
             estimated_input_tokens: None,
             estimated_output_tokens: None,
             cost_micros: Some(12),
+            cached_input_tokens: None,
+            reasoning_tokens: None,
             recorded_at: timestamp_now(),
         };
         orchestrator
@@ -2391,7 +1080,6 @@ mod tests {
             project_id: ProjectId::new(),
             objective: "time budget test".into(),
             status: MissionStatus::Active,
-            supervisor_provider: Provider::Codex,
             supervisor_session_id: None,
             branch: "frank/mission-time-budget".into(),
             budget: Budget::unlimited(),
@@ -2511,7 +1199,6 @@ mod tests {
             project_id: ProjectId::new(),
             objective: "resume after lease expiry".into(),
             status: MissionStatus::Active,
-            supervisor_provider: Provider::Codex,
             supervisor_session_id: None,
             branch: "frank/mission-lease".into(),
             budget: Budget::unlimited(),
@@ -2520,10 +1207,16 @@ mod tests {
         });
         snapshot.agents.push(AgentView {
             id: agent_id,
+            role_id: None,
+            role_revision: 0,
             display_name: "worker".into(),
             template: AgentTemplate::Builder,
-            provider: Provider::Codex,
             model: None,
+            effective_model: None,
+            model_source: ModelSource::Role,
+            model_override: None,
+            pending_model_override: None,
+            pending_model_change: false,
             pack_id: None,
             pack_level: None,
             instructions: String::new(),
@@ -2535,6 +1228,7 @@ mod tests {
             },
             status: AgentStatus::Paused,
             provider_session_id: None,
+            last_claimed_at: None,
             archived: false,
         });
         snapshot.tasks.push(TaskView {
@@ -2543,15 +1237,28 @@ mod tests {
             title: "running task".into(),
             objective: "continue".into(),
             dependencies: Vec::new(),
+            required_role_id: None,
             priority: 0,
             budget: Budget::unlimited(),
             status: TaskStatus::Running,
             assigned_agent: Some(agent_id),
+            reviewer_agent: None,
+            claimed_at: None,
+            claim_source: None,
             attempt: 0,
             max_attempts: DEFAULT_MAX_ATTEMPTS,
             worktree: None,
             branch: None,
             result_artifact: None,
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            child_task_ids: Vec::new(),
+            kind: WorkItemKind::Task,
+            active_role_node_id: None,
+            organization_revision: None,
+            rework_limit: DEFAULT_REWORK_LIMIT,
+            rework_count: 0,
         });
         snapshot.terminals.push(TerminalSessionView {
             id: session_id,

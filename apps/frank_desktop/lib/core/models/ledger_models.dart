@@ -53,9 +53,9 @@ extension LedgerVerdictMetadata on LedgerVerdict {
 
   String get description => switch (this) {
     LedgerVerdict.insufficientEvidence =>
-        'Frank won’t claim a net saving until both evidence thresholds are met.',
+      'Frank won’t claim a net saving until both evidence thresholds are met.',
     LedgerVerdict.comparisonRequired =>
-        'Measured usage is available. Compare it with the separate benchmark range; lifetime claims still require both evidence thresholds.',
+      'Measured usage is available. Compare it with the separate benchmark range; lifetime claims still require both evidence thresholds.',
   };
 }
 
@@ -122,8 +122,10 @@ class TokenRange {
 
 /// A usage row shaped like the fields available in protocol [UsageView].
 ///
-/// Nullable token and cost fields are intentional. A provider that did not
-/// report a quantity is not the same thing as a provider that reported zero.
+/// Nullable token, cost, and identity fields are intentional. A provider that
+/// did not report a quantity is not the same thing as a provider that reported
+/// zero, and a usage record does not always carry enough context to identify a
+/// project or agent.
 @immutable
 class LedgerUsageEntry {
   const LedgerUsageEntry({
@@ -138,7 +140,10 @@ class LedgerUsageEntry {
     this.taskName,
     this.agentId,
     required this.agentName,
+    this.model,
     this.measuredInputTokens,
+    this.cacheReadInputTokens,
+    this.reasoningTokens,
     this.measuredOutputTokens,
     this.estimatedInputTokens,
     this.estimatedOutputTokens,
@@ -149,15 +154,18 @@ class LedgerUsageEntry {
   final String id;
   final DateTime recordedAt;
   final String provider;
-  final String projectId;
-  final String projectName;
+  final String? projectId;
+  final String? projectName;
   final String? missionId;
   final String? missionName;
   final String? taskId;
   final String? taskName;
   final String? agentId;
-  final String agentName;
+  final String? agentName;
+  final String? model;
   final int? measuredInputTokens;
+  final int? cacheReadInputTokens;
+  final int? reasoningTokens;
   final int? measuredOutputTokens;
   final int? estimatedInputTokens;
   final int? estimatedOutputTokens;
@@ -169,10 +177,12 @@ class LedgerUsageEntry {
   /// `null` is rendered as “not reported”; this is never coalesced to zero.
   bool get hasReportedCost => costMicros != null;
 
-  String get scopeLabel => taskName ?? missionName ?? projectName;
+  String get scopeLabel =>
+      taskName ?? missionName ?? projectName ?? 'Not reported';
 
   LedgerTotals get measuredTotals => LedgerTotals(
     inputTokens: measuredInputTokens ?? 0,
+    cacheReadInputTokens: cacheReadInputTokens ?? 0,
     outputTokens: measuredOutputTokens ?? 0,
   );
 
@@ -460,6 +470,9 @@ class LedgerPeriodData {
     required this.attribution,
     this.model = 'Claude · default',
     this.benchmarkModelMatches,
+    this.evidenceCountsAvailable = true,
+    this.injectedBytesAvailable = true,
+    this.isIncomplete = false,
   });
 
   final LedgerPeriod period;
@@ -471,6 +484,18 @@ class LedgerPeriodData {
   final String model;
   final bool? benchmarkModelMatches;
 
+  /// False when the transport does not expose the counts needed for a period
+  /// verdict. The numeric fields remain zero so callers can still construct a
+  /// DTO without mistaking those zeros for measured server values.
+  final bool evidenceCountsAvailable;
+
+  /// Frank injection byte counts are not part of the remote usage payload.
+  final bool injectedBytesAvailable;
+
+  /// True when the period contains some remote data but not all evidence the
+  /// presentation normally displays, such as session boundaries or basis.
+  final bool isIncomplete;
+
   int get sessions => sessionCount;
   int get turns => turnCount;
   List<LedgerTrendPoint> get trendPoints => trend;
@@ -478,11 +503,13 @@ class LedgerPeriodData {
   LedgerTotals get measured => totals;
 
   bool get hasLifetimeEvidence =>
+      evidenceCountsAvailable &&
       sessionCount >= LedgerDashboardData.minimumSessionsForLifetimeVerdict &&
       turnCount >= LedgerDashboardData.minimumTurnsForLifetimeVerdict;
 
   LedgerVerdict get verdict =>
-      period == LedgerPeriod.lifetime && !hasLifetimeEvidence
+      !evidenceCountsAvailable ||
+          (period == LedgerPeriod.lifetime && !hasLifetimeEvidence)
       ? LedgerVerdict.insufficientEvidence
       : LedgerVerdict.comparisonRequired;
 }
@@ -495,6 +522,7 @@ class LedgerDashboardData {
     required this.session,
     required this.lifetime,
     this.operational,
+    this.isFixture = false,
   });
 
   static const minimumSessionsForLifetimeVerdict = 20;
@@ -503,6 +531,7 @@ class LedgerDashboardData {
   final LedgerPeriodData session;
   final LedgerPeriodData lifetime;
   final LedgerOperationalData? operational;
+  final bool isFixture;
 
   LedgerPeriodData forPeriod(LedgerPeriod period) => switch (period) {
     LedgerPeriod.session => session,

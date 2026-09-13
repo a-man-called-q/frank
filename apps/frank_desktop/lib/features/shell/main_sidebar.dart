@@ -5,72 +5,30 @@ import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../app/frank_logo.dart';
 import '../../app/icons.dart';
+import '../../app/controls/frank_desktop_menu.dart';
 import '../../app/theme.dart';
+import '../../core/auth/auth_repository.dart';
 import '../../core/models/workspace_models.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
 import 'bloc/shell_bloc.dart';
-import 'presentation/frank_desktop_menu.dart';
 import 'presentation/work_inbox.dart';
 import 'sidebar_layout.dart';
 
 part 'presentation/sidebar_content.dart';
+part 'presentation/sidebar_navigation.dart';
+part 'presentation/sidebar_projects.dart';
+part 'presentation/sidebar_settings.dart';
 
 const _treeMissionInkOpacity = 0.76;
 const _treeSelectedInkOpacity = 0.92;
 
-const _frankNoFocusOutline = FFocusedOutlineStyle(
-  color: Colors.transparent,
-  borderRadius: BorderRadius.zero,
-  spacing: 0,
-);
-
-final _frankMenuTileStyle = FTileStyleDelta.delta(
-  focusedOutlineStyle: () => _frankNoFocusOutline,
-  padding: EdgeInsetsGeometryDelta.value(EdgeInsets.zero),
-  contentStyle: FItemContentStyleDelta.delta(
-    suffixedPadding: EdgeInsetsGeometryDelta.value(
-      EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-    ),
-    unsuffixedPadding: EdgeInsetsGeometryDelta.value(
-      EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-    ),
-    prefixIconSpacing: 10,
-    suffixIconSpacing: 10,
-    titleTextStyle: FVariantsDelta.delta([
-      FVariantOperation.all(
-        TextStyleDelta.delta(
-          fontFamily: FrankTypography.uiFontFamily,
-          fontFamilyFallback: FrankTypography.uiFontFallback,
-          fontSize: FrankUiTokens.textSize + 2,
-          height: 20 / 14,
-        ),
-      ),
-    ]),
-  ),
-);
-
-/// One menu style is shared by the ellipsis popovers and secondary-click menus.
-/// Keeping the dimensions here prevents the two entry points from drifting apart.
-final _frankMenuStyle = FPopoverMenuStyleDelta.delta(
-  minWidth: 248,
-  maxWidth: 248,
-  popoverPadding: EdgeInsetsGeometryDelta.value(
-    EdgeInsets.symmetric(vertical: 4),
-  ),
-  tileGroupStyle: FTileGroupStyleDelta.delta(
-    childPadding: EdgeInsetsGeometryDelta.value(EdgeInsets.zero),
-    tileStyles: FVariantsDelta.delta([
-      FVariantOperation.all(_frankMenuTileStyle),
-    ]),
-  ),
-);
-
-// Office navigation uses the same quiet, compact visual language as the
-// project inbox. Keeping this style scoped to the Office group prevents
+// Settings navigation uses the same quiet, compact visual language as the
+// project inbox. Keeping this style scoped to the Settings group prevents
 // unrelated menu surfaces from inheriting its compact treatment.
-final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
+final _frankSettingsNavigationStyle = FSidebarGroupStyleDelta.delta(
   padding: const EdgeInsetsDelta.value(EdgeInsets.symmetric(horizontal: 12)),
   headerPadding: const EdgeInsetsGeometryDelta.value(
     EdgeInsets.fromLTRB(4, 0, 4, 2),
@@ -125,10 +83,10 @@ final _frankOfficeNavigationStyle = FSidebarGroupStyleDelta.delta(
       }, FrankColors.ink.withValues(alpha: FrankUiTokens.hoverInkOpacity)),
       FVariantValueDeltaOperation.exact({
         FTappableVariant.selected,
-      }, FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)),
+      }, FrankColors.aubergineSelection.withValues(alpha: .34)),
       FVariantValueDeltaOperation.exact({
         FTappableVariant.pressed,
-      }, FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)),
+      }, FrankColors.aubergineSelection.withValues(alpha: .34)),
     ]),
     focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
       color: Colors.transparent,
@@ -164,21 +122,6 @@ FSidebarStyleDelta _frankSidebarStyle(
   ),
 );
 
-const _frankMenuTitleStyle = TextStyle(
-  fontFamily: FrankTypography.uiFontFamily,
-  fontFamilyFallback: FrankTypography.uiFontFallback,
-  fontSize: 14,
-  height: 20 / 14,
-);
-
-Widget _frankMenuTitle(String title) => SizedBox(
-  height: 20,
-  child: Align(
-    alignment: Alignment.centerLeft,
-    child: Text(title, style: _frankMenuTitleStyle),
-  ),
-);
-
 /// Tracks the last input modality explicitly instead of relying on
 /// FocusManager.highlightMode, which can remain in traditional mode after a
 /// pointer click on macOS.
@@ -206,6 +149,11 @@ class MainSidebar extends StatelessWidget {
   const MainSidebar({
     required this.searchFocusNode,
     required this.isFullscreen,
+    this.showDemoBanner = false,
+    this.authRepository,
+    this.onLogout,
+    this.onLogoutAll,
+    this.onChangePassword,
     this.width,
     this.nativeSidebarEffect = false,
     super.key,
@@ -213,6 +161,12 @@ class MainSidebar extends StatelessWidget {
 
   final FocusNode searchFocusNode;
   final bool isFullscreen;
+  final bool showDemoBanner;
+  final AuthRepository? authRepository;
+  final Future<void> Function()? onLogout;
+  final Future<void> Function()? onLogoutAll;
+  final Future<void> Function(String currentPassword, String newPassword)?
+  onChangePassword;
   final double? width;
   final bool nativeSidebarEffect;
 
@@ -253,28 +207,34 @@ class MainSidebar extends StatelessWidget {
             workspace: workspace,
             workspaceName: workspace.name,
             activeView: shell.activeView,
-            officeSection: shell.officeSection ?? OfficeSection.organization,
+            settingsSection:
+                shell.settingsSection ?? SettingsSection.organization,
             projects: projectsState.projects,
             selectedProjectId: projectsState.selectedProjectId,
             selectedMissionId: projectsState.selectedMissionId,
             expandedProjectIds: projectsState.expandedProjectIds,
             projectScope: shell.projectScope,
             pinnedMissionIds: shell.pinnedMissionIds,
+            authRepository: authRepository,
+            showDemoBanner: showDemoBanner,
+            onLogout: onLogout,
+            onLogoutAll: onLogoutAll,
+            onChangePassword: onChangePassword,
             searchFocusNode: searchFocusNode,
             onSelectView: (view) {
               context.read<ShellBloc>().add(ShellViewSelected(view));
-              if (view == WorkspaceView.projects) {
-                context.read<ProjectsBloc>().add(const ProjectsViewEntered());
+              if (view == WorkspaceView.office) {
+                context.read<ProjectsBloc>().add(const OfficeViewEntered());
               }
             },
-            onSelectOfficeSection: (section) => context.read<ShellBloc>().add(
-              ShellOfficeSectionSelected(section),
+            onSelectSettingsSection: (section) => context.read<ShellBloc>().add(
+              ShellSettingsSectionSelected(section),
             ),
             onToggleProject: (projectId) =>
                 context.read<ProjectsBloc>().add(ProjectToggled(projectId)),
             onSelectMission: (projectId, missionId) {
               context.read<ShellBloc>().add(
-                const ShellViewSelected(WorkspaceView.projects),
+                const ShellViewSelected(WorkspaceView.office),
               );
               context.read<ProjectsBloc>().add(
                 MissionSelected(projectId: projectId, missionId: missionId),

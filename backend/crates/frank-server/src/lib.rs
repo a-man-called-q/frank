@@ -12,9 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, Bytes};
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{
-    ConnectInfo, DefaultBodyLimit, Path as AxumPath, Query, State, WebSocketUpgrade,
-};
+use axum::extract::{DefaultBodyLimit, Path as AxumPath, Query, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post, put};
@@ -45,8 +43,11 @@ pub enum ServerError {
 
 pub type Result<T> = std::result::Result<T, ServerError>;
 
+mod agent_tools;
 mod auth;
+mod connectors;
 mod pairing;
+mod provider;
 mod routes;
 mod tls;
 
@@ -59,7 +60,10 @@ use routes::events::*;
 use routes::pair::*;
 use routes::terminals::*;
 
+pub use auth::{AuthError, AuthManager, normalize_username, validate_password};
+pub use connectors::ConnectorCredentialStore;
 pub use pairing::{DeviceAuth, PairingManager, PairingSecret, PairingTicket};
+pub use provider::OpenRouterCredentialStore;
 pub use tls::TlsIdentity;
 use tls::{install_crypto_provider, load_or_create_local_identity};
 
@@ -112,9 +116,17 @@ impl ServerConfig {
 pub struct ServerState {
     pub store: Store,
     pub orchestrator: Arc<frank_orchestrator::Orchestrator>,
+    pub auth: auth::AuthManager,
     pub pairing: PairingManager,
     pub config: ServerConfig,
+    pub openrouter_credentials: Arc<OpenRouterCredentialStore>,
+    pub connector_credentials: Arc<ConnectorCredentialStore>,
+    pub(crate) google_oauth_pending: connectors::GoogleOAuthPendingStore,
+    pub openrouter_adapter: Arc<frank_agent::OpenRouterAdapter>,
     pub terminal_sessions: Arc<Mutex<HashMap<TerminalSessionId, Arc<Mutex<PtySession>>>>>,
+    /// Daemon-owned wakeups for event viewers. SQLite remains the replay
+    /// authority; this channel only removes idle polling from each socket.
+    pub(crate) event_wakeups: broadcast::Sender<()>,
     /// A single daemon-owned reader pumps each PTY into this broadcast
     /// stream.  Viewers may disconnect without consuming output; the pump
     /// still appends every chunk to the durable transcript for replay.
@@ -131,12 +143,44 @@ impl ServerState {
         if store.certificate_fingerprint().await? != fingerprint {
             store.set_certificate_fingerprint(&fingerprint).await?;
         }
+        store.migrate_openrouter_runtime().await?;
+        store.migrate_openrouter_snapshot().await?;
         let mut boot_snapshot = store.snapshot().await?;
         boot_snapshot.server.tls_fingerprint = fingerprint.clone();
         boot_snapshot.server.bind_address = config.bind.ip().to_string();
         boot_snapshot.server.port = config.bind.port();
         store.replace_snapshot(&boot_snapshot).await?;
-        let orchestrator = Arc::new(frank_orchestrator::Orchestrator::new(store.clone()));
+        let credential_root = store
+            .database_path()
+            .and_then(|path| path.parent().map(|parent| parent.join("credentials")))
+            .unwrap_or_else(|| std::path::PathBuf::from("credentials"));
+        let openrouter_credentials = Arc::new(OpenRouterCredentialStore::new(credential_root));
+        let connector_credentials = Arc::new(ConnectorCredentialStore::new(
+            store
+                .database_path()
+                .and_then(|path| path.parent().map(|parent| parent.join("credentials")))
+                .unwrap_or_else(|| std::path::PathBuf::from("credentials")),
+        ));
+        let google_oauth_pending =
+            Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+        let openrouter_adapter = Arc::new(
+            frank_agent::OpenRouterAdapter::new(openrouter_credentials.clone()).map_err(
+                |error| {
+                    ServerError::Orchestrator(
+                        frank_orchestrator::OrchestratorError::ProviderUnavailable(
+                            error.to_string(),
+                        ),
+                    )
+                },
+            )?,
+        );
+        let runtime =
+            frank_agent::RuntimeManager::with_openrouter_adapter(openrouter_adapter.clone());
+        let orchestrator = Arc::new(
+            frank_orchestrator::Orchestrator::with_runtime(store.clone(), runtime)
+                .with_connector_secrets(connector_credentials.clone()),
+        );
+        orchestrator.ensure_builtin_role().await?;
         orchestrator.ensure_builtin_supervisor().await?;
         let certificate_pem = config
             .tls
@@ -149,12 +193,19 @@ impl ServerState {
             store.clone(),
         );
         pairing.load_persisted().await?;
+        let (event_wakeups, _) = broadcast::channel(256);
         Ok(Self {
             store: store.clone(),
             orchestrator,
+            auth: auth::AuthManager::new(store.clone()),
             pairing,
             config,
+            openrouter_credentials,
+            connector_credentials,
+            google_oauth_pending,
+            openrouter_adapter,
             terminal_sessions: Arc::new(Mutex::new(HashMap::new())),
+            event_wakeups,
             terminal_streams: Arc::new(Mutex::new(HashMap::new())),
         })
     }
@@ -162,30 +213,64 @@ impl ServerState {
 
 pub fn build_router(state: ServerState) -> Router {
     Router::new()
-        .route("/v1/health", get(health))
-        .route("/v1/diagnostics", get(diagnostics))
-        .route("/v1/handshake", post(handshake))
-        .route("/v1/capabilities", get(capabilities))
-        .route("/v1/pair", post(pair))
-        .route("/v1/pair/prepare", post(pair_prepare))
-        .route("/v1/snapshot", get(snapshot))
-        .route("/v1/commands", post(commands))
-        .route("/v1/artifacts/{id}", get(artifact))
+        .route(&api_path("/health"), get(health))
+        .route(&api_path("/diagnostics"), get(diagnostics))
+        .route(&api_path("/handshake"), post(handshake))
+        .route(&api_path("/capabilities"), get(capabilities))
+        .route(&api_path("/auth/status"), get(auth::status))
+        .route(&api_path("/auth/login"), post(auth::login))
+        .route(&api_path("/auth/me"), get(auth::me))
+        .route(&api_path("/auth/logout"), post(auth::logout))
+        .route(&api_path("/auth/logout-all"), post(auth::logout_all))
+        .route(&api_path("/auth/password"), post(auth::password))
+        .route(&api_path("/pair"), post(pair))
+        .route(&api_path("/pair/prepare"), post(pair_prepare))
+        .route(&api_path("/snapshot"), get(snapshot))
+        .route(&api_path("/commands"), post(commands))
+        .merge(agent_tools::router())
+        .merge(connectors::router())
+        .route(&api_path("/artifacts/{id}"), get(artifact))
         .route(
-            "/v1/artifact-uploads/{id}",
+            &api_path("/artifact-uploads/{id}"),
             put(artifact_upload_chunk).layer(DefaultBodyLimit::max(MAX_TERMINAL_FRAME_BYTES * 4)),
         )
-        .route("/v1/projects/browse", get(browse_projects))
-        .route("/v1/devices", get(devices))
-        .route("/v1/devices/{id}/revoke", post(revoke_device))
-        .route("/v1/events", get(events))
-        .route("/v1/terminals/{session_id}", get(terminals))
+        .route(&api_path("/projects/browse"), get(browse_projects))
+        .route(&api_path("/devices"), get(devices))
+        .route(&api_path("/devices/{id}/revoke"), post(revoke_device))
+        .route(&api_path("/events"), get(events))
+        .route(&api_path("/terminals/{session_id}"), get(terminals))
         // Command and pairing JSON is deliberately much smaller than the
         // artifact retention cap. Large outputs should be published through
         // an artifact transfer in a future protocol revision, not embedded
         // in a mutation envelope.
         .layer(DefaultBodyLimit::max(MAX_COMMAND_BODY_BYTES))
+        .merge(provider::router())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            notify_event_viewers,
+        ))
         .with_state(state)
+}
+
+pub(crate) fn api_path(suffix: &str) -> String {
+    format!("{}{}", API_PREFIX, suffix)
+}
+
+async fn notify_event_viewers(
+    State(state): State<ServerState>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let may_commit_event = request_may_commit_event(request.uri().path());
+    let response = next.run(request).await;
+    if may_commit_event {
+        let _ = state.event_wakeups.send(());
+    }
+    response
+}
+
+fn request_may_commit_event(path: &str) -> bool {
+    path == api_path("/commands") || path == api_path("/agent-tools")
 }
 
 fn status_for_error(code: ErrorCode) -> StatusCode {
@@ -197,13 +282,16 @@ fn status_for_error(code: ErrorCode) -> StatusCode {
         ErrorCode::Forbidden => StatusCode::FORBIDDEN,
         ErrorCode::Validation | ErrorCode::PayloadTooLarge => StatusCode::BAD_REQUEST,
         ErrorCode::NotFound => StatusCode::NOT_FOUND,
-        ErrorCode::Conflict | ErrorCode::StaleRevision | ErrorCode::LeaseUnavailable => {
-            StatusCode::CONFLICT
-        }
+        ErrorCode::Conflict
+        | ErrorCode::StaleRevision
+        | ErrorCode::OrganizationRevisionConflict
+        | ErrorCode::LeaseUnavailable => StatusCode::CONFLICT,
         ErrorCode::ResyncRequired | ErrorCode::VersionMismatch => StatusCode::UPGRADE_REQUIRED,
         ErrorCode::BudgetExceeded => StatusCode::UNPROCESSABLE_ENTITY,
         ErrorCode::ProviderUnavailable => StatusCode::SERVICE_UNAVAILABLE,
         ErrorCode::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        ErrorCode::PairingDisabled => StatusCode::GONE,
     }
 }
 
@@ -242,7 +330,14 @@ pub async fn run(state: ServerState) -> Result<()> {
         )
         .await
         .map_err(|error| ServerError::Tls(error.to_string()))?;
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(25)));
+        });
         axum_server::bind_rustls(state.config.bind, tls_config)
+            .handle(handle)
             .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .map_err(|error| ServerError::Io(std::io::Error::other(error.to_string())))?;
@@ -253,8 +348,26 @@ pub async fn run(state: ServerState) -> Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await
     .map_err(ServerError::Io)
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 fn canonicalize_allow_missing(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
@@ -292,6 +405,7 @@ fn spawn_background_exporter(state: &ServerState) {
         .map(|parent| parent.join("audit.jsonl"))
         .unwrap_or_else(|| std::path::PathBuf::from("audit.jsonl"));
     let store = state.store.clone();
+    let event_wakeups = state.event_wakeups.clone();
     tokio::spawn(async move {
         loop {
             let _ = store.export_audit_once(&audit, 256).await;
@@ -308,7 +422,9 @@ fn spawn_background_exporter(state: &ServerState) {
                     .unwrap_or_default()
                     .as_millis() as u64;
                 let cutoff = now_ms.saturating_sub(retention_ms).to_string();
-                let _ = store.prune_events_before(&cutoff).await;
+                if store.prune_events_before(&cutoff).await.unwrap_or_default() > 0 {
+                    let _ = event_wakeups.send(());
+                }
                 let terminal_days = snapshot.server.terminal_retention_days.max(1) as u64;
                 let terminal_cutoff = now_ms
                     .saturating_sub(terminal_days.saturating_mul(86_400_000))
@@ -345,6 +461,14 @@ fn spawn_background_exporter(state: &ServerState) {
                         .as_secs(),
                 )
                 .await;
+            let _ = store
+                .prune_auth_sessions(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                )
+                .await;
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     });
@@ -352,6 +476,8 @@ fn spawn_background_exporter(state: &ServerState) {
 
 fn spawn_runtime_reconciler(state: &ServerState) {
     let orchestrator = state.orchestrator.clone();
+    let store = state.store.clone();
+    let event_wakeups = state.event_wakeups.clone();
     tokio::spawn(async move {
         // The daemon owns this loop; no GUI connection is involved. Bounded
         // polling keeps crash recovery deterministic while SQLite remains the
@@ -359,7 +485,16 @@ fn spawn_runtime_reconciler(state: &ServerState) {
         let mut ticker = tokio::time::interval(std::time::Duration::from_millis(500));
         loop {
             ticker.tick().await;
+            let before = store.current_revision().await.ok();
             let _ = orchestrator.reconcile().await;
+            let after = store.current_revision().await.ok();
+            if before != after {
+                // Reconciliation can commit system events without an HTTP
+                // request (lease expiry, recovery, usage, or provider
+                // progress). The channel is only a wakeup; viewers replay
+                // those events from SQLite.
+                let _ = event_wakeups.send(());
+            }
         }
     });
 }
@@ -538,15 +673,23 @@ mod tests {
         let response = handshake(
             axum::extract::State(state),
             Json(HandshakeRequest {
-                protocol_version: 2,
-                client_version: "2.0.0".into(),
+                protocol_version: 1,
+                client_version: "1.0.0".into(),
                 client_kind: "test".into(),
-                supported_versions: VersionRange { min: 2, max: 3 },
+                supported_versions: VersionRange { min: 1, max: 1 },
             }),
         )
         .await
         .into_response();
         assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
+    }
+
+    #[test]
+    fn command_routes_wake_event_viewers() {
+        assert!(request_may_commit_event(&api_path("/commands")));
+        assert!(request_may_commit_event(&api_path("/agent-tools")));
+        assert!(!request_may_commit_event(&api_path("/events")));
+        assert!(!request_may_commit_event(&api_path("/snapshot")));
     }
 
     #[test]

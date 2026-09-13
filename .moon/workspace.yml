@@ -3,6 +3,7 @@ $schema: 'https://moonrepo.dev/schemas/workspace.json'
 projects:
   frank-rust: '.moon/projects/frank-rust'
   frank-desktop: 'apps/frank_desktop'
+  demo: '.moon/projects/demo'
   release: '.moon/projects/release'
   frank-scrutiny: '.moon/projects/frank-scrutiny'
 

@@ -1,31 +1,45 @@
-enum WorkspaceView { office, projects }
-
-/// The operational areas available from the Office view.
+/// The two top-level destinations in the desktop shell.
 ///
-/// Office sections are intentionally separate from [WorkspaceView]. The
-/// segmented control chooses the broad workspace destination, while this
-/// value chooses the current Office area without introducing a conversation
-/// context.
-enum OfficeSection { organization, team, ledger, taskboard, journal }
+/// Office owns the project and mission inbox, chat, and retained floor.
+/// Settings owns the configuration and operational surfaces.
+enum WorkspaceView { office, settings }
 
-extension OfficeSectionMetadata on OfficeSection {
+/// The sections available from the Settings view.
+///
+/// Settings sections are intentionally separate from [WorkspaceView]. The
+/// segmented control chooses the broad workspace destination, while this
+/// value chooses the current Settings area without introducing a conversation
+/// context.
+enum SettingsSection {
+  models,
+  organization,
+  team,
+  ledger,
+  taskboard,
+  journal,
+}
+
+extension SettingsSectionMetadata on SettingsSection {
   String get label => switch (this) {
-    OfficeSection.organization => 'Organization',
-    OfficeSection.team => 'Team',
-    OfficeSection.ledger => 'Ledger',
-    OfficeSection.taskboard => 'Taskboard',
-    OfficeSection.journal => 'Journal',
+    SettingsSection.models => 'Models & OpenRouter',
+    SettingsSection.organization => 'Organization',
+    SettingsSection.team => 'Team',
+    SettingsSection.ledger => 'Ledger',
+    SettingsSection.taskboard => 'Taskboard',
+    SettingsSection.journal => 'Journal',
   };
 
   String get description => switch (this) {
-    OfficeSection.organization =>
+    SettingsSection.models =>
+      'Connect OpenRouter, browse models, and choose the supervisor model.',
+    SettingsSection.organization =>
       'Configure agents, connections, and taskboard assignments.',
-    OfficeSection.team =>
-      'Configure each agent’s provider, model, prompt, identity, and role.',
-    OfficeSection.ledger =>
+    SettingsSection.team =>
+      'Configure each agent’s model, prompt, identity, and role.',
+    SettingsSection.ledger =>
       'Review input/output token usage and totals by agent.',
-    OfficeSection.taskboard => 'Track project tasks in a Kanban board.',
-    OfficeSection.journal =>
+    SettingsSection.taskboard => 'Track project tasks in a Kanban board.',
+    SettingsSection.journal =>
       'Review operational events globally or by agent and project.',
   };
 }
@@ -50,8 +64,9 @@ enum OfficeMessageStatus { pending, streaming, complete, error, stopped }
 
 /// Identifies the conversation shown by the chat surface.
 ///
-/// A project conversation is used by Office mode. A mission conversation is
-/// used by Projects mode. Keeping this as a value object prevents the UI and
+/// A project conversation is used by Office mode when no mission is selected;
+/// a mission conversation is used when a mission is selected. Settings has no
+/// conversation context. Keeping this as a value object prevents the UI and
 /// gateway layers from passing stringly-typed context keys around.
 sealed class ConversationContext {
   const ConversationContext({required this.projectId});

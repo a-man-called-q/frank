@@ -39,6 +39,35 @@ pub enum Event {
         agent_id: AgentId,
         status: AgentStatus,
     },
+    AgentDeparted {
+        agent_id: AgentId,
+        reason: Option<String>,
+        blocked_task_ids: Vec<TaskId>,
+    },
+    RoleUpserted {
+        role: RoleView,
+    },
+    RoleArchived {
+        role_id: RoleId,
+    },
+    TaskboardUpserted {
+        taskboard: TaskboardView,
+    },
+    TaskboardArchived {
+        taskboard_id: TaskboardId,
+    },
+    OrganizationDraftSaved {
+        graph: OrganizationGraph,
+    },
+    OrganizationPublished {
+        graph: OrganizationGraph,
+    },
+    ConnectorProfileUpserted {
+        profile: ConnectorProfileView,
+    },
+    ConnectorProfileArchived {
+        profile_id: ConnectorProfileId,
+    },
     MissionCreated {
         mission: MissionView,
     },
@@ -57,6 +86,16 @@ pub enum Event {
     TaskCreated {
         task: TaskView,
     },
+    WorkItemDropped {
+        task: TaskView,
+        from_board_id: Option<TaskboardId>,
+        to_board_id: TaskboardId,
+        role_id: Option<RoleId>,
+    },
+    ChildWorkItemsSpawned {
+        parent: TaskView,
+        children: Vec<TaskView>,
+    },
     TaskUpdated {
         task: TaskView,
     },
@@ -72,9 +111,57 @@ pub enum Event {
         task: TaskView,
         operation: OperationView,
     },
+    ReviewWorkItemOpened {
+        task: TaskView,
+        review: ReviewWorkItemView,
+    },
+    ReviewWorkItemDecided {
+        task: TaskView,
+        review: ReviewWorkItemView,
+    },
     TaskAssigned {
         task_id: TaskId,
         agent_id: AgentId,
+    },
+    TaskClaimed {
+        task_id: TaskId,
+        agent_id: AgentId,
+        claimed_at: Timestamp,
+        source: TaskClaimSource,
+    },
+    TaskReleased {
+        task_id: TaskId,
+    },
+    WorkOfferCreated {
+        offer: WorkOfferView,
+    },
+    WorkOfferResponded {
+        offer: WorkOfferView,
+    },
+    HumanInputRequested {
+        task: TaskView,
+        input: HumanInputView,
+    },
+    HumanInputResolved {
+        task: TaskView,
+        input: HumanInputView,
+    },
+    TaskReworkRequested {
+        task: TaskView,
+        reason: String,
+        count: u8,
+    },
+    OrganizationDrainRequested {
+        target_revision: u64,
+    },
+    OrganizationDrainCompleted {
+        revision: u64,
+    },
+    WorkItemsRelocated {
+        relocation: OrganizationRelocationView,
+    },
+    TaskActivityAdded {
+        entry: TaskFeedEntry,
     },
     MessageQueued {
         message: MessageView,

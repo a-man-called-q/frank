@@ -18,8 +18,8 @@ pub(crate) async fn artifact(
     // Artifact bytes are project/task scoped data.  Validate the metadata
     // projection before reading the payload so a guessed UUID cannot become a
     // cross-mission oracle (and so an agent capability can never download a
-    // sibling task's result).  Device roles retain read access to projects;
-    // operator/owner authorization is enforced by the pairing token itself.
+    // sibling task's result). Owner session authorization is enforced by the
+    // local bearer token.
     let snapshot = match state.store.snapshot().await {
         Ok(snapshot) => snapshot,
         Err(_) => {

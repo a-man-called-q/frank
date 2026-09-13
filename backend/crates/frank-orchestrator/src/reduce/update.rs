@@ -23,34 +23,14 @@ impl Orchestrator {
                     error: None,
                     checked_at: timestamp_now(),
                 });
-                // Tests and air-gapped operators can point the daemon at a
-                // local, already-downloaded manifest/signature pair. Normal
-                // production checks fetch Frank's HTTPS feed at the server
-                // edge. In both cases signature verification happens before
-                // any manifest fields influence state.
-                let result = if let (Some(manifest_path), Some(signature_path)) = (
-                    std::env::var_os("FRANK_UPDATE_MANIFEST"),
-                    std::env::var_os("FRANK_UPDATE_SIGNATURE"),
-                ) {
-                    (|| -> std::result::Result<_, String> {
-                        let manifest =
-                            std::fs::read(manifest_path).map_err(|error| error.to_string())?;
-                        let signature = std::fs::read_to_string(signature_path)
-                            .map_err(|error| error.to_string())?;
-                        frank_update::parse_verified_manifest(
-                            &manifest,
-                            &signature,
-                            &base64::engine::general_purpose::STANDARD
-                                .decode(frank_update::EMBEDDED_PUBLIC_KEY_B64)
-                                .map_err(|error| error.to_string())?,
-                        )
-                        .map_err(|error| error.to_string())
-                    })()
-                } else {
-                    fetch_update_manifest()
-                        .await
-                        .map_err(|error| error.to_string())
-                };
+                // Signature verification and bounded I/O live behind the
+                // injected update boundary; the reducer only projects the
+                // verified metadata into durable state.
+                let result = self
+                    .update_source
+                    .fetch_verified_manifest()
+                    .await
+                    .map_err(|error| error.to_string());
                 match result {
                     Ok(manifest) => {
                         let current = env!("CARGO_PKG_VERSION");

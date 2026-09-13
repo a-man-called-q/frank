@@ -121,14 +121,11 @@ pub(crate) async fn diagnostics(
             HealthStatus::Unknown,
         )
     };
-    let providers = state
-        .orchestrator
-        .runtime
-        .doctor()
-        .await
+    let probes = state.orchestrator.runtime_doctor().await;
+    let providers = probes
         .into_iter()
         .map(|probe| {
-            let status = if probe.capability.available && probe.capability.logged_in {
+            let status = if probe.capability.available && probe.capability.configured {
                 HealthStatus::Healthy
             } else if probe.capability.available {
                 HealthStatus::Degraded
@@ -136,16 +133,21 @@ pub(crate) async fn diagnostics(
                 HealthStatus::Unhealthy
             };
             let detail = if probe.capability.available {
-                if probe.capability.logged_in {
+                if probe.capability.configured {
                     None
                 } else {
-                    Some("provider login is required".to_string())
+                    Some("provider credential is required".to_string())
                 }
             } else {
-                Some("provider executable or protocol is unavailable".to_string())
+                Some(
+                    probe
+                        .capability
+                        .diagnostic
+                        .unwrap_or_else(|| "provider API is unavailable".to_string()),
+                )
             };
             RuntimeDoctorCheck {
-                component: probe.capability.provider.to_string(),
+                component: "openrouter".to_string(),
                 status,
                 version: probe.capability.version,
                 detail,
@@ -177,7 +179,7 @@ pub(crate) async fn diagnostics(
             database,
             audit_exporter,
             git,
-            providers,
+            openrouter: providers,
             service,
             retention,
             operation_backlog,
@@ -197,27 +199,30 @@ pub(crate) async fn capabilities(State(state): State<ServerState>) -> impl IntoR
 }
 
 pub(crate) async fn capability_document(state: &ServerState) -> Capabilities {
-    let probes = state.orchestrator.runtime.doctor().await;
-    let providers = probes
+    // Before bootstrap, capabilities are a minimal discovery surface. Avoid
+    // probing provider executables or exposing feature inventory until an
+    // owner session exists; health, handshake, capabilities, and auth status
+    // are the only useful endpoints in this state.
+    let configured = state.store.owner().await.ok().flatten().is_some();
+    let probes = if configured {
+        state.orchestrator.runtime_doctor().await
+    } else {
+        Vec::new()
+    };
+    let openrouter = probes
         .into_iter()
+        .next()
         .map(|probe| {
             let mut capability = probe.capability;
             // Capabilities are intentionally unauthenticated bootstrap data.
-            // Do not expose executable paths or provider stderr to an
-            // unauthenticated peer; the owner-only diagnostics endpoint has
-            // the actionable, sanitized doctor result.
-            capability.executable = capability.executable.and_then(|executable| {
-                std::path::Path::new(&executable)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(str::to_owned)
-            });
             capability.diagnostic = capability.diagnostic.map(|_| {
-                "provider is unavailable or requires login; run frank server doctor".into()
+                "OpenRouter is unavailable or requires a credential; run frank server doctor".into()
             });
+            capability.credential_source = None;
+            capability.catalog_refreshed_at = None;
             capability
         })
-        .collect::<Vec<_>>();
+        .unwrap_or_default();
     let settings = state
         .store
         .snapshot()
@@ -225,16 +230,24 @@ pub(crate) async fn capability_document(state: &ServerState) -> Capabilities {
         .ok()
         .map(|snapshot| snapshot.server);
     let settings = settings.unwrap_or_default();
-    Capabilities {
-        protocol_version: PROTOCOL_VERSION,
-        supported_versions: VersionRange::current(),
-        minimum_compatible_client: MIN_COMPATIBLE_CLIENT,
-        server_id: state.store.server_id(),
-        certificate_fingerprint: state.config.fingerprint(),
-        server_version: state.config.server_version.clone(),
-        features: vec![
+    let mut features = vec![LOCAL_AUTH_FEATURE.into()];
+    if configured {
+        features.extend([
             "missions".into(),
             "kanban".into(),
+            "team-roles".into(),
+            "team-crud-v1".into(),
+            "organization-v1".into(),
+            // Organization v2 keeps Role nodes and routes work through
+            // durable shared Taskboards. The feature is additive: clients
+            // that only understand the legacy Staff graph can continue to
+            // use `organization-v1`.
+            "organization-workflows-v2".into(),
+            "taskboard-routing-v1".into(),
+            "connector-registry-v1".into(),
+            "task-claims".into(),
+            "task-feed".into(),
+            "task-artifacts".into(),
             "agent-messaging".into(),
             "approvals".into(),
             "terminal-lease".into(),
@@ -243,11 +256,19 @@ pub(crate) async fn capability_document(state: &ServerState) -> Capabilities {
             "durable-operations".into(),
             "signed-updates".into(),
             "audit-jsonl".into(),
-        ],
-        providers,
+        ]);
+    }
+    Capabilities {
+        protocol_version: PROTOCOL_VERSION,
+        supported_versions: VersionRange::current(),
+        minimum_compatible_client: MIN_COMPATIBLE_CLIENT,
+        server_id: state.store.server_id(),
+        certificate_fingerprint: state.config.fingerprint(),
+        server_version: state.config.server_version.clone(),
+        features,
+        openrouter,
         limits: CapabilityLimits {
             max_concurrency: settings.max_concurrency,
-            max_provider_concurrency: settings.max_provider_concurrency,
             ..CapabilityLimits::default()
         },
     }

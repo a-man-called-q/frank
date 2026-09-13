@@ -906,9 +906,15 @@ impl Orchestrator {
                 task.title, mission.branch, objective_detail
             ),
             dependencies: task.dependencies,
+            required_role_id: task.required_role_id,
             priority: task.priority.saturating_add(1),
             assigned_agent: None,
             budget: task.budget,
+            taskboard_id: task.taskboard_id,
+            workflow_id: task.workflow_id,
+            parent_task_id: Some(task.id),
+            kind: task.kind,
+            rework_limit: task.rework_limit,
         };
         let response = self
             .commit_reduced(

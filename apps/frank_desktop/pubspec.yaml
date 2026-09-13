@@ -29,6 +29,8 @@ dependencies:
   # resolve material_ui's own Material and MaterialLocalizations types. Direct
   # dependency because account_chat.dart imports it to satisfy them.
   material_ui: 1.1.0
+  http: 1.6.0
+  flutter_secure_storage: 9.2.4
   shared_preferences: 2.5.5
   vector_math: 2.4.2
   # Exact pin, deliberately: organization_flow_adapter.dart reaches into this

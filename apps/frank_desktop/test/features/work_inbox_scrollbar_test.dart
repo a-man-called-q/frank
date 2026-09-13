@@ -169,6 +169,7 @@ Future<void> _pumpInbox(
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     FrankApp(
+      showLogin: false,
       gateway: FakeGateway(
         workspace: _workspace(
           missionCount,
@@ -178,7 +179,7 @@ Future<void> _pumpInbox(
     ),
   );
   await tester.pump(const Duration(milliseconds: 500));
-  await tester.tap(find.bySemanticsLabel('Projects view'));
+  await tester.tap(find.byKey(const ValueKey('global-nav-office')));
   await tester.pump(const Duration(milliseconds: 220));
   // The first metrics notification arrives after layout and schedules the
   // directional fade state for the following frame.

@@ -93,8 +93,8 @@ final class ProjectsInitialized extends ProjectsEvent {
   final OfficeWorkspace workspace;
 }
 
-final class ProjectsViewEntered extends ProjectsEvent {
-  const ProjectsViewEntered();
+final class OfficeViewEntered extends ProjectsEvent {
+  const OfficeViewEntered();
 }
 
 final class ProjectToggled extends ProjectsEvent {
@@ -185,7 +185,7 @@ final class ProjectsNoticeConsumed extends ProjectsEvent {
 class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
   ProjectsBloc() : super(const ProjectsState()) {
     on<ProjectsInitialized>(_initialize);
-    on<ProjectsViewEntered>(_enterProjectsView);
+    on<OfficeViewEntered>(_enterOfficeView);
     on<ProjectToggled>(_toggleProject);
     on<ProjectActivated>(_activateProject);
     on<MissionSelected>(_selectMission);
@@ -223,10 +223,7 @@ class ProjectsBloc extends Bloc<ProjectsEvent, ProjectsState> {
     );
   }
 
-  void _enterProjectsView(
-    ProjectsViewEntered event,
-    Emitter<ProjectsState> emit,
-  ) {
+  void _enterOfficeView(OfficeViewEntered event, Emitter<ProjectsState> emit) {
     final project =
         state.projectById(state.selectedProjectId) ??
         (state.projects.isEmpty ? null : state.projects.first);

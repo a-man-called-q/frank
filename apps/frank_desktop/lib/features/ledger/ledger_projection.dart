@@ -135,7 +135,7 @@ abstract final class LedgerProjection {
       for (final group in grouped.entries)
         LedgerUsageGroup(
           key: group.key,
-          label: group.value.first.agentName,
+          label: group.value.first.agentName ?? 'Agent not reported',
           entries: List.unmodifiable(group.value),
           excluded: group.value.every((entry) => entry.isExcluded),
         ),

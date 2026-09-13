@@ -15,4 +15,21 @@ void main() {
     expect(chunks, hasLength(3));
     expect(chunks.join(), contains('that mission'));
   });
+
+  test(
+    'fixture gateway exposes shared profiles and ledger provenance',
+    () async {
+      final gateway = FixtureFrankGateway(latency: Duration.zero);
+
+      final profiles = await gateway.loadTeamProfiles();
+      final dashboard = await gateway.loadLedgerDashboard();
+
+      expect(profiles, hasLength(4));
+      expect(profiles.first.employeeId, 'ae-maya');
+      expect(profiles.first.role, 'Account Executive');
+      expect(profiles.first.specialization, 'Generalist');
+      expect(dashboard.isFixture, isTrue);
+      expect(dashboard.lifetime.attribution, isNotEmpty);
+    },
+  );
 }

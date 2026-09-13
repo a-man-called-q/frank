@@ -1,4 +1,42 @@
-enum OrganizationNodeKind { staff, capability, approval }
+import 'team_models.dart';
+import 'workspace_models.dart';
+
+enum OrganizationNodeKind {
+  staff,
+  capability,
+  approval,
+  /// Executable v2 worker node. It targets a Team role, never a person.
+  role,
+  /// Durable shared hand-off surface used by the taskboard broker.
+  taskboard,
+  /// One-level workflow composition/navigation node.
+  childWorkflow,
+}
+
+extension OrganizationNodeKindWire on OrganizationNodeKind {
+  String get wireName => switch (this) {
+    OrganizationNodeKind.staff => 'staff',
+    OrganizationNodeKind.capability => 'capability',
+    OrganizationNodeKind.approval => 'approval',
+    OrganizationNodeKind.role => 'role',
+    OrganizationNodeKind.taskboard => 'taskboard',
+    OrganizationNodeKind.childWorkflow => 'child_workflow',
+  };
+
+  static OrganizationNodeKind fromWire(Object? value) => switch (value) {
+    'staff' => OrganizationNodeKind.staff,
+    'capability' => OrganizationNodeKind.capability,
+    'approval' => OrganizationNodeKind.approval,
+    'role' => OrganizationNodeKind.role,
+    'taskboard' => OrganizationNodeKind.taskboard,
+    'child_workflow' || 'childWorkflow' =>
+      OrganizationNodeKind.childWorkflow,
+    // Legacy snapshots should never fail the whole Organization surface when
+    // a future node kind is introduced. Keep the node visible as a neutral
+    // role-like card until the client learns that kind.
+    _ => OrganizationNodeKind.role,
+  };
+}
 
 enum OrganizationCapabilityKind {
   email,
@@ -10,7 +48,35 @@ enum OrganizationCapabilityKind {
   database,
 }
 
-enum OrganizationRelationKind { handoff, toolAccess, review }
+enum OrganizationRelationKind {
+  handoff,
+  toolAccess,
+  review,
+  pickup,
+  drop,
+  rework,
+}
+
+extension OrganizationRelationKindWire on OrganizationRelationKind {
+  String get wireName => switch (this) {
+    OrganizationRelationKind.handoff => 'handoff',
+    OrganizationRelationKind.toolAccess => 'tool_access',
+    OrganizationRelationKind.review => 'review',
+    OrganizationRelationKind.pickup => 'pickup',
+    OrganizationRelationKind.drop => 'drop',
+    OrganizationRelationKind.rework => 'rework',
+  };
+
+  static OrganizationRelationKind fromWire(Object? value) => switch (value) {
+    'handoff' => OrganizationRelationKind.handoff,
+    'tool_access' || 'toolAccess' => OrganizationRelationKind.toolAccess,
+    'review' => OrganizationRelationKind.review,
+    'pickup' => OrganizationRelationKind.pickup,
+    'drop' => OrganizationRelationKind.drop,
+    'rework' => OrganizationRelationKind.rework,
+    _ => OrganizationRelationKind.handoff,
+  };
+}
 
 enum OrganizationContextPolicy {
   minimumRequired,
@@ -22,6 +88,103 @@ enum OrganizationContextPolicy {
 enum OrganizationGroupTone { aubergine, blue, amber, neutral }
 
 enum OrganizationIssueSeverity { error, warning }
+
+enum ConnectorKind {
+  googleWorkspace,
+  taskboard,
+  browser,
+  terminal,
+  postgres,
+  sqlite,
+}
+
+enum ConnectorHealth { unknown, healthy, degraded, unhealthy }
+
+extension ConnectorKindJson on ConnectorKind {
+  String get wireName => switch (this) {
+    ConnectorKind.googleWorkspace => 'google_workspace',
+    ConnectorKind.taskboard => 'taskboard',
+    ConnectorKind.browser => 'browser',
+    ConnectorKind.terminal => 'terminal',
+    ConnectorKind.postgres => 'postgres',
+    ConnectorKind.sqlite => 'sqlite',
+  };
+
+  static ConnectorKind fromWire(Object? value) => switch (value) {
+    'google_workspace' || 'googleWorkspace' => ConnectorKind.googleWorkspace,
+    'taskboard' => ConnectorKind.taskboard,
+    'browser' => ConnectorKind.browser,
+    'terminal' => ConnectorKind.terminal,
+    'postgres' => ConnectorKind.postgres,
+    'sqlite' => ConnectorKind.sqlite,
+    _ => ConnectorKind.taskboard,
+  };
+}
+
+extension ConnectorHealthJson on ConnectorHealth {
+  String get wireName => name;
+
+  static ConnectorHealth fromWire(Object? value) => switch (value) {
+    'healthy' => ConnectorHealth.healthy,
+    'degraded' => ConnectorHealth.degraded,
+    'unhealthy' => ConnectorHealth.unhealthy,
+    _ => ConnectorHealth.unknown,
+  };
+}
+
+/// Non-secret connector metadata returned in the authenticated snapshot.
+/// Tokens, cookies, passwords and DSNs are intentionally never represented by
+/// this value object; the daemon keeps them in its credential store.
+class ConnectorProfile {
+  const ConnectorProfile({
+    required this.id,
+    required this.name,
+    required this.kind,
+    this.config = const <String, Object?>{},
+    this.health = ConnectorHealth.unknown,
+    this.configured = false,
+    this.diagnostic,
+    this.checkedAt,
+    this.archived = false,
+  });
+
+  final String id;
+  final String name;
+  final ConnectorKind kind;
+  final Map<String, Object?> config;
+  final ConnectorHealth health;
+  final bool configured;
+  final String? diagnostic;
+  final DateTime? checkedAt;
+  final bool archived;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'kind': kind.wireName,
+    'config': config,
+    'health': health.wireName,
+    'configured': configured,
+    'diagnostic': diagnostic,
+    'checked_at': checkedAt?.toIso8601String(),
+    'archived': archived,
+  };
+
+  factory ConnectorProfile.fromJson(Map<String, Object?> json) =>
+      ConnectorProfile(
+        id: json['id'] as String? ?? '',
+        name: json['name'] as String? ?? 'Connector',
+        kind: ConnectorKindJson.fromWire(json['kind']),
+        config: json['config'] is Map
+            ? Map<String, Object?>.from(json['config']! as Map)
+            : const <String, Object?>{},
+        health: ConnectorHealthJson.fromWire(json['health']),
+        configured: json['configured'] as bool? ?? false,
+        diagnostic: json['diagnostic'] as String?,
+        checkedAt: DateTime.tryParse(json['checked_at'] as String? ?? ''),
+        archived: json['archived'] as bool? ?? false,
+      );
+}
 
 class OrganizationPoint {
   const OrganizationPoint(this.x, this.y);
@@ -240,12 +403,19 @@ class OrganizationNode {
     String? groupId,
     OrganizationGroup? group,
     this.employeeId,
+    this.connectorProfileId,
     this.capability,
-    this.providerLabel,
+    this.connectorProfileLabel,
     this.integrationRef,
     this.profileRef,
     this.configured = false,
     this.approvalRequired = false,
+    this.roleId,
+    this.taskboardId,
+    this.childWorkflowId,
+    this.inputPort,
+    this.outputPort,
+    this.reworkLimit,
   }) : _storedGroupId = groupId,
        _legacyGroup = group;
 
@@ -268,6 +438,9 @@ class OrganizationNode {
       _legacyGroup ?? OrganizationGroup.builtInById(groupId);
 
   final String? employeeId;
+
+  /// Stable server-side connector profile selected for a capability node.
+  final String? connectorProfileId;
   final OrganizationCapabilityKind? capability;
 
   /// Stable, non-secret connector identity (for example `gmail`).
@@ -278,29 +451,46 @@ class OrganizationNode {
 
   /// A display-only provider/profile label. It is never a credential and is
   /// kept alongside the stable references solely for the editor badge.
-  final String? providerLabel;
+  final String? connectorProfileLabel;
+
   final bool configured;
   final bool approvalRequired;
+
+  /// v2 executable worker reference. Roles are shared across multiple
+  /// contextual nodes and are resolved from the Team role catalog.
+  final String? roleId;
+
+  /// v2 durable board reference. Work cards retain their id while moving
+  /// between these board surfaces.
+  final String? taskboardId;
+
+  /// v2 one-level child workflow reference. This is composition/navigation,
+  /// not a second runtime or provider mailbox.
+  final String? childWorkflowId;
+  final String? inputPort;
+  final String? outputPort;
+  final int? reworkLimit;
 
   OrganizationNode copyWith({
     String? label,
     OrganizationPoint? position,
     Object? groupId = _unset,
     Object? group = _unset,
-    Object? providerLabel = _unset,
+    Object? connectorProfileId = _unset,
+    Object? connectorProfileLabel = _unset,
     Object? integrationRef = _unset,
     Object? profileRef = _unset,
     bool? configured,
     bool? approvalRequired,
+    Object? roleId = _unset,
+    Object? taskboardId = _unset,
+    Object? childWorkflowId = _unset,
+    Object? inputPort = _unset,
+    Object? outputPort = _unset,
+    Object? reworkLimit = _unset,
   }) {
-    final nextGroupId = identical(groupId, _unset)
-        ? identical(group, _unset)
-              ? this.groupId
-              : (group as OrganizationGroup?)?.id
-        : groupId as String?;
-    final nextLegacyGroup = identical(group, _unset)
-        ? (identical(groupId, _unset) ? _legacyGroup : null)
-        : group as OrganizationGroup?;
+    final nextGroupId = _nextGroupId(groupId, group);
+    final nextLegacyGroup = _nextLegacyGroup(groupId, group);
     return OrganizationNode(
       id: id,
       kind: kind,
@@ -309,10 +499,13 @@ class OrganizationNode {
       groupId: nextGroupId,
       group: nextLegacyGroup,
       employeeId: employeeId,
+      connectorProfileId: identical(connectorProfileId, _unset)
+          ? this.connectorProfileId
+          : connectorProfileId as String?,
       capability: capability,
-      providerLabel: identical(providerLabel, _unset)
-          ? this.providerLabel
-          : providerLabel as String?,
+      connectorProfileLabel: identical(connectorProfileLabel, _unset)
+          ? this.connectorProfileLabel
+          : connectorProfileLabel as String?,
       integrationRef: identical(integrationRef, _unset)
           ? this.integrationRef
           : integrationRef as String?,
@@ -321,29 +514,79 @@ class OrganizationNode {
           : profileRef as String?,
       configured: configured ?? this.configured,
       approvalRequired: approvalRequired ?? this.approvalRequired,
+      roleId: identical(roleId, _unset) ? this.roleId : roleId as String?,
+      taskboardId: identical(taskboardId, _unset)
+          ? this.taskboardId
+          : taskboardId as String?,
+      childWorkflowId: identical(childWorkflowId, _unset)
+          ? this.childWorkflowId
+          : childWorkflowId as String?,
+      inputPort: identical(inputPort, _unset)
+          ? this.inputPort
+          : inputPort as String?,
+      outputPort: identical(outputPort, _unset)
+          ? this.outputPort
+          : outputPort as String?,
+      reworkLimit: identical(reworkLimit, _unset)
+          ? this.reworkLimit
+          : reworkLimit as int?,
     );
+  }
+
+  String? _nextGroupId(Object? groupId, Object? group) {
+    if (!identical(groupId, _unset)) return groupId as String?;
+    if (!identical(group, _unset)) {
+      return (group as OrganizationGroup?)?.id;
+    }
+    return this.groupId;
+  }
+
+  OrganizationGroup? _nextLegacyGroup(Object? groupId, Object? group) {
+    if (!identical(group, _unset)) return group as OrganizationGroup?;
+    return identical(groupId, _unset) ? _legacyGroup : null;
   }
 
   Map<String, Object?> toJson() => {
     'id': id,
-    'kind': kind.name,
+    'kind': kind.wireName,
     'label': label,
     'position': position.toJson(),
     'groupId': groupId,
+    'group_id': groupId,
     'employeeId': employeeId,
+    'agent_id': employeeId,
+    'connectorProfileId': connectorProfileId,
+    'connector_profile_id': connectorProfileId,
     'capability': capability?.name,
-    'providerLabel': providerLabel,
+    'connectorProfileLabel': connectorProfileLabel,
+    'connector_profile_label': connectorProfileLabel,
     'integrationRef': integrationRef,
     'profileRef': profileRef,
     'configured': configured,
     'approvalRequired': approvalRequired,
+    'roleId': roleId,
+    'role_id': roleId,
+    'taskboardId': taskboardId,
+    'taskboard_id': taskboardId,
+    'childWorkflowId': childWorkflowId,
+    'child_workflow_id': childWorkflowId,
+    'inputPort': inputPort,
+    'input_port': inputPort,
+    'outputPort': outputPort,
+    'output_port': outputPort,
+    'reworkLimit': reworkLimit,
+    'rework_limit': reworkLimit,
   };
 
   factory OrganizationNode.fromJson(Map<String, Object?> json) {
-    final rawGroupId = json['groupId'] as String? ?? json['group'] as String?;
+    final rawGroupId = json.containsKey('groupId')
+        ? json['groupId'] as String?
+        : json.containsKey('group')
+        ? json['group'] as String?
+        : json['group_id'] as String?;
     return OrganizationNode(
       id: json['id']! as String,
-      kind: OrganizationNodeKind.values.byName(json['kind']! as String),
+      kind: OrganizationNodeKindWire.fromWire(json['kind']),
       label: json['label']! as String,
       position: OrganizationPoint.fromJson(
         json['position'] is Map
@@ -351,17 +594,35 @@ class OrganizationNode {
             : const <String, Object?>{},
       ),
       groupId: rawGroupId,
-      employeeId: json['employeeId'] as String?,
+      employeeId: json['employeeId'] as String? ?? json['agent_id'] as String?,
+      connectorProfileId:
+          json['connectorProfileId'] as String? ??
+          json['connector_profile_id'] as String?,
       capability: json['capability'] == null
           ? null
           : OrganizationCapabilityKind.values.byName(
               json['capability']! as String,
             ),
-      providerLabel: json['providerLabel'] as String?,
+      connectorProfileLabel:
+          json['connectorProfileLabel'] as String? ??
+          json['connector_profile_label'] as String? ??
+          json['providerLabel'] as String?,
       integrationRef: json['integrationRef'] as String?,
       profileRef: json['profileRef'] as String?,
       configured: json['configured'] as bool? ?? false,
       approvalRequired: json['approvalRequired'] as bool? ?? false,
+      roleId: json['roleId'] as String? ?? json['role_id'] as String?,
+      taskboardId:
+          json['taskboardId'] as String? ?? json['taskboard_id'] as String?,
+      childWorkflowId:
+          json['childWorkflowId'] as String? ??
+          json['child_workflow_id'] as String?,
+      inputPort: json['inputPort'] as String? ?? json['input_port'] as String?,
+      outputPort:
+          json['outputPort'] as String? ?? json['output_port'] as String?,
+      reworkLimit:
+          (json['reworkLimit'] as num?)?.toInt() ??
+          (json['rework_limit'] as num?)?.toInt(),
     );
   }
 }
@@ -389,16 +650,26 @@ class OrganizationHandoffContract {
 
   Map<String, Object?> toJson() => {
     'inputSummary': inputSummary,
+    'input_summary': inputSummary,
     'expectedOutput': expectedOutput,
+    'expected_output': expectedOutput,
     'contextPolicy': contextPolicy.name,
+    'context_policy': contextPolicy.name,
   };
 
   factory OrganizationHandoffContract.fromJson(Map<String, Object?> json) =>
       OrganizationHandoffContract(
-        inputSummary: json['inputSummary'] as String? ?? '',
-        expectedOutput: json['expectedOutput'] as String? ?? '',
+        inputSummary:
+            json['inputSummary'] as String? ??
+            json['input_summary'] as String? ??
+            '',
+        expectedOutput:
+            json['expectedOutput'] as String? ??
+            json['expected_output'] as String? ??
+            '',
         contextPolicy: OrganizationContextPolicy.values.byName(
           json['contextPolicy'] as String? ??
+              json['context_policy'] as String? ??
               OrganizationContextPolicy.minimumRequired.name,
         ),
       );
@@ -435,28 +706,31 @@ class OrganizationRelation {
 
   Map<String, Object?> toJson() => {
     'id': id,
-    'kind': kind.name,
+    'kind': kind.wireName,
     'sourceNodeId': sourceNodeId,
+    'source_node_id': sourceNodeId,
     'targetNodeId': targetNodeId,
+    'target_node_id': targetNodeId,
     'contract': contract.toJson(),
     'permissions': permissions,
   };
 
-  factory OrganizationRelation.fromJson(Map<String, Object?> json) =>
-      OrganizationRelation(
-        id: json['id']! as String,
-        kind: OrganizationRelationKind.values.byName(json['kind']! as String),
-        sourceNodeId: json['sourceNodeId']! as String,
-        targetNodeId: json['targetNodeId']! as String,
-        contract: json['contract'] is Map
-            ? OrganizationHandoffContract.fromJson(
-                Map<String, Object?>.from(json['contract']! as Map),
-              )
-            : const OrganizationHandoffContract(),
-        permissions: List<String>.from(
-          json['permissions'] as List? ?? const [],
-        ),
-      );
+  factory OrganizationRelation.fromJson(
+    Map<String, Object?> json,
+  ) => OrganizationRelation(
+    id: json['id']! as String,
+    kind: OrganizationRelationKindWire.fromWire(json['kind']),
+    sourceNodeId:
+        json['sourceNodeId'] as String? ?? json['source_node_id']! as String,
+    targetNodeId:
+        json['targetNodeId'] as String? ?? json['target_node_id']! as String,
+    contract: json['contract'] is Map
+        ? OrganizationHandoffContract.fromJson(
+            Map<String, Object?>.from(json['contract']! as Map),
+          )
+        : const OrganizationHandoffContract(),
+    permissions: List<String>.from(json['permissions'] as List? ?? const []),
+  );
 }
 
 class OrganizationGraph {
@@ -506,7 +780,9 @@ class OrganizationGraph {
   Map<String, Object?> toJson() => {
     'id': id,
     'draftRevision': draftRevision,
+    'draft_revision': draftRevision,
     'publishedRevision': publishedRevision,
+    'published_revision': publishedRevision,
     'nodes': nodes.map((node) => node.toJson()).toList(),
     'relations': relations.map((relation) => relation.toJson()).toList(),
     'groups': groups.map((group) => group.toJson()).toList(),
@@ -529,8 +805,14 @@ class OrganizationGraph {
         : OrganizationGroup.builtIns;
     return OrganizationGraph(
       id: json['id']! as String,
-      draftRevision: (json['draftRevision'] as num?)?.toInt() ?? 0,
-      publishedRevision: (json['publishedRevision'] as num?)?.toInt() ?? 0,
+      draftRevision:
+          (json['draftRevision'] as num?)?.toInt() ??
+          (json['draft_revision'] as num?)?.toInt() ??
+          0,
+      publishedRevision:
+          (json['publishedRevision'] as num?)?.toInt() ??
+          (json['published_revision'] as num?)?.toInt() ??
+          0,
       nodes: (json['nodes'] as List? ?? const [])
           .whereType<Map>()
           .map(
@@ -574,6 +856,59 @@ class OrganizationGraph {
     }
     return result;
   }
+}
+
+/// Immutable O(1) lookup tables for Organization rendering and inspection.
+/// Build once for a graph/revision and reuse across node builders; preserving
+/// the source list order keeps render semantics identical to the old scans.
+class OrganizationLookupIndex {
+  OrganizationLookupIndex._({
+    required this.nodeById,
+    required this.employeeById,
+    required this.profileByEmployeeId,
+    required this.connectorProfileById,
+    required this.outgoingRelationsByNodeId,
+    required this.incomingRelationsByNodeId,
+  });
+
+  factory OrganizationLookupIndex.build({
+    required OrganizationGraph graph,
+    required List<OfficeEmployee> employees,
+    required List<TeamAgentProfile> profiles,
+    required List<ConnectorProfile> connectorProfiles,
+  }) {
+    final outgoing = <String, List<OrganizationRelation>>{};
+    final incoming = <String, List<OrganizationRelation>>{};
+    for (final relation in graph.relations) {
+      outgoing.putIfAbsent(relation.sourceNodeId, () => []).add(relation);
+      incoming.putIfAbsent(relation.targetNodeId, () => []).add(relation);
+    }
+    return OrganizationLookupIndex._(
+      nodeById: {for (final node in graph.nodes) node.id: node},
+      employeeById: {for (final employee in employees) employee.id: employee},
+      profileByEmployeeId: {
+        for (final profile in profiles) profile.employeeId: profile,
+      },
+      connectorProfileById: {
+        for (final profile in connectorProfiles) profile.id: profile,
+      },
+      outgoingRelationsByNodeId: {
+        for (final entry in outgoing.entries)
+          entry.key: List.unmodifiable(entry.value),
+      },
+      incomingRelationsByNodeId: {
+        for (final entry in incoming.entries)
+          entry.key: List.unmodifiable(entry.value),
+      },
+    );
+  }
+
+  final Map<String, OrganizationNode> nodeById;
+  final Map<String, OfficeEmployee> employeeById;
+  final Map<String, TeamAgentProfile> profileByEmployeeId;
+  final Map<String, ConnectorProfile> connectorProfileById;
+  final Map<String, List<OrganizationRelation>> outgoingRelationsByNodeId;
+  final Map<String, List<OrganizationRelation>> incomingRelationsByNodeId;
 }
 
 class OrganizationValidationIssue {

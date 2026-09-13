@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 frank-client.workspace = true
 frank-protocol.workspace = true
+frank-tool-catalog.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

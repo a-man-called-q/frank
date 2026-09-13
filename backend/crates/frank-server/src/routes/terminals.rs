@@ -8,6 +8,12 @@ pub(crate) struct TerminalQuery {
     after: Option<u64>,
 }
 
+#[derive(Debug, Clone)]
+struct TerminalSocketAuth {
+    device_id: DeviceId,
+    token: String,
+}
+
 pub(crate) async fn terminals(
     State(state): State<ServerState>,
     AxumPath(session_id): AxumPath<String>,
@@ -15,11 +21,10 @@ pub(crate) async fn terminals(
     Query(query): Query<TerminalQuery>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let token = bearer(&headers);
-    let Some(token) = token else {
+    let Some(token) = bearer(&headers).map(str::to_owned) else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    let Some(auth) = state.pairing.authenticate(token).await else {
+    let Some(auth) = authenticate(&state, &headers).await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let Ok(session_id) = TerminalSessionId::parse(&session_id) else {
@@ -98,20 +103,23 @@ pub(crate) async fn terminals(
             stream,
             session_state,
             session_id,
-            actor_device_id,
+            TerminalSocketAuth {
+                device_id: actor_device_id,
+                token,
+            },
             query.after.map(TerminalSequence),
         )
     })
     .into_response()
 }
 
-pub(crate) async fn terminal_socket(
+async fn terminal_socket(
     mut socket: WebSocket,
     pty: Arc<Mutex<PtySession>>,
     stream: broadcast::Sender<TerminalFrame>,
     state: ServerState,
     session_id: TerminalSessionId,
-    actor_device_id: DeviceId,
+    auth: TerminalSocketAuth,
     replay_after: Option<TerminalSequence>,
 ) {
     // Viewing terminal output is deliberately independent from Take Control.
@@ -195,10 +203,21 @@ pub(crate) async fn terminal_socket(
     // WebSocket ping is a liveness signal, not a render loop.  Keep it
     // comfortably below typical proxy idle timeouts without generating a
     // frame every few milliseconds for every connected terminal viewer.
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(15));
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         tokio::select! {
             _ = tick.tick() => {
+                if state
+                    .auth
+                    .authenticate(&auth.token)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_none()
+                {
+                    let _ = socket.send(Message::Close(None)).await;
+                    break;
+                }
                 if socket.send(Message::Ping(Vec::new().into())).await.is_err() {
                     break;
                 }
@@ -233,7 +252,8 @@ pub(crate) async fn terminal_socket(
                             let _ = socket.send(Message::Text(serde_json::to_string(&error).unwrap_or_default().into())).await;
                             continue;
                         };
-                        let lease_active = terminal_lease_active(&state, session_id, actor_device_id).await;
+                        let lease_active =
+                            terminal_lease_active(&state, session_id, auth.device_id).await;
                         let result = match frame {
                             TerminalFrame::Input { bytes } if lease_active && bytes.len() <= MAX_TERMINAL_FRAME_BYTES => {
                                 let guard = pty.lock().await;

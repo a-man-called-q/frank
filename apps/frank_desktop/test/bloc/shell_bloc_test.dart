@@ -11,11 +11,12 @@ import '../support/fake_gateway.dart';
 void main() {
   late FakeGateway retryGateway;
 
-  test('Office defaults to Organization', () {
+  test('Office defaults to the project inbox', () {
     const state = ShellState();
     expect(state.activeView, WorkspaceView.office);
-    expect(state.officeSection, OfficeSection.organization);
-    expect(OfficeSection.values.map((section) => section.label), [
+    expect(state.settingsSection, isNull);
+    expect(SettingsSection.values.map((section) => section.label), [
+      'Models & OpenRouter',
       'Organization',
       'Team',
       'Ledger',
@@ -25,34 +26,34 @@ void main() {
   });
 
   blocTest<ShellBloc, ShellState>(
-    'Office sections are typed and returning from Projects resets Organization',
+    'Settings sections are typed and returning from Office resets Organization',
     build: () => ShellBloc(gateway: FakeGateway()),
     act: (bloc) {
-      bloc.add(const ShellOfficeSectionSelected(OfficeSection.journal));
-      bloc.add(const ShellViewSelected(WorkspaceView.projects));
+      bloc.add(const ShellSettingsSectionSelected(SettingsSection.journal));
       bloc.add(const ShellViewSelected(WorkspaceView.office));
+      bloc.add(const ShellViewSelected(WorkspaceView.settings));
     },
     expect: () => [
       predicate<ShellState>(
-        (state) => state.officeSection == OfficeSection.journal,
+        (state) => state.settingsSection == SettingsSection.journal,
       ),
       predicate<ShellState>(
-        (state) => state.activeView == WorkspaceView.projects,
+        (state) => state.activeView == WorkspaceView.office,
       ),
       predicate<ShellState>(
-        (state) => state.officeSection == OfficeSection.organization,
+        (state) => state.settingsSection == SettingsSection.organization,
       ),
     ],
   );
 
   test('shell destinations always expose a workspace view', () {
     const office = ShellState(destination: OfficeDestination());
-    const projects = ShellState(destination: ProjectsDestination());
+    const settings = ShellState(destination: SettingsDestination());
 
     expect(office.activeView, WorkspaceView.office);
-    expect(projects.activeView, WorkspaceView.projects);
+    expect(settings.activeView, WorkspaceView.settings);
     expect(office.activeView, isNotNull);
-    expect(projects.activeView, isNotNull);
+    expect(settings.activeView, isNotNull);
   });
 
   blocTest<ShellBloc, ShellState>(

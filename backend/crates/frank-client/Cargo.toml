@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 frank-protocol.workspace = true
-frank-safeio.workspace = true
+frank-credential.workspace = true
 futures-util.workspace = true
 reqwest.workspace = true
 serde.workspace = true

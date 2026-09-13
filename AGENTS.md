@@ -37,9 +37,11 @@ backend/crates/frank-app ──> frank-pack, frank-state, frank-safeio, frank-se
 backend/crates/frank-protocol ──> (leaves)
 backend/crates/frank-store ──> frank-protocol, frank-safeio
 backend/crates/frank-agent ──> frank-protocol
+backend/crates/frank-tool-catalog ──> (leaves)
 backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
-backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-service, frank-protocol, frank-safeio
-backend/crates/frank-client ──> frank-protocol
+backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-service, frank-protocol, frank-credential
+backend/crates/frank-client ──> frank-protocol, frank-credential
+backend/crates/frank-credential ──> frank-safeio
 backend/crates/frank-agent-mcp ──> frank-client, frank-protocol
 backend/crates/frank-update ──> (leaves)
 backend/crates/frank-updater ──> frank-update
@@ -51,30 +53,32 @@ apps/frank_desktop ──> Flutter + Forui + FlowUI + flutter_scene ──> Fran
 | Crate | Responsibility | Ported from (historical Caveman source) |
 |---|---|---|
 | `frank-safeio` | Symlink-safe, size-capped, atomic flag/log IO. Security kernel. | `src/hooks/caveman-config.js:132-346` |
+| `frank-credential` | Native desktop/daemon credential namespaces with verified migration and a safe file fallback. | *n/a — credential boundary* |
 | `frank-pack` | Pack manifest, fragment composition, prompt compiler, level resolution | `skills/caveman/SKILL.md` (content) |
 | `frank-state` | Mode state machine + config precedence | `src/hooks/caveman-mode-tracker.js` |
 | `frank-ledger` | Session JSONL scan, attribution, net-token accounting, pricing | `src/hooks/caveman-stats.js` |
 | `frank-compress` | Deterministic compressor, validator, file classifier | `src/mcp-servers/caveman-shrink/compress.js`, `skills/caveman-compress/scripts/{detect,validate}.py` |
 | `frank-target` | Target schema, detection, install planning, JSONC/settings merge, marker fences | `bin/install.js`, `bin/lib/{settings,openclaw}.js` |
 | `frank-mcp` | stdio proxy, two std threads | `src/mcp-servers/caveman-shrink/index.js` |
-| `frank-protocol` | Versioned wire DTOs, typed IDs, command/event envelopes, API errors, capabilities, terminal frames | *n/a — v1 remote contract* |
-| `frank-store` | SQLite WAL source of truth, migrations, idempotency, event log/outbox, audit JSONL exporter | *n/a — v1 persistence* |
-| `frank-agent` | Codex/Claude structured runtime adapters, lifecycle, usage telemetry, shell boundary | *n/a — v1 providers* |
-| `frank-orchestrator` | Mission/task DAG, scheduler, mailbox, approvals, budgets, leases, delivery invariants | *n/a — v1 orchestrator* |
-| `frank-server` | `frankd` authenticated HTTPS/WebSocket API, pairing, fan-out, artifacts, terminals | *n/a — v1 daemon* |
-| `frank-client` | Reconnecting HTTPS/WebSocket client, certificate pinning, snapshot/event streams | *n/a — v1 remote client* |
-| `frank-agent-mcp` | Local authenticated task-scoped MCP bridge for provider sessions | *n/a — v1 provider bridge* |
+| `frank-protocol` | Versioned v2 wire DTOs, typed IDs, command/event envelopes, API errors, capabilities, terminal frames | *n/a — remote contract* |
+| `frank-store` | SQLite WAL source of truth, migrations, idempotency, event log/outbox, audit JSONL exporter | *n/a — persistence* |
+| `frank-agent` | OpenRouter structured runtime, lifecycle, usage telemetry, shell boundary | *n/a — runtime* |
+| `frank-tool-catalog` | Canonical tool IDs, schemas, transport exposure, ownership, and policy metadata | *n/a — runtime contract* |
+| `frank-orchestrator` | Mission/task DAG, OpenRouter sessions, scheduler, mailbox, approvals, budgets, leases, delivery invariants | *n/a — orchestrator* |
+| `frank-server` | `frankd` authenticated HTTPS/WebSocket API v2, pairing, fan-out, artifacts, terminals | *n/a — daemon* |
+| `frank-client` | Reconnecting v2 HTTPS/WebSocket client, certificate pinning, snapshot/event streams | *n/a — remote client* |
+| `frank-agent-mcp` | Local authenticated task-scoped MCP bridge for OpenRouter sessions | *n/a — runtime bridge* |
 | `frank-cli` | binary `frank` — hook fast path, local engine, remote pairing/admin | `bin/install.js` CLI surface |
-| `frank-app` | Server-side facade for legacy pack/state/target/ledger operations and v1 paths | *n/a — v1 server facade* |
-| `frank-service` | Per-user `frankd` service descriptor rendering, install preview and detection | *n/a — v1 service boundary* |
-| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, Organization/Team/Ledger surfaces, and a stylized 3D `flutter_scene` floor with an orbit/pan/zoom camera | *n/a — v1 client migration* |
-| `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — v1 updater contract* |
+| `frank-app` | Server-side facade for legacy pack/state/target/ledger operations | *n/a — server facade* |
+| `frank-service` | Per-user `frankd` service descriptor rendering, install preview and detection | *n/a — service boundary* |
+| `apps/frank_desktop` | Flutter desktop client: permanent navigation, AE chat/composer, Projects drawer, Organization/Team/Ledger surfaces, and a stylized 3D `flutter_scene` floor with an orbit/pan/zoom camera | *n/a — remote client* |
+| `frank-update` | Signed update manifest, target selection, staging, compatibility and rollback validation | *n/a — updater contract* |
 | `frank-updater` | Small helper binary for verified bundle swap, restart and rollback boundary | *n/a — v1 updater helper* |
 | `frank-release-cli` | Release manifest signing/verification and artifact inventory tooling | *n/a — release tooling* |
 | `xtask` | `build-packs`, `checksums`, `lint-targets`, `dist` | `.github/workflows/sync-skill.yml` |
 
-**Frank 1.0 is a clean break.** `frankd` is headless and owns SQLite, provider
-processes, PTYs, worktrees, Git writes, and the global event sequence. The Flutter
+**Frank 1.0 is a clean break.** `frankd` is headless and owns SQLite, the
+OpenRouter runtime, PTYs, worktrees, Git writes, and the global event sequence. The Flutter
 desktop app is always a remote client (including localhost) and never reaches
 `frank-app`, the database, or a project filesystem directly. The first Flutter
 milestone uses local fixtures behind `FrankGateway`; the next milestone swaps in
@@ -151,7 +155,7 @@ consumer, splitting buys nothing.
 2. Protocol/store/server skeleton: WAL, migrations, pairing, TLS, events, `frankd`.
 3. Reconnecting client and remote-only GUI backend.
 4. Projects, persistent agents, missions, DAG tasks, broker, approvals, budgets, memory.
-5. Structured Codex/Claude adapters, scoped MCP, crash recovery and fake-provider tests.
+5. Structured OpenRouter runtime, scoped MCP, crash recovery and fake-runtime tests.
 6. Worktrees, checks, supervisor acceptance, squash merge, push, draft PR delivery.
 7. Flutter floor/board/wizards/settings, terminal lease, 3D scene/asset lab, notifications, tray.
 8. Per-user service installers, packages, docs, Graphify boundary query, full E2E gates.
@@ -188,16 +192,16 @@ Recorded so it is not rediscovered from scratch.
   11%). The sharpest single gap is `frank-cli/src/server_cmd.rs`: 1036 lines of
   v1 remote/pairing/service commands at 0.0% coverage. These floors are raised
   by writing tests, never by editing the numbers.
-- **Ledger and Team bypass the gateway.** `LedgerSurface` and `TeamSurface`
-  accept injected data but fall back to `fixtureLedgerDashboard()` /
-  `fixtureTeamProfiles()` inside the widget, and neither has a bloc, unlike
-  chat / shell / projects / organization. When the gateway swaps to the real
-  `frank-client` transport these two surfaces will keep rendering fixture data
-  with no error. **Must be resolved before checkpoint 3.**
-- **The orchestrator's update flow reaches the network.** `update_flow.rs` owns
-  its own reqwest client. Moving the fetch/download half into `frank-update`
-  would keep that out of the orchestration crate but changes the dependency
-  graph pinned by `xtask architecture-check`.
+- **Ledger and Team gateway bypass — resolved.** The shell now loads both
+  surfaces through `FrankGateway`, with fixture data owned by
+  `FixtureFrankGateway`; remote Ledger projections explicitly show incomplete
+  evidence instead of fabricating fixture identity or attribution. Keep gateway
+  integration tests in place when the reconnecting `frank-client` transport
+  replaces the current HTTP implementation.
+- **Update flow boundary — intentional v1 exception.** The orchestrator's
+  update path is deliberately kept behind the architecture policy; moving the
+  fetch/download half into `frank-update` would be a separate contract change,
+  not routine cleanup.
 - **`frank-orchestrator` keeps its tests inline.** It is the only large crate
   without a `tests/` directory. Moving the existing 16 tests out would drop the
   crate's measured coverage, since inline test code is measured and `tests/` is

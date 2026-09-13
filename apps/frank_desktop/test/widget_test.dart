@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/frank_app.dart';
+import 'package:frank_desktop/app/icons.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
 import 'package:frank_desktop/features/chat/presentation/focusable_composer.dart';
 import 'package:frank_desktop/features/floor/office_scene_floor.dart';
@@ -23,48 +24,206 @@ void main() {
     expect(workspace.projects.first.missions.first.pendingApprovalCount, 1);
   });
 
-  testWidgets('office shell renders operational navigation and floor', (
+  testWidgets('office shell defaults to the project inbox and floor', (
     tester,
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
 
+    expect(find.byKey(const ValueKey('global-navigation')), findsOneWidget);
+    expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('global-navigation-workspace')),
+        matching: find.text('Floor'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('global-navigation-workspace')),
+        matching: find.text('Office'),
+      ),
+      findsOneWidget,
+    );
+    expect(FrankIcons.floor, isNot(FrankIcons.taskboard));
+    expect(FrankIcons.taskboard, isNot(FrankIcons.journal));
+    expect(FrankIcons.office, isNot(FrankIcons.floor));
     expect(find.bySemanticsLabel('Office view'), findsOneWidget);
-    expect(find.bySemanticsLabel('Projects view'), findsOneWidget);
+    expect(find.bySemanticsLabel('Settings view'), findsOneWidget);
+    expect(find.bySemanticsLabel('Workspace view'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('global-navigation-workspace')),
+      findsOneWidget,
+    );
+    for (final group in ['agency', 'insights', 'system']) {
+      expect(find.byKey(ValueKey('global-navigation-$group')), findsNothing);
+    }
+    expect(
+      find.byKey(const ValueKey('settings-section-models')),
+      findsNothing,
+    );
     expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('global-navigation'))).width,
+      greaterThan(180),
+    );
     expect(
       tester.getSize(find.bySemanticsLabel('Workspace view')).width,
       greaterThan(180),
     );
-    expect(find.text('Office'), findsWidgets);
-    expect(find.text('Projects'), findsOneWidget);
-    expect(find.text('Organization'), findsWidgets);
-    expect(find.text('Team'), findsOneWidget);
-    expect(find.text('Ledger'), findsOneWidget);
-    expect(find.text('Taskboard'), findsWidgets);
-    expect(find.text('Journal'), findsOneWidget);
-    expect(
-      tester
-          .widget<FSidebarItem>(
-            find.byKey(const ValueKey('office-section-organization')),
-          )
-          .selected,
-      isTrue,
-    );
-    expect(find.text('Maya Chen'), findsOneWidget);
-    expect(find.text('Email'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('mission-shelf-scroll-view')),
-      findsNothing,
+      findsOneWidget,
     );
     expect(
       find.bySemanticsLabel(RegExp(r'Office floor (loading|unavailable)')),
       findsOneWidget,
     );
     expect(find.bySemanticsLabel('Frank'), findsOneWidget);
-    expect(find.byType(FocusableComposer), findsNothing);
+    expect(find.byType(FocusableComposer), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-navigation')), findsNothing);
+    expect(find.bySemanticsLabel('Organization flow editor'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('navigation groups follow the selected workspace mode', (
+    tester,
+  ) async {
+    _setWindow(tester);
+    await _pumpApp(tester);
+
+    expect(
+      find.byKey(const ValueKey('global-navigation-workspace')),
+      findsOneWidget,
+    );
+    for (final group in ['agency', 'insights', 'system']) {
+      expect(find.byKey(ValueKey('global-navigation-$group')), findsNothing);
+    }
+
+    await tester.tap(find.byKey(const ValueKey('settings-section-taskboard')));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      find.byKey(const ValueKey('settings-section-content-taskboard')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('global-navigation-workspace')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FSidebarItem>(
+            find.byKey(const ValueKey('settings-section-taskboard')),
+          )
+          .selected,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<FSidebarItem>(find.byKey(const ValueKey('global-nav-office')))
+          .selected,
+      isFalse,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('global-nav-office')));
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      tester
+          .widget<FSidebarItem>(find.byKey(const ValueKey('global-nav-office')))
+          .selected,
+      isTrue,
+    );
+    expect(
+      tester
+          .widget<FSidebarItem>(
+            find.byKey(const ValueKey('settings-section-taskboard')),
+          )
+          .selected,
+      isFalse,
+    );
+
+    await _openSettings(tester);
+    expect(
+      find.byKey(const ValueKey('global-navigation-workspace')),
+      findsNothing,
+    );
+    for (final group in ['agency', 'insights', 'system']) {
+      expect(find.byKey(ValueKey('global-navigation-$group')), findsOneWidget);
+    }
+
+    final team = find.byKey(const ValueKey('settings-section-team'));
+    await tester.tap(team);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.bySemanticsLabel('Settings view'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('settings-section-content-team')),
+      findsOneWidget,
+    );
+
+    final models = find.byKey(const ValueKey('settings-section-models'));
+    await tester.tap(models);
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(
+      find.byKey(const ValueKey('settings-section-content-models')),
+      findsOneWidget,
+    );
+    expect(tester.widget<FSidebarItem>(models).selected, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'Office and Settings toggle keeps the broad destinations reachable',
+    (tester) async {
+      _setWindow(tester);
+      await _pumpApp(tester);
+
+      final office = find.bySemanticsLabel('Office view');
+      final settings = find.bySemanticsLabel('Settings view');
+
+      await tester.tap(settings);
+      await tester.pump(const Duration(milliseconds: 220));
+      expect(
+        find.byKey(const ValueKey('settings-section-content-organization')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('global-navigation')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('global-navigation-workspace')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('global-navigation-agency')),
+        findsOneWidget,
+      );
+
+      await tester.tap(office);
+      await tester.pump(const Duration(milliseconds: 220));
+      expect(
+        find.byKey(const ValueKey('mission-shelf-scroll-view')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('global-navigation-workspace')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('global-navigation-agency')),
+        findsNothing,
+      );
+
+      await tester.tap(office);
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump(const Duration(milliseconds: 220));
+      expect(
+        find.byKey(const ValueKey('settings-section-content-organization')),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('Settings view'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('sidebar footer exposes a disabled User profile control', (
     tester,
@@ -93,7 +252,7 @@ void main() {
     await tester.tap(userButton);
     await tester.pump();
     expect(
-      find.byKey(const ValueKey('office-section-surface-organization')),
+      find.byKey(const ValueKey('mission-shelf-scroll-view')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -111,43 +270,61 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('office sections navigate and Office resets to Organization', (
-    tester,
-  ) async {
-    _setWindow(tester);
-    await _pumpApp(tester);
+  testWidgets(
+    'Settings sections navigate and Settings resets to Organization',
+    (tester) async {
+      _setWindow(tester);
+      await _pumpApp(tester);
 
-    for (final section in ['team', 'ledger', 'taskboard', 'journal']) {
-      await tester.tap(find.byKey(ValueKey('office-section-$section')));
-      await tester.pump();
+      await _openSettings(tester);
+
+      for (final section in ['team', 'ledger', 'models']) {
+        await tester.tap(find.byKey(ValueKey('settings-section-$section')));
+        await tester.pump();
+        expect(
+          find.byKey(ValueKey('settings-section-surface-$section')),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<FSidebarItem>(
+                find.byKey(ValueKey('settings-section-$section')),
+              )
+              .selected,
+          isTrue,
+        );
+      }
+
+      await _openOffice(tester);
       expect(
-        find.byKey(ValueKey('office-section-surface-$section')),
+        find.byKey(const ValueKey('mission-shelf-scroll-view')),
         findsOneWidget,
       );
+      for (final section in ['taskboard', 'journal']) {
+        await tester.tap(find.byKey(ValueKey('settings-section-$section')));
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(
+          find.byKey(ValueKey('settings-section-surface-$section')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey('global-navigation-workspace')),
+          findsOneWidget,
+        );
+      }
+
+      await _openSettings(tester);
+      // Forui's tappable semantics finish their press lifecycle on a short
+      // timer. Drain it before the test widget tree is disposed.
+      await tester.pump(const Duration(milliseconds: 120));
       expect(
-        tester
-            .widget<FSidebarItem>(
-              find.byKey(ValueKey('office-section-$section')),
-            )
-            .selected,
-        isTrue,
+        find.byKey(const ValueKey('settings-section-surface-organization')),
+        findsOneWidget,
       );
-    }
+    },
+  );
 
-    await _openProjects(tester);
-    expect(
-      find.byKey(const ValueKey('mission-shelf-scroll-view')),
-      findsOneWidget,
-    );
-    await tester.tap(find.bySemanticsLabel('Office view'));
-    await tester.pump();
-    expect(
-      find.byKey(const ValueKey('office-section-surface-organization')),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('office glass keeps the scene mounted between sections', (
+  testWidgets('Settings glass keeps the scene mounted between sections', (
     tester,
   ) async {
     _setWindow(tester);
@@ -172,33 +349,44 @@ void main() {
     final filter = tester.widget<ImageFiltered>(
       find.byKey(const ValueKey('office-scene-image-filter')),
     );
-    expect(filter.enabled, isTrue);
+    expect(filter.enabled, isFalse);
+    await _openSettings(tester);
     expect(
-      tester.getRect(find.byKey(const ValueKey('office-section-content-host'))),
+      tester
+          .widget<ImageFiltered>(
+            find.byKey(const ValueKey('office-scene-image-filter')),
+          )
+          .enabled,
+      isTrue,
+    );
+    expect(
+      tester.getRect(
+        find.byKey(const ValueKey('settings-section-content-host')),
+      ),
       tester.getRect(find.byKey(const ValueKey('main-surface'))),
     );
     expect(
-      find.byKey(const ValueKey('office-section-content-organization')),
+      find.byKey(const ValueKey('settings-section-content-organization')),
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('office-section-team')));
+    await tester.tap(find.byKey(const ValueKey('settings-section-team')));
     await tester.pump(const Duration(milliseconds: 40));
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
-      find.byKey(const ValueKey('office-section-content-team')),
+      find.byKey(const ValueKey('settings-section-content-team')),
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('office-section-ledger')));
+    await tester.tap(find.byKey(const ValueKey('settings-section-ledger')));
     await tester.pump(const Duration(milliseconds: 220));
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
-      find.byKey(const ValueKey('office-section-content-ledger')),
+      find.byKey(const ValueKey('settings-section-content-ledger')),
       findsOneWidget,
     );
 
-    await _openProjects(tester);
+    await _openOffice(tester);
     await tester.pump(const Duration(milliseconds: 220));
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
@@ -206,8 +394,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.bySemanticsLabel('Office view'));
-    await tester.pump(const Duration(milliseconds: 220));
+    await _openSettings(tester);
     expect(identical(stageElement, tester.element(stage)), isTrue);
     final officeController = tester
         .widget<OfficeSceneFloor>(find.byType(OfficeSceneFloor))
@@ -218,37 +405,38 @@ void main() {
     expect(officeController.yaw, closeTo(retainedYaw, 1e-9));
     expect(officeController.zoom, closeTo(retainedZoom, 1e-9));
     expect(
-      find.byKey(const ValueKey('office-section-content-organization')),
+      find.byKey(const ValueKey('settings-section-content-organization')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reduced motion makes Office section changes immediate', (
+  testWidgets('reduced motion makes Settings section changes immediate', (
     tester,
   ) async {
     _setWindow(tester);
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
-        child: const FrankApp(),
+        child: const FrankApp(showLogin: false),
       ),
     );
     await tester.pump(const Duration(milliseconds: 500));
 
+    await _openSettings(tester);
     final switcher = tester.widget<AnimatedSwitcher>(
-      find.byKey(const ValueKey('office-section-content-switcher')),
+      find.byKey(const ValueKey('settings-section-content-switcher')),
     );
     expect(switcher.duration, Duration.zero);
     expect(switcher.reverseDuration, Duration.zero);
 
-    await tester.tap(find.byKey(const ValueKey('office-section-team')));
+    await tester.tap(find.byKey(const ValueKey('settings-section-team')));
     // Forui's tappable semantics finish their press lifecycle on a short
     // timer. Drain it so the reduced-motion assertion does not leave a
     // pending callback when the widget tree is disposed.
     await tester.pump(const Duration(milliseconds: 120));
     expect(
-      find.byKey(const ValueKey('office-section-content-team')),
+      find.byKey(const ValueKey('settings-section-content-team')),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
@@ -338,7 +526,7 @@ void main() {
       MainSidebarContent.fixedWidth,
     );
     expect(
-      tester.getSize(find.bySemanticsLabel('Workspace view')).width,
+      tester.getSize(find.byKey(const ValueKey('global-navigation'))).width,
       greaterThan(180),
     );
     expect(tester.takeException(), isNull);
@@ -383,7 +571,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
@@ -418,7 +606,7 @@ void main() {
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.bySemanticsLabel('Projects view'), findsOneWidget);
+    expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'workspace-search');
   });
 
@@ -427,7 +615,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     expect(find.bySemanticsLabel('Resize sidebar'), findsOneWidget);
     expect(
@@ -452,7 +640,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     expect(
       find.byTooltip(
@@ -499,7 +687,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
@@ -508,7 +696,7 @@ void main() {
     await tester.tap(find.text('Map warehouse intake').first);
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.bySemanticsLabel('Projects view'), findsOneWidget);
+    expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
     expect(find.text('Map warehouse intake'), findsWidgets);
     expect(
       find.bySemanticsLabel(
@@ -526,7 +714,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     expect(
       find.byTooltip(
@@ -560,7 +748,7 @@ void main() {
     await tester.tap(find.text('Maya Chen'));
     await tester.pump(const Duration(milliseconds: 220));
     expect(
-      find.byKey(const ValueKey('office-section-surface-team')),
+      find.byKey(const ValueKey('settings-section-surface-team')),
       findsOneWidget,
     );
     expect(find.bySemanticsLabel('Team roster'), findsOneWidget);
@@ -572,7 +760,7 @@ void main() {
   ) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     await tester.tap(find.text('Design replenishment dashboard'));
     await tester.pump();
@@ -597,7 +785,7 @@ void main() {
   testWidgets('clicking composer padding focuses its input', (tester) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     final composer = find.byType(FocusableComposer);
     expect(composer, findsOneWidget);
@@ -612,7 +800,7 @@ void main() {
   testWidgets('floor reset stays outside the chat composer', (tester) async {
     _setWindow(tester);
     await _pumpApp(tester);
-    await _openProjects(tester);
+    await _openOffice(tester);
 
     final resetButton = find.byKey(const ValueKey('floor-reset-view-button'));
     expect(resetButton, findsOneWidget);
@@ -637,12 +825,17 @@ void _setWindow(WidgetTester tester, [Size size = const Size(1600, 1000)]) {
 }
 
 Future<void> _pumpApp(WidgetTester tester) async {
-  await tester.pumpWidget(const FrankApp());
+  await tester.pumpWidget(const FrankApp(showLogin: false));
   await tester.pump(const Duration(milliseconds: 500));
 }
 
-Future<void> _openProjects(WidgetTester tester) async {
-  await tester.tap(find.bySemanticsLabel('Projects view'));
+Future<void> _openOffice(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel('Office view'));
+  await tester.pump(const Duration(milliseconds: 220));
+}
+
+Future<void> _openSettings(WidgetTester tester) async {
+  await tester.tap(find.bySemanticsLabel('Settings view'));
   await tester.pump(const Duration(milliseconds: 220));
 }
 

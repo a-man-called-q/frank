@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/office_ui.dart';
+
 class RenameProjectDialog extends StatefulWidget {
   const RenameProjectDialog({required this.projectName, super.key});
 
@@ -184,13 +186,17 @@ class ErrorShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final friendlyError = frankFriendlyError(
+      error,
+      fallback: 'The local workspace could not be loaded.',
+    );
     return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Could not load the local workspace.\n$error',
+              'Could not load the local workspace.\n$friendlyError',
               textAlign: TextAlign.center,
             ),
             if (onRetry != null) ...[

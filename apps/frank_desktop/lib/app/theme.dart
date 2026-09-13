@@ -17,16 +17,27 @@ abstract final class FrankTypography {
 /// values in the app theme lets Organization (and future Office surfaces) use
 /// the same quiet rhythm without coupling feature code to Forui internals.
 abstract final class FrankUiTokens {
+  static const pageTitleSize = 22.0;
+  static const pageTitleLineHeight = 28.0;
+  static const cardTitleSize = 14.0;
+  static const bodyTextSize = 13.0;
+  static const metadataTextSize = 12.0;
   static const controlRadius = 7.0;
   static const panelRadius = 8.0;
   static const controlHeight = 32.0;
   static const toolbarHeight = 36.0;
+  static const inspectorRailWidth = 320.0;
   static const iconSize = 16.0;
   static const textSize = 12.0;
   static const hoverInkOpacity = 0.06;
   static const selectedInkOpacity = 0.08;
   static const borderWidth = 1.0;
   static const inset = 12.0;
+  static const pageGutter = 24.0;
+  static const compactPageGutter = 16.0;
+  static const motionFast = Duration(milliseconds: 120);
+  static const motionStandard = Duration(milliseconds: 160);
+  static const motionSlow = Duration(milliseconds: 180);
 }
 
 ThemeData buildFrankTheme(Brightness brightness) {
@@ -117,15 +128,15 @@ ThemeData buildFrankTheme(Brightness brightness) {
     scaffoldBackgroundColor: dark
         ? const Color(0xFF101113)
         : const Color(0xFFF7F7F4),
-    dividerColor: dark ? const Color(0xFF2B2D31) : const Color(0xFFE0E0DA),
+    dividerColor: dark ? FrankColors.border : const Color(0xFFE0E0DA),
     cardTheme: CardThemeData(
-      color: dark ? const Color(0xFF17191C) : Colors.white,
+          color: dark ? FrankColors.panel : Colors.white,
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
         side: BorderSide(
-          color: dark ? const Color(0xFF2B2D31) : const Color(0xFFE0E0DA),
+          color: dark ? FrankColors.border : const Color(0xFFE0E0DA),
         ),
       ),
     ),
@@ -195,17 +206,29 @@ abstract final class FrankColors {
   static const aubergine = Color(0xFF4A263D);
   static const aubergineSoft = Color(0xFF241921);
   static const aubergineAccent = Color(0xFF9B708D);
+  // Canonical operations-lab tokens. The older aubergine names above remain
+  // as compatibility aliases for the login and organization integrations;
+  // new surfaces should use these explicit tokens so the hierarchy is easy to
+  // audit against the visual system.
+  static const aubergineSelection = Color(0xFF6B3A58);
+  static const accent = Color(0xFFC394B4);
+  static const greenSoft = Color(0xFF1E2A20);
+  static const primaryAction = Color(0xFFA8C97E);
+  static const textPrimary = Color(0xFFF2F1EB);
+  static const textMuted = Color(0xFFA4A8A3);
+  static const panelBorder = Color(0xFF303338);
   static const warningAmber = Color(0xFFE2A84B);
   static const warningAmberSoft = Color(0xFF3A2E1C);
-  static const ink = Color(0xFFE8E9E7);
-  static const muted = Color(0xFF9A9D9B);
+  static const ink = textPrimary;
+  static const muted = textMuted;
   static const canvas = Color(0xFF101113);
   static const panel = Color(0xFF17191C);
   static const panelRaised = Color(0xFF1D2024);
-  static const sidebarGlass = Color(0x401A1821);
-  static const sidebarSolid = Color(0xFF1A1821);
+  static const sidebarGlass = Color(0x240C0D10);
+  static const sidebarSolid = Color(0xFF17191C);
   static const tooltipPanel = Color(0xE61D1724);
-  static const border = Color(0xFF2B2D31);
-  static const green = Color(0xFF77C69B);
+  static const border = panelBorder;
+  static const green = primaryAction;
   static const blue = Color(0xFF82B7E8);
+  static const failure = Color(0xFFE47B7B);
 }

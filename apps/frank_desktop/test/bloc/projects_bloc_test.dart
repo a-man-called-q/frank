@@ -53,7 +53,7 @@ void main() {
         ),
       );
       await Future<void>.delayed(const Duration(milliseconds: 1));
-      bloc.add(const ProjectsViewEntered());
+      bloc.add(const OfficeViewEntered());
     },
     expect: () => [
       predicate<ProjectsState>((state) => state.isReady),

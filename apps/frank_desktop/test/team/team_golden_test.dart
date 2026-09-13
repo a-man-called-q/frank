@@ -3,8 +3,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
+import 'package:frank_desktop/core/fixtures/fixture_team.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
-import 'package:frank_desktop/features/team/team_surface.dart';
+import 'package:frank_desktop/features/team/presentation/team_surface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -14,7 +15,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
     _setSize(tester, const ui.Size(1600, 1000));
-    await tester.pumpWidget(_goldenApp(TeamSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _goldenApp(
+        TeamSurface(
+          workspace: workspace!,
+          profiles: fixtureTeamProfiles(workspace),
+        ),
+      ),
+    );
     await _precacheTeamPortraits(tester);
     await tester.pump(const Duration(milliseconds: 250));
     await expectLater(
@@ -28,7 +36,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
     _setSize(tester, const ui.Size(1600, 1000));
-    await tester.pumpWidget(_goldenApp(TeamSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _goldenApp(
+        TeamSurface(
+          workspace: workspace!,
+          profiles: fixtureTeamProfiles(workspace),
+        ),
+      ),
+    );
     await _precacheTeamPortraits(tester);
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
@@ -46,7 +61,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
     _setSize(tester, const ui.Size(680, 800));
-    await tester.pumpWidget(_goldenApp(TeamSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _goldenApp(
+        TeamSurface(
+          workspace: workspace!,
+          profiles: fixtureTeamProfiles(workspace),
+        ),
+      ),
+    );
     await _precacheTeamPortraits(tester);
     await tester.pump(const Duration(milliseconds: 250));
     await expectLater(
@@ -62,10 +84,7 @@ Widget _goldenApp(Widget child) {
     theme: buildFrankTheme(Brightness.dark),
     home: RepaintBoundary(
       key: const ValueKey('team-golden-root'),
-      child: ColoredBox(
-        color: FrankColors.canvas,
-        child: Padding(padding: const EdgeInsets.all(32), child: child),
-      ),
+      child: child,
     ),
   );
 }

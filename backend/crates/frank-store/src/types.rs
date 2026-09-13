@@ -5,6 +5,7 @@
 //! tokens, ticket secrets) must never be handed to a protocol type.
 
 use frank_protocol::*;
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
@@ -49,4 +50,34 @@ pub struct StoredAgentCapability {
     pub issued_at: u64,
     pub expires_at: u64,
     pub revoked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredOwner {
+    pub owner_id: UserId,
+    pub username: String,
+    pub password_hash: String,
+    pub created_at: u64,
+    pub password_changed_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredAuthSession {
+    pub session_id: SessionId,
+    pub owner_id: UserId,
+    pub device_id: DeviceId,
+    pub token_hash: String,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub last_seen_at: u64,
+    pub revoked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredProviderSessionItem {
+    pub session_id: String,
+    pub item_id: String,
+    pub sequence: u64,
+    pub value: Value,
+    pub created_at: Timestamp,
 }

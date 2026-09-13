@@ -1,9 +1,147 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:frank_desktop/features/shell/presentation/frank_desktop_menu.dart';
+import 'package:frank_desktop/app/controls/frank_desktop_menu.dart';
 
 void main() {
+  testWidgets('canonical select field matches its trigger width', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(600, 400));
+    final triggerKey = GlobalKey();
+
+    await tester.pumpWidget(
+      _menuHost(
+        child: SizedBox(
+          width: 220,
+          child: FrankDesktopSelectField<String>(
+            value: 'one',
+            options: const [
+              FrankDesktopSelectOption(value: 'one', label: 'One'),
+              FrankDesktopSelectOption(value: 'two', label: 'Two'),
+            ],
+            onChanged: _select,
+            fieldKey: triggerKey,
+            semanticsLabel: 'Project scope',
+          ),
+        ),
+        left: 20,
+        top: 20,
+      ),
+    );
+    await tester.tap(find.byKey(triggerKey));
+    await tester.pump();
+
+    final trigger = tester.getRect(find.byKey(triggerKey));
+    final menu = tester.getRect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_FrankDesktopMenuSurface',
+      ),
+    );
+    expect(menu.width, closeTo(trigger.width, 0.01));
+  });
+
+  testWidgets('searchable select filters options inside the shared menu', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(600, 400));
+    final triggerKey = GlobalKey();
+
+    await tester.pumpWidget(
+      _menuHost(
+        child: FrankDesktopSelectField<String>(
+          value: 'alpha',
+          options: const [
+            FrankDesktopSelectOption(value: 'alpha', label: 'Alpha'),
+            FrankDesktopSelectOption(value: 'beta', label: 'Beta'),
+          ],
+          onChanged: _select,
+          fieldKey: triggerKey,
+          searchable: true,
+          semanticsLabel: 'Model',
+        ),
+        left: 20,
+        top: 20,
+      ),
+    );
+    await tester.tap(find.byKey(triggerKey));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'beta');
+    await tester.pump();
+
+    final menu = find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString() == '_FrankDesktopMenuSurface',
+    );
+    expect(
+      find.descendant(of: menu, matching: find.text('Beta')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: menu, matching: find.text('Alpha')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('pointer-open context menus use the fixed action width', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(600, 400));
+    final controller = FrankDesktopMenuController();
+    await tester.pumpWidget(
+      _menuHost(
+        child: FrankDesktopMenu(
+          controller: controller,
+          groups: const [
+            FrankMenuGroup([FrankMenuItem(label: 'Delete', onPressed: _noop)]),
+          ],
+          child: const SizedBox(width: 1, height: 1),
+        ),
+        left: 0,
+        top: 0,
+      ),
+    );
+    controller.openAt(const Offset(100, 100));
+    await tester.pump();
+
+    final menu = tester.getRect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_FrankDesktopMenuSurface',
+      ),
+    );
+    expect(menu.width, 248);
+  });
+
+  testWidgets('menus clamp their width inside a narrow viewport', (
+    tester,
+  ) async {
+    _setWindow(tester, const Size(220, 300));
+    final controller = FrankDesktopMenuController();
+    await tester.pumpWidget(
+      _menuHost(
+        child: FrankDesktopMenu(
+          controller: controller,
+          groups: const [
+            FrankMenuGroup([FrankMenuItem(label: 'Action', onPressed: _noop)]),
+          ],
+          child: const SizedBox(width: 1, height: 1),
+        ),
+        left: 0,
+        top: 0,
+      ),
+    );
+    controller.openAt(const Offset(100, 100));
+    await tester.pump();
+
+    final menu = tester.getRect(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == '_FrankDesktopMenuSurface',
+      ),
+    );
+    expect(menu.width, lessThanOrEqualTo(204));
+    expect(menu.left, greaterThanOrEqualTo(8));
+    expect(menu.right, lessThanOrEqualTo(212));
+  });
+
   testWidgets('context menu opens to the right without covering its anchor', (
     tester,
   ) async {

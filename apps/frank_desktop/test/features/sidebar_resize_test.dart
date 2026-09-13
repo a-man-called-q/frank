@@ -159,6 +159,6 @@ void _setWindow(WidgetTester tester, [Size size = const Size(1600, 1000)]) {
 }
 
 Future<void> _pumpApp(WidgetTester tester) async {
-  await tester.pumpWidget(const FrankApp());
+  await tester.pumpWidget(const FrankApp(showLogin: false));
   await tester.pump(const Duration(milliseconds: 500));
 }

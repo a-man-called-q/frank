@@ -9,12 +9,12 @@
 use std::collections::{HashMap, VecDeque};
 
 use frank_protocol::{
-    AgentId, Budget, MissionId, Provider, SupervisorPlanProposal, TaskId, TaskSpec,
+    AgentId, AgentStatus, Budget, DEFAULT_REWORK_LIMIT, MissionId, SupervisorPlanProposal, TaskId,
+    TaskSpec, WorkItemKind,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisorPolicy {
-    pub provider: Option<Provider>,
     pub max_tasks: usize,
     pub auto_assign: bool,
 }
@@ -22,7 +22,6 @@ pub struct SupervisorPolicy {
 impl Default for SupervisorPolicy {
     fn default() -> Self {
         Self {
-            provider: None,
             max_tasks: 32,
             auto_assign: true,
         }
@@ -117,11 +116,20 @@ pub fn proposal_to_plan(proposal: SupervisorPlanProposal) -> Result<SupervisorPl
             title: task.title.clone(),
             objective: task.objective.clone(),
             dependencies: Vec::new(),
+            required_role_id: task.target_role_id,
             priority: task.priority,
-            assigned_agent: task
-                .assigned_agent
-                .or_else(|| task.candidate_agents.first().copied()),
+            // Candidate lists are advisory to the supervisor. Persisting the
+            // first candidate as an assignment would turn a role queue into a
+            // hidden hard-coded owner and bypass least-recently-claimed
+            // fairness. Only an explicit assigned_agent is a manual override;
+            // otherwise the daemon claims the task for an eligible member.
+            assigned_agent: task.assigned_agent,
             budget: task.budget.clone(),
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            kind: WorkItemKind::Task,
+            rework_limit: DEFAULT_REWORK_LIMIT,
         });
         task_keys.push(key);
         dependency_keys.push(task.dependencies.clone());
@@ -156,9 +164,15 @@ pub fn decompose_objective(
             ),
             objective: part.to_string(),
             dependencies: Vec::new(),
+            required_role_id: None,
             priority: (max_tasks.saturating_sub(index)) as i32,
             assigned_agent: None,
             budget: Budget::unlimited(),
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            kind: WorkItemKind::Task,
+            rework_limit: DEFAULT_REWORK_LIMIT,
         })
         .collect::<Vec<_>>();
     if tasks.is_empty() {
@@ -167,9 +181,15 @@ pub fn decompose_objective(
             title: "Mission objective".into(),
             objective: objective.trim().to_string(),
             dependencies: Vec::new(),
+            required_role_id: None,
             priority: 0,
             assigned_agent: None,
             budget: Budget::unlimited(),
+            taskboard_id: None,
+            workflow_id: None,
+            parent_task_id: None,
+            kind: WorkItemKind::Task,
+            rework_limit: DEFAULT_REWORK_LIMIT,
         });
     }
     let task_count = tasks.len();
@@ -189,20 +209,37 @@ pub fn assign_ready_tasks(
     agents: &[frank_protocol::AgentView],
 ) -> Vec<(TaskId, AgentId)> {
     let mut assignments = Vec::new();
-    for (agent_index, task) in tasks
-        .iter_mut()
-        .filter(|task| {
-            task.status == frank_protocol::TaskStatus::Ready && task.assigned_agent.is_none()
+    let mut available = agents
+        .iter()
+        .filter(|agent| {
+            !agent.archived
+                && agent.display_name != "Frank supervisor"
+                && matches!(agent.status, AgentStatus::Offline | AgentStatus::Idle)
         })
-        .enumerate()
-    {
-        let Some(agent) = agents
-            .iter()
-            .filter(|agent| !agent.archived)
-            .nth(agent_index)
-        else {
-            break;
+        .collect::<Vec<_>>();
+    available.sort_by(|left, right| {
+        let left_claim = left
+            .last_claimed_at
+            .as_deref()
+            .and_then(|value| value.parse::<u128>().ok());
+        let right_claim = right
+            .last_claimed_at
+            .as_deref()
+            .and_then(|value| value.parse::<u128>().ok());
+        left_claim
+            .cmp(&right_claim)
+            .then_with(|| left.id.to_string().cmp(&right.id.to_string()))
+    });
+    for task in tasks.iter_mut().filter(|task| {
+        task.status == frank_protocol::TaskStatus::Ready && task.assigned_agent.is_none()
+    }) {
+        let Some(index) = available.iter().position(|agent| {
+            task.required_role_id
+                .is_none_or(|role_id| agent.role_id == Some(role_id))
+        }) else {
+            continue;
         };
+        let agent = available.remove(index);
         task.assigned_agent = Some(agent.id);
         assignments.push((task.id, agent.id));
     }
@@ -234,6 +271,7 @@ mod tests {
                     dependencies: vec!["first".into()],
                     priority: 0,
                     candidate_agents: Vec::new(),
+                    target_role_id: None,
                     assigned_agent: None,
                     policy_requirement: None,
                     budget: Budget::unlimited(),
@@ -245,6 +283,7 @@ mod tests {
                     dependencies: Vec::new(),
                     priority: 0,
                     candidate_agents: Vec::new(),
+                    target_role_id: None,
                     assigned_agent: None,
                     policy_requirement: None,
                     budget: Budget::unlimited(),
@@ -265,6 +304,7 @@ mod tests {
                 dependencies: vec!["missing".into()],
                 priority: 0,
                 candidate_agents: Vec::new(),
+                target_role_id: None,
                 assigned_agent: None,
                 policy_requirement: None,
                 budget: Budget::unlimited(),

@@ -5,6 +5,22 @@ import '../../../app/theme.dart';
 import '../../../core/models/workspace_models.dart';
 import '../sidebar_layout.dart';
 
+String _contextSubtitle(OfficeMission? mission, OfficeProject? project) {
+  if (mission == null) {
+    if (project == null) return 'Workspace';
+    return project.client;
+  }
+  return project?.name ?? 'Mission';
+}
+
+double _attentionReserved({
+  required bool attention,
+  required bool showLabel,
+}) {
+  if (!attention) return 0;
+  return showLabel ? 140 : 40;
+}
+
 class ShellContextBar extends StatelessWidget {
   static const height = 32.0;
   static const _toggleHitboxSize = 32.0;
@@ -17,9 +33,7 @@ class ShellContextBar extends StatelessWidget {
   // it. Position the logo from the glyph's painted right edge so the optical
   // gap matches the logo-to-title gap below.
   static const _collapsedLogoOffset =
-      (_toggleHitboxSize - _glyphSize) / 2 +
-      _glyphSize +
-      _collapsedVisualGap;
+      (_toggleHitboxSize - _glyphSize) / 2 + _glyphSize + _collapsedVisualGap;
   static const _collapsedTitleOffset =
       _collapsedLogoOffset + _logoSize + _collapsedVisualGap;
 
@@ -56,14 +70,15 @@ class ShellContextBar extends StatelessWidget {
         final showAttentionLabel = constraints.maxWidth >= 760;
         final showConnectionLabel = constraints.maxWidth >= 520;
         final contextTitle = mission?.title ?? project?.name ?? workspace.name;
-        final contextSubtitle = mission == null
-            ? (project == null ? 'Workspace' : project!.client)
-            : project?.name ?? 'Mission';
+        final contextSubtitle = _contextSubtitle(mission, project);
         final attention =
             project?.missions.any((candidate) => candidate.needsAttention) ??
             false;
         final rightReserved =
-            (attention ? (showAttentionLabel ? 140.0 : 40.0) : 0.0) +
+            _attentionReserved(
+              attention: attention,
+              showLabel: showAttentionLabel,
+            ) +
             (showConnectionLabel ? 120.0 : 40.0) +
             24.0;
 

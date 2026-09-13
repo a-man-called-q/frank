@@ -1,0 +1,46 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+language: 'unknown'
+stack: 'infrastructure'
+
+tasks:
+  run-mac:
+    command: './scripts/demo-run-mac.sh'
+    inputs:
+      - '/Cargo.toml'
+      - '/Cargo.lock'
+      - '/Dockerfile'
+      - '/docker-compose.yml'
+      - '/scripts/demo-run-mac.sh'
+      - '/scripts/dev-cert.sh'
+      - '/backend/crates/**/*'
+      - '/packs/**/*'
+      - '/apps/frank_desktop/assets/**/*'
+      - '/apps/frank_desktop/lib/**/*'
+      - '/apps/frank_desktop/macos/Flutter/*.xcconfig'
+      - '/apps/frank_desktop/macos/Flutter/GeneratedPluginRegistrant.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.swift'
+      - '/apps/frank_desktop/macos/Runner/**/*.plist'
+      - '/apps/frank_desktop/macos/Runner/**/*.entitlements'
+      - '/apps/frank_desktop/macos/Runner.xcodeproj/project.pbxproj'
+      - '/apps/frank_desktop/macos/Runner.xcworkspace/contents.xcworkspacedata'
+      - '/apps/frank_desktop/macos/RunnerTests/**/*.swift'
+      - '/apps/frank_desktop/macos/Podfile'
+      - '/apps/frank_desktop/macos/Podfile.lock'
+      - '/apps/frank_desktop/pubspec.yaml'
+      - '/apps/frank_desktop/pubspec.lock'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+      persistent: true
+      runInCI: false
+
+  stop-mac:
+    command: './scripts/demo-stop-mac.sh'
+    inputs:
+      - '/docker-compose.yml'
+      - '/scripts/demo-stop-mac.sh'
+    options:
+      runFromWorkspaceRoot: true
+      cache: false
+      runInCI: false

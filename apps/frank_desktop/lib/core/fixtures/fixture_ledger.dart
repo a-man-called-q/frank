@@ -270,6 +270,7 @@ LedgerDashboardData fixtureLedgerDashboard(OfficeWorkspace workspace) {
   ];
 
   return LedgerDashboardData(
+    isFixture: true,
     operational: LedgerOperationalData(
       entries: List.unmodifiable(operationalEntries),
       asOf: DateTime.utc(2026, 9, 3, 23, 59),

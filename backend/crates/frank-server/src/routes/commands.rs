@@ -19,7 +19,10 @@ pub(crate) async fn snapshot(
             );
         };
         return match scoped_agent_snapshot(&state, agent_id, task_id).await {
-            Some(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
+            Some(mut snapshot) => {
+                refresh_connector_status(&state, &mut snapshot);
+                (StatusCode::OK, Json(snapshot)).into_response()
+            }
             None => api_error_response(
                 StatusCode::FORBIDDEN,
                 ApiError::new(
@@ -36,11 +39,32 @@ pub(crate) async fn snapshot(
         );
     };
     match state.store.snapshot().await {
-        Ok(snapshot) => (StatusCode::OK, Json(snapshot)).into_response(),
+        Ok(mut snapshot) => {
+            refresh_connector_status(&state, &mut snapshot);
+            (StatusCode::OK, Json(snapshot)).into_response()
+        }
         Err(_) => api_error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::new(ErrorCode::Internal, "snapshot unavailable"),
         ),
+    }
+}
+
+fn refresh_connector_status(state: &ServerState, snapshot: &mut Snapshot) {
+    for profile in &mut snapshot.organization.connector_profiles {
+        if profile.kind == ConnectorKind::Taskboard {
+            // Taskboard is a daemon-owned adapter and has no external
+            // credential or connection test.
+            profile.configured = true;
+            profile.health = ConnectorHealth::Healthy;
+            profile.diagnostic = None;
+        } else {
+            profile.configured = state.connector_credentials.configured(profile.id);
+            if !profile.configured {
+                profile.health = ConnectorHealth::Unknown;
+                profile.diagnostic = Some("credential is not configured".into());
+            }
+        }
     }
 }
 

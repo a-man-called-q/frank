@@ -16,7 +16,7 @@ frank_desktop (Flutter office) ──HTTPS/WS──> frankd
                                               SQLite WAL + worktrees + PTYs
 ```
 
-The v1 wire contract is in `frank-protocol`: typed IDs, version negotiation,
+The v2 wire contract is in `frank-protocol`: typed IDs, version negotiation,
 idempotent `CommandEnvelope`, monotonic `EventEnvelope`, bounded payloads,
 pairing/device roles, snapshots, and terminal frames. `frank-store` is the
 SQLite WAL source of truth and writes an append-only JSONL audit outbox in the
@@ -43,6 +43,7 @@ backend/crates/frank-app ──> pack, state, ledger, target, safeio
 backend/crates/frank-protocol ──> (leaves)
 backend/crates/frank-store ──> frank-protocol, frank-safeio
 backend/crates/frank-agent ──> frank-protocol
+backend/crates/frank-tool-catalog ──> (leaves)
 backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
 backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio
 backend/crates/frank-client ──> frank-protocol
@@ -65,31 +66,35 @@ Each module has one consumer. Premature splitting adds complexity without isolat
 
 ## Detailed Crate Responsibilities
 
-### v1 server crates
+### v2 server crates
 
-`frank-server` exposes `/v1/health`, `/v1/handshake`, `/v1/capabilities`, `/v1/pair`,
-`/v1/snapshot`, `/v1/commands`, artifact downloads, and event/terminal WebSocket
+`frank-server` exposes `/v2/health`, `/v2/handshake`, `/v2/capabilities`, `/v2/pair`,
+`/v2/snapshot`, `/v2/commands`, artifact downloads, and event/terminal WebSocket
 streams. The handshake negotiates the protocol range before a client subscribes
 or mutates state. Pairing secrets are 256-bit, short-lived, and single-use; device
 tokens are hashed and roles are enforced before a command reaches the
 orchestrator.  Non-loopback plaintext binds are rejected.
 
 `frank-orchestrator` owns the legal mission/task/agent transitions, dependency
-DAG validation, four-total/two-per-provider scheduler caps, six-hop mailbox
+DAG validation, one total scheduler cap, six-hop mailbox
 deduplication, measured-only hard budgets, approval decisions, and take-control
 leases.  It creates the mission and task branch names but keeps all Git writes
 in the daemon workflow.
 
-`frank-agent` probes the locally logged-in Codex and Claude executables and
-starts structured sessions on demand.  Codex uses its local app-server stdio
-transport; Claude uses documented stream-json/resume/permission events.  A
-provider that is missing or reports an unsupported protocol is disabled with a
-doctor diagnostic rather than screen-scraped.
+`frank-agent` owns one structured OpenRouter session runtime. It validates the
+credential, model catalog, streaming frames, usage telemetry, and durable
+transcript resume path. Missing credentials or an unavailable endpoint are
+reported through the doctor diagnostic; no local provider executable is probed.
 
 `frank-agent-mcp` is a local stdio JSON-RPC bridge with a short-lived
 agent/task capability.  Its tool list covers task, broker message, artifact,
 memory proposal, and approval reads; it cannot update another profile, change
 budgets, approve itself, or invoke Git delivery.
+
+`frank-tool-catalog` is the single source for tool IDs, real JSON schemas,
+transport exposure, execution owner, effect, network requirement, approval
+rule, and Organization permission. OpenRouter and MCP both render from this
+catalog and route mutations through the same daemon policy gate.
 
 `apps/frank_desktop` owns the client-side shell. Its `FrankGateway` abstraction
 keeps fixtures and the future `frank-client` transport interchangeable. The

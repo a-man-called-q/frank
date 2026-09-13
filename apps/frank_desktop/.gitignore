@@ -7,6 +7,9 @@
 .metadata
 build/
 coverage/
+.env
+.env.*
+!.env.example
 
 # Flutter platform-generated files are committed only when the desktop target
 # is enabled deliberately.

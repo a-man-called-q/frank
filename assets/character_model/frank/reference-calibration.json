@@ -1,0 +1,126 @@
+{
+  "reference": "assets/character_model/frank/references/male_apose_gpt/front.png",
+  "method": "Manual landmarks on original 1182x1330 image; 1148px height maps to 1.5m. Targets recorded before revision 1.3. Side depth approximate, not a strict silhouette gate.",
+  "pixel_top": 100,
+  "pixel_floor": 1248,
+  "landmarks_px": {
+    "head_bottom": 580,
+    "shoulder_outer": 620,
+    "elbow": 773,
+    "wrist": 880,
+    "brief_top": 848,
+    "crotch": 964,
+    "knee": 1072,
+    "foot_top": 1194
+  },
+  "widths_px": {
+    "head": 444,
+    "jaw": 380,
+    "chest": 267,
+    "waist": 272,
+    "hip": 276,
+    "foot": 122,
+    "hand": 98
+  },
+  "contour_rows_px": {
+    "650": [
+      402,
+      769
+    ],
+    "720": [
+      451,
+      718
+    ],
+    "800": [
+      456,
+      713
+    ],
+    "850": [
+      450,
+      719
+    ]
+  },
+  "foot_design": "Unsegmented rounded forefoot as front/right/back reference; no separate toe lobes.",
+  "initial_manual_contour_rows_px": {
+    "650": [
+      429,
+      750
+    ],
+    "720": [
+      451,
+      730
+    ],
+    "800": [
+      451,
+      730
+    ],
+    "850": [
+      448,
+      724
+    ]
+  },
+  "contour_trace_method": "Corrected against original RGB pixels: G-R>10, G-B>30, G>80; choose central connected skin interval at rows 650/720/800. Row 850 additionally includes max(R,G,B)<120 for the charcoal waistband. Inclusive edge pixels; original rough manual bounds preserved separately. No model pixels used to set targets.",
+  "revision": "1.4",
+  "recording_note": "Front baseline measurements predate 1.4. Additional side/head/ear targets recorded after initial 1.4 construction preview, before final contour iteration; do not claim all were pre-model measurements.",
+  "side": {
+    "source": "assets/character_model/frank/references/male_apose_gpt/right.png",
+    "top_px": 77,
+    "floor_px": 1265,
+    "camera_yaw_from_side_deg": 7.8,
+    "camera_note": "Estimated from visible single eye and bolt face; not a recovered camera. True orthographic side also rendered.",
+    "projected_contour_rows_px": {
+      "650": [
+        513,
+        681
+      ],
+      "750": [
+        477,
+        683
+      ],
+      "850": [
+        465,
+        685
+      ],
+      "900": [
+        463,
+        693
+      ]
+    },
+    "ear_bounds_px": [
+      570,
+      363,
+      650,
+      499
+    ],
+    "head_bounds_px": [
+      398,
+      77,
+      810,
+      591
+    ]
+  },
+  "head_front_rows_px": {
+    "150": [
+      369,
+      808
+    ],
+    "250": [
+      365,
+      812
+    ],
+    "500": [
+      389,
+      788
+    ],
+    "560": [
+      402,
+      775
+    ],
+    "300": [
+      367,
+      809
+    ]
+  },
+  "head_front_rows_note": "Source RGB boundary trace in head-only X window 350..829: G-R>10, G-B>30, G>80. Fixed reference measurements, no candidate pixels.",
+  "acceptance": "Technical checks and existing front measured dimensions are independent from human visual contour review."
+}

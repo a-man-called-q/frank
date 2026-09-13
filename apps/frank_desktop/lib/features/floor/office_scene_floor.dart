@@ -23,6 +23,12 @@ extension OfficeSceneActivityX on OfficeSceneActivity {
   bool get shouldTick => this == OfficeSceneActivity.live;
 }
 
+/// The authored content to place in a retained scene.
+///
+/// Login uses an empty scene as a quiet backdrop while the office preset
+/// remains the default for the workspace floor.
+enum OfficeScenePreset { office, empty }
+
 /// Owns the transient camera state for an interactive office floor.
 ///
 /// The controller deliberately models the interactions currently supported by
@@ -394,13 +400,15 @@ class OfficeOrthographicProjection extends CameraProjection {
 /// Owns the retained office scene and composes optional glass content above it.
 ///
 /// The stage keeps the scene/resource handle alive while its foreground
-/// changes between Office sections. Its filter is applied only to the scene
+/// changes between Settings sections. Its filter is applied only to the scene
 /// visual, leaving loading/error/retry controls and the foreground sharp.
 class OfficeSceneStage extends StatefulWidget {
   const OfficeSceneStage({
     this.activity = OfficeSceneActivity.static,
+    this.preset = OfficeScenePreset.office,
     this.blurSigma = 0.0,
     this.scrimColor = Colors.transparent,
+    this.semanticLabel = 'Stylized 3D office floor',
     this.foreground,
     this.controller,
     this.initializeResources,
@@ -410,11 +418,17 @@ class OfficeSceneStage extends StatefulWidget {
   /// Whether this stage should schedule scene animation ticks.
   final OfficeSceneActivity activity;
 
+  /// Selects the authored content for the retained scene.
+  final OfficeScenePreset preset;
+
   /// The blur radius applied to the retained scene visual only.
   final double blurSigma;
 
   /// A pointer-transparent tint placed between the scene and [foreground].
   final Color scrimColor;
+
+  /// Accessibility label for the scene and its loading/error states.
+  final String semanticLabel;
 
   /// Interactive content composed above the scene and scrim.
   final Widget? foreground;
@@ -440,16 +454,20 @@ class OfficeSceneFloor extends StatelessWidget {
   const OfficeSceneFloor({
     super.key,
     this.activity = OfficeSceneActivity.static,
+    this.preset = OfficeScenePreset.office,
     this.blurSigma = 0.0,
     this.scrimColor = Colors.transparent,
+    this.semanticLabel = 'Stylized 3D office floor',
     this.foreground,
     this.controller,
     this.initializeResources,
   });
 
   final OfficeSceneActivity activity;
+  final OfficeScenePreset preset;
   final double blurSigma;
   final Color scrimColor;
+  final String semanticLabel;
   final Widget? foreground;
   final OfficeSceneController? controller;
   @visibleForTesting
@@ -460,8 +478,10 @@ class OfficeSceneFloor extends StatelessWidget {
     return OfficeSceneStage(
       key: const ValueKey('office-scene-stage'),
       activity: activity,
+      preset: preset,
       blurSigma: blurSigma,
       scrimColor: scrimColor,
+      semanticLabel: semanticLabel,
       foreground: foreground,
       controller: controller,
       initializeResources: initializeResources,
@@ -473,6 +493,16 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
   late Future<_OfficeSceneResult> _sceneFuture;
   _OfficeSceneHandle? _sceneHandle;
 
+  String get _loadingSemanticLabel =>
+      widget.semanticLabel == 'Stylized 3D office floor'
+      ? 'Office floor loading'
+      : '${widget.semanticLabel} loading';
+
+  String get _unavailableSemanticLabel =>
+      widget.semanticLabel == 'Stylized 3D office floor'
+      ? 'Office floor unavailable'
+      : '${widget.semanticLabel} unavailable';
+
   @override
   void initState() {
     super.initState();
@@ -483,6 +513,10 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
   @override
   void didUpdateWidget(covariant OfficeSceneStage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.preset != widget.preset) {
+      _sceneHandle = null;
+      _sceneFuture = _loadScene();
+    }
     if (!identical(oldWidget.controller, widget.controller)) {
       oldWidget.controller?.removeListener(_onControllerChanged);
       oldWidget.controller?.setReady(false);
@@ -522,6 +556,10 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
     final controller = widget.controller;
     try {
       controller?.setReady(false);
+      // Empty backdrops have nothing to draw and need no GPU resources.
+      if (widget.preset == OfficeScenePreset.empty) {
+        return const _OfficeSceneResult.empty();
+      }
       if (widget.initializeResources == null) {
         // A plain `flutter test` VM has no Impeller context. Probe it before
         // starting Scene's shared-resource future so GPU failures stay inside
@@ -558,17 +596,15 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
         color: vm.Vector3(1.0, 0.86, 0.72),
         intensity: 2.0,
       );
-      scene.addAll(_officeNodes());
+      if (widget.preset == OfficeScenePreset.office) {
+        scene.addAll(_officeNodes());
+      }
 
       if (mounted && identical(widget.controller, controller)) {
         controller?.setReady(true);
       }
       return _OfficeSceneResult.ready(
-        _OfficeSceneHandle(
-          scene,
-          cameraNode,
-          cameraComponent.toCamera(),
-        ),
+        _OfficeSceneHandle(scene, cameraNode, cameraComponent.toCamera()),
       );
     } catch (error) {
       if (mounted && identical(widget.controller, controller)) {
@@ -659,7 +695,7 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label: 'Stylized 3D office floor',
+      label: widget.semanticLabel,
       child: ClipRect(
         child: FutureBuilder<_OfficeSceneResult>(
           future: _sceneFuture,
@@ -700,14 +736,23 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
   }
 
   _OfficeSceneFrame _frameFor(AsyncSnapshot<_OfficeSceneResult> snapshot) {
+    if (widget.preset == OfficeScenePreset.empty) {
+      _sceneHandle = null;
+      return const _OfficeSceneFrame(
+        visual: ColoredBox(color: FrankColors.canvas),
+        overlay: null,
+      );
+    }
     if (snapshot.connectionState != ConnectionState.done) {
       _sceneHandle = null;
       return _OfficeSceneFrame(
         visual: Semantics(
           container: true,
           explicitChildNodes: true,
-          label: 'Office floor loading',
-          child: const CustomPaint(painter: _OfficePlaceholderPainter()),
+          label: _loadingSemanticLabel,
+          child: widget.preset == OfficeScenePreset.empty
+              ? const ColoredBox(color: FrankColors.canvas)
+              : const CustomPaint(painter: _OfficePlaceholderPainter()),
         ),
         overlay: const Align(
           alignment: Alignment.topRight,
@@ -729,6 +774,7 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: _OfficeSceneError(
+              semanticLabel: _unavailableSemanticLabel,
               onRetry: () {
                 setState(() {
                   _sceneFuture = _loadScene();
@@ -779,6 +825,8 @@ class _OfficeSceneHandle {
 class _OfficeSceneResult {
   const _OfficeSceneResult.ready(this.handle) : error = null;
 
+  const _OfficeSceneResult.empty() : handle = null, error = null;
+
   const _OfficeSceneResult.failure() : handle = null, error = true;
 
   final _OfficeSceneHandle? handle;
@@ -812,18 +860,18 @@ class _OfficeSceneLoadingBadge extends StatelessWidget {
   }
 }
 
-
 class _OfficeSceneError extends StatelessWidget {
-  const _OfficeSceneError({required this.onRetry});
+  const _OfficeSceneError({required this.onRetry, required this.semanticLabel});
 
   final VoidCallback onRetry;
+  final String semanticLabel;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       container: true,
       explicitChildNodes: true,
-      label: 'Office floor unavailable',
+      label: semanticLabel,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 280),
         child: DecoratedBox(

@@ -56,27 +56,14 @@ impl Orchestrator {
                     if !assigned {
                         return Err(OrchestratorError::Forbidden);
                     }
-                    // Provider sessions may talk to the supervisor or to a
-                    // worker participating in the same mission. They never
-                    // get a general device/system messaging primitive through
-                    // the broker, even when their task capability is valid.
+                    // Provider sessions may talk to the supervisor only.
+                    // Worker-to-worker communication is intentionally routed
+                    // through the taskboard activity feed so the task remains
+                    // the system of record and no private side channel can
+                    // bypass handoff/claim history.
                     let recipient_allowed = match spec.recipient.kind {
                         ActorKind::Supervisor => true,
-                        ActorKind::Agent => spec
-                            .recipient
-                            .id
-                            .as_deref()
-                            .and_then(|id| AgentId::parse(id).ok())
-                            .is_some_and(|recipient_id| {
-                                snapshot.agents.iter().any(|agent| {
-                                    agent.id == recipient_id
-                                        && !agent.archived
-                                        && snapshot.tasks.iter().any(|candidate| {
-                                            candidate.mission_id == mission.id
-                                                && candidate.assigned_agent == Some(recipient_id)
-                                        })
-                                })
-                            }),
+                        ActorKind::Agent => false,
                         ActorKind::Device | ActorKind::System => false,
                     };
                     if !recipient_allowed {

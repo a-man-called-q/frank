@@ -35,6 +35,49 @@ pub enum Command {
     ArchiveAgent {
         agent_id: AgentId,
     },
+    CreateRole(RoleSpec),
+    UpdateRole {
+        role_id: RoleId,
+        patch: RolePatch,
+    },
+    ArchiveRole {
+        role_id: RoleId,
+    },
+    SetAgentRole {
+        agent_id: AgentId,
+        role_id: RoleId,
+    },
+    /// Create a shared, fixed-lane taskboard. Boards may be global or scoped
+    /// to a project/workflow and remain visible in the All Work view.
+    CreateTaskboard(TaskboardSpec),
+    UpdateTaskboard {
+        taskboard_id: TaskboardId,
+        patch: TaskboardPatch,
+    },
+    ArchiveTaskboard {
+        taskboard_id: TaskboardId,
+    },
+    /// Persist a server-wide Organization draft without changing runtime
+    /// enforcement.  The graph carries its own draft revision so unrelated
+    /// task events do not cause autosave conflicts.
+    SaveOrganizationDraft {
+        graph: OrganizationGraph,
+        expected_draft_revision: u64,
+    },
+    /// Atomically activate a previously saved graph.  The expected published
+    /// revision prevents an owner from silently overwriting another owner's
+    /// published configuration.
+    PublishOrganization {
+        expected_published_revision: u64,
+    },
+    CreateConnectorProfile(ConnectorProfileSpec),
+    UpdateConnectorProfile {
+        profile_id: ConnectorProfileId,
+        patch: ConnectorProfilePatch,
+    },
+    ArchiveConnectorProfile {
+        profile_id: ConnectorProfileId,
+    },
     CreateMission {
         project_id: ProjectId,
         objective: String,
@@ -44,6 +87,24 @@ pub enum Command {
         status: MissionStatus,
     },
     CreateTask(TaskSpec),
+    /// Create a raw card directly on a board. This is the v2 entry point for
+    /// an AE/operator/agent and deliberately does not require a supervisor
+    /// generated DAG.
+    CreateWorkItem(WorkItemSpec),
+    /// Move a stable card between boards. Ownership changes are represented by
+    /// this durable drop, never by a direct agent-to-agent handoff.
+    DropWorkItem {
+        task_id: TaskId,
+        taskboard_id: TaskboardId,
+        #[serde(default)]
+        role_id: Option<RoleId>,
+    },
+    /// Fan a card out into one level of child cards. The parent remains
+    /// blocked until every child reaches Done.
+    SpawnChildWorkItems {
+        parent_task_id: TaskId,
+        children: Vec<WorkItemSpec>,
+    },
     UpdateTask {
         task_id: TaskId,
         patch: TaskPatch,
@@ -55,6 +116,72 @@ pub enum Command {
     AssignTask {
         task_id: TaskId,
         agent_id: AgentId,
+    },
+    /// Claim is a separate verb from assignment so automatic worker pickup
+    /// and operator force-assignment remain distinguishable in the feed.
+    ClaimTask {
+        task_id: TaskId,
+        agent_id: AgentId,
+        source: TaskClaimSource,
+    },
+    ReleaseTask {
+        task_id: TaskId,
+    },
+    /// Create a pull-mode offer without starting a provider session.
+    CreateWorkOffer {
+        task_id: TaskId,
+        agent_id: AgentId,
+    },
+    /// Respond to an outstanding pull-mode offer. Accepting is the provider
+    /// start boundary; declining leaves the card available for another offer.
+    RespondWorkOffer {
+        offer_id: WorkOfferId,
+        accept: bool,
+    },
+    AddTaskComment {
+        task_id: TaskId,
+        body: String,
+        #[serde(default)]
+        artifact_ids: Vec<ArtifactId>,
+    },
+    RequestHumanInput {
+        task_id: TaskId,
+        kind: HumanInputKind,
+        prompt: String,
+    },
+    ResolveHumanInput {
+        human_input_id: HumanInputId,
+        answer: String,
+    },
+    RequestTaskRework {
+        task_id: TaskId,
+        reason: String,
+    },
+    RequestOrganizationDrain {
+        target_revision: u64,
+    },
+    /// Internal daemon transition emitted after the last old-revision worker
+    /// has finished. Clients request a drain; only the reconciler completes it.
+    CompleteOrganizationDrain {
+        revision: u64,
+    },
+    /// Explicitly resume a drained Organization after relocation checks.
+    ResumeOrganization {
+        revision: u64,
+    },
+    RelocateWorkItems {
+        from_board_id: TaskboardId,
+        to_board_id: TaskboardId,
+        task_ids: Vec<TaskId>,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    /// Fire/archive a member while preserving active work as blocked cards
+    /// for handoff assessment.
+    FireAgent {
+        agent_id: AgentId,
+        #[serde(default)]
+        reason: Option<String>,
     },
     SendMessage(MessageSpec),
     AckMessage {
@@ -92,6 +219,14 @@ pub enum Command {
     },
     TaskAccept {
         task_id: TaskId,
+    },
+    /// Approve or reject a durable review work item.  Approval completes the
+    /// source task; rejection returns it to Running.
+    DecideReview {
+        review_item_id: ReviewWorkItemId,
+        decision: ReviewDecision,
+        #[serde(default)]
+        reason: Option<String>,
     },
     SubmitSupervisorPlan {
         mission_id: MissionId,
@@ -184,5 +319,8 @@ pub enum CommandResult {
     Operation(OperationView),
     Upload(ArtifactUploadView),
     PlanAccepted { task_ids: Vec<TaskId> },
+    WorkItems { task_ids: Vec<TaskId> },
+    WorkOffer(WorkOfferView),
+    HumanInput(HumanInputView),
     Update(UpdateView),
 }

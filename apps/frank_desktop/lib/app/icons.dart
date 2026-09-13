@@ -11,6 +11,20 @@ abstract final class FrankIcons {
   static const panelOpen = FLucideIcons.panelLeft;
   static const panelClose = FLucideIcons.panelLeftClose;
   static const dashboard = FLucideIcons.layoutDashboard;
+
+  /// The broad Office mode switch, distinct from the Floor landing surface.
+  static const office = FLucideIcons.building2;
+
+  /// The 3D room/floor landing surface in the Office mode.
+  static const floor = FLucideIcons.layers3;
+
+  /// Columns communicate the task lanes more clearly than the dashboard grid.
+  static const taskboard = FLucideIcons.kanban;
+  static const taskList = FLucideIcons.listTodo;
+
+  /// Journal entries are written events, so the notebook glyph is intentional.
+  static const journal = FLucideIcons.notebookPen;
+  static const settings = FLucideIcons.settings;
   static const folder = FLucideIcons.folder;
   static const folderOpen = FLucideIcons.folderOpen;
   static const folderPlus = FLucideIcons.folderPlus;
@@ -24,6 +38,7 @@ abstract final class FrankIcons {
   static const pin = FLucideIcons.pin;
   static const archive = FLucideIcons.archive;
   static const close = FLucideIcons.x;
+  static const back = FLucideIcons.arrowLeft;
   static const more = FLucideIcons.ellipsis;
   static const activity = FLucideIcons.zap;
   static const ledger = FLucideIcons.receiptText;
@@ -37,12 +52,14 @@ abstract final class FrankIcons {
   static const calendar = FLucideIcons.calendar;
   static const drive = FLucideIcons.hardDrive;
   static const browser = FLucideIcons.globe;
+  static const cloud = FLucideIcons.cloud;
   static const database = FLucideIcons.database;
   static const approval = FLucideIcons.shieldCheck;
   static const undo = FLucideIcons.undo2;
   static const redo = FLucideIcons.redo2;
   static const save = FLucideIcons.save;
   static const publish = FLucideIcons.send;
+  static const send = FLucideIcons.send;
   static const minimap = FLucideIcons.map;
   static const workflow = FLucideIcons.workflow;
   static const gitBranch = FLucideIcons.gitBranch;
@@ -59,6 +76,9 @@ abstract final class FrankIcons {
   static const arrowUp = FLucideIcons.arrowUp;
   static const square = FLucideIcons.square;
   static const monitor = FLucideIcons.monitor;
+  static const monitorSmartphone = FLucideIcons.monitorSmartphone;
+  static const keyRound = FLucideIcons.keyRound;
+  static const logOut = FLucideIcons.logOut;
   static const bot = FLucideIcons.bot;
   static const paperclip = FLucideIcons.paperclip;
   static const recenter = FLucideIcons.crosshair;

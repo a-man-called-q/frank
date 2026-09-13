@@ -11,11 +11,17 @@ mod memory;
 mod message;
 mod mission;
 mod operation;
+mod organization;
 mod project;
+mod role;
 mod settings;
 mod task;
 mod terminal;
 mod update;
+mod workflow;
+
+pub(crate) use role::materialize_role;
+pub(crate) use task::{append_task_feed, update_dependency_locks};
 
 /// The fallback every domain reducer needs and none of them can reach.
 ///

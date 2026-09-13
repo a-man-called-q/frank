@@ -2,6 +2,8 @@
 /fuzz/target
 /xtask/target
 .DS_Store
+__pycache__/
+*.py[cod]
 bench/results/*.json
 !bench/results/.gitkeep
 /graphify-out/
@@ -13,6 +15,12 @@ bench/results/*.json
 
 # Local preview bundles, server data, and coverage scratch files.
 /.frank-preview/
+.env
+/apps/frank_desktop/.env
+/docker/tls/*.pem
+/docker/tls/*.key
+*.sqlite3
+*.sqlite3-*
 /safeio-cov.json
 /dist/*
 !/dist/.gitkeep

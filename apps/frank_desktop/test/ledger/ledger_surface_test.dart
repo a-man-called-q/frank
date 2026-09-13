@@ -3,10 +3,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
+import 'package:frank_desktop/core/fixtures/fixture_ledger.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
 import 'package:frank_desktop/core/models/ledger_models.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
-import 'package:frank_desktop/features/ledger/ledger_surface.dart';
+import 'package:frank_desktop/features/ledger/presentation/ledger_surface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -17,7 +18,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
 
-    await tester.pumpWidget(_app(LedgerSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _app(
+        LedgerSurface(
+          workspace: workspace!,
+          data: fixtureLedgerDashboard(workspace),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(
@@ -59,7 +67,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
 
-    await tester.pumpWidget(_app(LedgerSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _app(
+        LedgerSurface(
+          workspace: workspace!,
+          data: fixtureLedgerDashboard(workspace),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('ledger-surface')), findsOneWidget);
@@ -82,7 +97,14 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
 
-    await tester.pumpWidget(_app(LedgerSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _app(
+        LedgerSurface(
+          workspace: workspace!,
+          data: fixtureLedgerDashboard(workspace),
+        ),
+      ),
+    );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('ledger-period-session')));
     await tester.pump();
@@ -106,14 +128,30 @@ void main() {
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
 
-    await tester.pumpWidget(_app(LedgerSurface(workspace: workspace!)));
+    await tester.pumpWidget(
+      _app(
+        LedgerSurface(
+          workspace: workspace!,
+          data: fixtureLedgerDashboard(workspace),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(find.byKey(const ValueKey('ledger-measures')), findsOneWidget);
     expect(find.byKey(const ValueKey('ledger-trend-panel')), findsOneWidget);
+    expect(find.byType(CustomScrollView), findsOneWidget);
     expect(
       find.byKey(const ValueKey('ledger-attribution-scroll')),
       findsOneWidget,
+    );
+    final horizontalScrollable = find.descendant(
+      of: find.byKey(const ValueKey('ledger-attribution-scroll')),
+      matching: find.byType(Scrollable),
+    );
+    expect(
+      tester.widget<Scrollable>(horizontalScrollable).axisDirection,
+      AxisDirection.right,
     );
     expect(tester.takeException(), isNull);
   });

@@ -1,0 +1,6 @@
+Frank character runtime smoke evidence is produced by
+`assets/character_model/frank/scripts/check_runtime.py`.
+
+The recorded command is `moon run frank-desktop:character-smoke`; generated
+logs and screenshots are kept relative to this asset bundle so the evidence
+can be reproduced from any checkout path.

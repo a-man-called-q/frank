@@ -2,16 +2,27 @@ import 'package:flutter/material.dart';
 import 'package:forui/forui.dart';
 
 import '../core/fixtures/fixture_workspace.dart';
+import '../core/auth/auth_repository.dart';
 import '../core/gateway/frank_gateway.dart';
+import '../core/gateway/http_frank_gateway.dart';
+import '../features/login/login_gate.dart';
 import '../features/shell/office_shell.dart';
 import '../features/shell/sidebar_effect.dart';
 import 'theme.dart';
 
 class FrankApp extends StatelessWidget {
-  const FrankApp({this.gateway, this.sidebarEffectBuilder, super.key});
+  const FrankApp({
+    this.gateway,
+    this.authRepository,
+    this.sidebarEffectBuilder,
+    this.showLogin = true,
+    super.key,
+  });
 
   final FrankGateway? gateway;
+  final AuthRepository? authRepository;
   final SidebarEffectBuilder? sidebarEffectBuilder;
+  final bool showLogin;
 
   @override
   Widget build(BuildContext context) {
@@ -36,9 +47,30 @@ class FrankApp extends StatelessWidget {
           child: FTooltipGroup(child: child ?? const SizedBox.shrink()),
         );
       },
-      home: OfficeShell(
-        gateway: gateway ?? FixtureFrankGateway(),
-        sidebarEffectBuilder: sidebarEffectBuilder,
+      home: Builder(
+        builder: (context) {
+          final transport = authRepository?.transport;
+          final resolvedGateway =
+              gateway ??
+              (transport != null
+                  ? HttpFrankGateway(transport)
+                  : FixtureFrankGateway());
+          if (showLogin) {
+            return LoginGate(
+              gateway: resolvedGateway,
+              authRepository: authRepository,
+              showDemoBanner:
+                  authRepository == null ||
+                  authRepository is DemoAuthRepository,
+              sidebarEffectBuilder: sidebarEffectBuilder,
+            );
+          }
+          return OfficeShell(
+            gateway: resolvedGateway,
+            authRepository: authRepository,
+            sidebarEffectBuilder: sidebarEffectBuilder,
+          );
+        },
       ),
     );
   }

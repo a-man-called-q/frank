@@ -5,7 +5,7 @@ import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/fixtures/fixture_team.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
 import 'package:frank_desktop/core/models/team_models.dart';
-import 'package:frank_desktop/features/team/team_surface.dart';
+import 'package:frank_desktop/features/team/presentation/team_surface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,10 +19,18 @@ void main() {
     );
     final loadedWorkspace = workspace!;
 
-    await tester.pumpWidget(_app(TeamSurface(workspace: loadedWorkspace)));
+    await tester.pumpWidget(
+      _app(
+        TeamSurface(
+          workspace: loadedWorkspace,
+          profiles: fixtureTeamProfiles(loadedWorkspace),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(find.bySemanticsLabel('Team roster'), findsOneWidget);
+    expect(find.byType(Scrollable), findsOneWidget);
     expect(find.byKey(const ValueKey('team-agent-grid')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('team-agent-card-ae-maya')),
@@ -47,12 +55,12 @@ void main() {
     expect(find.text('Map warehouse intake'), findsOneWidget);
     expect(find.text('Review approval controls'), findsOneWidget);
 
-    final grid = tester.widget<GridView>(
+    final grid = tester.widget<SliverGrid>(
       find.byKey(const ValueKey('team-agent-grid')),
     );
     final delegate =
         grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(delegate.crossAxisCount, 4);
+    expect(delegate.crossAxisCount, 3);
     expect(tester.takeException(), isNull);
   });
 
@@ -65,7 +73,14 @@ void main() {
     );
     final loadedWorkspace = workspace!;
 
-    await tester.pumpWidget(_app(TeamSurface(workspace: loadedWorkspace)));
+    await tester.pumpWidget(
+      _app(
+        TeamSurface(
+          workspace: loadedWorkspace,
+          profiles: fixtureTeamProfiles(loadedWorkspace),
+        ),
+      ),
+    );
     await tester.pump();
     await tester.tap(
       find.byKey(const ValueKey('team-agent-card-programmer-nia')),
@@ -102,8 +117,8 @@ void main() {
       find.byKey(const ValueKey('team-profile-panel-setup')),
       findsOneWidget,
     );
-    expect(find.text('Codex'), findsOneWidget);
-    expect(find.text('Default'), findsOneWidget);
+    expect(find.text('OpenRouter'), findsOneWidget);
+    expect(find.text('openai/gpt-4o-mini'), findsOneWidget);
     expect(find.text('caveman'), findsNWidgets(2));
     expect(find.text('full'), findsOneWidget);
 
@@ -114,30 +129,82 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('roster uses two columns at tablet width and one when compact', (
+  testWidgets(
+    'roster uses two columns at tablet width and a compact list when narrow',
+    (tester) async {
+      final workspace = await tester.runAsync(
+        () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
+      );
+      final loadedWorkspace = workspace!;
+      _setSize(tester, const Size(900, 800));
+      await tester.pumpWidget(
+        _app(
+          TeamSurface(
+            workspace: loadedWorkspace,
+            profiles: fixtureTeamProfiles(loadedWorkspace),
+          ),
+        ),
+      );
+      await tester.pump();
+      var grid = tester.widget<SliverGrid>(
+        find.byKey(const ValueKey('team-agent-grid')),
+      );
+      var delegate =
+          grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+      expect(delegate.crossAxisCount, 2);
+
+      tester.view.physicalSize = const Size(680, 800);
+      await tester.pump();
+      expect(find.byKey(const ValueKey('team-agent-grid')), findsNothing);
+      expect(find.byKey(const ValueKey('team-agent-list')), findsOneWidget);
+    },
+  );
+
+  testWidgets('profile transition restores the roster scroll position', (
     tester,
   ) async {
+    _setSize(tester, const Size(680, 500));
     final workspace = await tester.runAsync(
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
     final loadedWorkspace = workspace!;
-    _setSize(tester, const Size(900, 800));
-    await tester.pumpWidget(_app(TeamSurface(workspace: loadedWorkspace)));
-    await tester.pump();
-    var grid = tester.widget<GridView>(
-      find.byKey(const ValueKey('team-agent-grid')),
-    );
-    var delegate =
-        grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(delegate.crossAxisCount, 2);
 
-    tester.view.physicalSize = const Size(680, 800);
-    await tester.pump();
-    grid = tester.widget<GridView>(
-      find.byKey(const ValueKey('team-agent-grid')),
+    await tester.pumpWidget(
+      _app(
+        TeamSurface(
+          workspace: loadedWorkspace,
+          profiles: fixtureTeamProfiles(loadedWorkspace),
+        ),
+      ),
     );
-    delegate = grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-    expect(delegate.crossAxisCount, 1);
+    await tester.pump();
+    final rosterScroll = find.byKey(const ValueKey('team-roster-scroll'));
+    await tester.drag(rosterScroll, const Offset(0, -180));
+    await tester.pump();
+    final rosterScrollable = find.descendant(
+      of: rosterScroll,
+      matching: find.byType(Scrollable),
+    );
+    final before = tester
+        .state<ScrollableState>(rosterScrollable)
+        .position
+        .pixels;
+    expect(before, greaterThan(0));
+
+    await tester.tap(find.byKey(const ValueKey('team-agent-card-ae-maya')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('team-profile-back')));
+    await tester.pump();
+
+    final restoredScrollable = find.descendant(
+      of: rosterScroll,
+      matching: find.byType(Scrollable),
+    );
+    final after = tester
+        .state<ScrollableState>(restoredScrollable)
+        .position
+        .pixels;
+    expect(after, closeTo(before, 0.1));
   });
 
   testWidgets(
@@ -152,7 +219,12 @@ void main() {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
-          child: _app(TeamSurface(workspace: loadedWorkspace)),
+          child: _app(
+            TeamSurface(
+              workspace: loadedWorkspace,
+              profiles: fixtureTeamProfiles(loadedWorkspace),
+            ),
+          ),
         ),
       );
       await tester.pump();

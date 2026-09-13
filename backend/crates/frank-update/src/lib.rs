@@ -8,7 +8,9 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use async_trait::async_trait;
 use base64::Engine;
 use ring::signature::{ED25519, Ed25519KeyPair, KeyPair, UnparsedPublicKey};
 use serde::{Deserialize, Serialize};
@@ -38,6 +40,172 @@ pub const EMBEDDED_PUBLIC_KEY_B64: &str = match option_env!("FRANK_UPDATE_PUBLIC
     Some(value) if !value.is_empty() => value,
     _ => DEVELOPMENT_PUBLIC_KEY_B64,
 };
+
+const MAX_MANIFEST_BYTES: usize = 256 * 1024;
+const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
+
+/// Network and local-artifact boundary for self-updates.
+///
+/// The orchestrator owns durable operation state, while this trait owns all
+/// untrusted I/O: bounded downloads, detached signature verification, and
+/// artifact digest/size verification. Keeping the boundary here makes update
+/// flows deterministic in air-gapped tests and prevents a second HTTP client
+/// from appearing in the daemon.
+#[async_trait]
+pub trait UpdateSource: Send + Sync {
+    async fn fetch_verified_manifest(&self) -> Result<UpdateManifest>;
+    async fn download_verified_artifact(&self, artifact: &UpdateArtifact) -> Result<Vec<u8>>;
+}
+
+#[derive(Clone)]
+pub struct HttpUpdateSource {
+    client: reqwest::Client,
+    manifest_url: String,
+    signature_url: String,
+    public_key: Vec<u8>,
+    network_enabled: bool,
+    local_manifest: Option<PathBuf>,
+    local_signature: Option<PathBuf>,
+    local_artifact: Option<PathBuf>,
+}
+
+impl HttpUpdateSource {
+    pub fn new() -> Result<Self> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(300))
+            .user_agent(format!("frank/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|error| UpdateError::Network(error.to_string()))?;
+        let public_key = base64::engine::general_purpose::STANDARD
+            .decode(EMBEDDED_PUBLIC_KEY_B64)
+            .map_err(|_| UpdateError::InvalidSignature)?;
+        Ok(Self {
+            client,
+            manifest_url: UPDATE_FEED_URL.into(),
+            signature_url: UPDATE_SIGNATURE_URL.into(),
+            public_key,
+            network_enabled: std::env::var_os("FRANK_UPDATE_DISABLE_NETWORK").is_none(),
+            local_manifest: std::env::var_os("FRANK_UPDATE_MANIFEST").map(PathBuf::from),
+            local_signature: std::env::var_os("FRANK_UPDATE_SIGNATURE").map(PathBuf::from),
+            local_artifact: std::env::var_os("FRANK_UPDATE_ARTIFACT").map(PathBuf::from),
+        })
+    }
+
+    pub fn with_local_manifest(
+        mut self,
+        manifest: impl Into<PathBuf>,
+        signature: impl Into<PathBuf>,
+    ) -> Self {
+        self.local_manifest = Some(manifest.into());
+        self.local_signature = Some(signature.into());
+        self
+    }
+
+    pub fn with_local_artifact(mut self, artifact: impl Into<PathBuf>) -> Self {
+        self.local_artifact = Some(artifact.into());
+        self
+    }
+
+    pub fn with_network_enabled(mut self, enabled: bool) -> Self {
+        self.network_enabled = enabled;
+        self
+    }
+
+    async fn bounded_response(response: reqwest::Response, cap: usize) -> Result<Vec<u8>> {
+        if response
+            .content_length()
+            .is_some_and(|length| length > cap as u64)
+        {
+            return Err(UpdateError::ResponseTooLarge);
+        }
+        let mut response = response;
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| UpdateError::Network(error.to_string()))?
+        {
+            if chunk.len() > cap || body.len().saturating_add(chunk.len()) > cap {
+                return Err(UpdateError::ResponseTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        Ok(body)
+    }
+
+    async fn get_bounded(&self, url: &str, cap: usize) -> Result<Vec<u8>> {
+        if !self.network_enabled {
+            return Err(UpdateError::Network(
+                "network update checks are disabled".into(),
+            ));
+        }
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| UpdateError::Network(error.to_string()))?
+            .error_for_status()
+            .map_err(|error| UpdateError::Network(error.to_string()))?;
+        Self::bounded_response(response, cap).await
+    }
+
+    fn read_local(path: &Path, cap: u64) -> Result<Vec<u8>> {
+        let metadata = std::fs::symlink_metadata(path)
+            .map_err(|error| UpdateError::Staging(error.to_string()))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(UpdateError::Staging(
+                "update path is not a regular file".into(),
+            ));
+        }
+        if metadata.len() > cap {
+            return Err(UpdateError::ResponseTooLarge);
+        }
+        std::fs::read(path).map_err(|error| UpdateError::Staging(error.to_string()))
+    }
+}
+
+#[async_trait]
+impl UpdateSource for HttpUpdateSource {
+    async fn fetch_verified_manifest(&self) -> Result<UpdateManifest> {
+        let (manifest, signature) = match (&self.local_manifest, &self.local_signature) {
+            (Some(manifest), Some(signature)) => (
+                Self::read_local(manifest, MAX_MANIFEST_BYTES as u64)?,
+                Self::read_local(signature, MAX_SIGNATURE_BYTES as u64)?,
+            ),
+            (None, None) => (
+                self.get_bounded(&self.manifest_url, MAX_MANIFEST_BYTES)
+                    .await?,
+                self.get_bounded(&self.signature_url, MAX_SIGNATURE_BYTES)
+                    .await?,
+            ),
+            _ => {
+                return Err(UpdateError::InvalidArtifact);
+            }
+        };
+        let signature = std::str::from_utf8(&signature)
+            .map_err(|error| UpdateError::Network(error.to_string()))?;
+        parse_verified_manifest(&manifest, signature, &self.public_key)
+    }
+
+    async fn download_verified_artifact(&self, artifact: &UpdateArtifact) -> Result<Vec<u8>> {
+        let bytes = if let Some(path) = &self.local_artifact {
+            Self::read_local(path, MAX_UPDATE_ARTIFACT_BYTES)?
+        } else {
+            let cap = usize::try_from(MAX_UPDATE_ARTIFACT_BYTES).unwrap_or(usize::MAX);
+            self.get_bounded(&artifact.url, cap).await?
+        };
+        verify_artifact_bytes(artifact, &bytes)?;
+        Ok(bytes)
+    }
+}
+
+impl Default for HttpUpdateSource {
+    fn default() -> Self {
+        Self::new().expect("embedded Frank update key and HTTP client must be valid")
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateManifest {
@@ -85,6 +253,10 @@ pub enum UpdateError {
     Downgrade { current: String, candidate: String },
     #[error("safe staging failed: {0}")]
     Staging(String),
+    #[error("update network request failed: {0}")]
+    Network(String),
+    #[error("update response exceeds the configured size cap")]
+    ResponseTooLarge,
 }
 
 pub type Result<T> = std::result::Result<T, UpdateError>;

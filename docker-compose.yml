@@ -1,0 +1,27 @@
+services:
+  frankd:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - --bind
+      - 0.0.0.0:37465
+      - --db
+      - /var/lib/frank/frank.sqlite3
+      - --cert
+      - /etc/frank/tls/cert.pem
+      - --key
+      - /etc/frank/tls/key.pem
+    ports:
+      # Keep the default local-only. Set FRANK_PUBLISH_HOST=0.0.0.0 when the
+      # desktop client connects from another machine on a trusted network.
+      - "${FRANK_PUBLISH_HOST:-127.0.0.1}:37465:37465"
+    volumes:
+      - frank-data:/var/lib/frank
+      - ${FRANK_TLS_DIR:-./docker/tls}:/etc/frank/tls:ro
+    init: true
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+volumes:
+  frank-data:
