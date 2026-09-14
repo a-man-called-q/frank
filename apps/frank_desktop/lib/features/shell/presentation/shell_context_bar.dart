@@ -1,8 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 
 import '../../../app/icons.dart';
 import '../../../app/theme.dart';
 import '../../../core/models/workspace_models.dart';
+import '../../../core/models/connection_models.dart';
 import '../sidebar_layout.dart';
 
 String _contextSubtitle(OfficeMission? mission, OfficeProject? project) {
@@ -13,10 +16,7 @@ String _contextSubtitle(OfficeMission? mission, OfficeProject? project) {
   return project?.name ?? 'Mission';
 }
 
-double _attentionReserved({
-  required bool attention,
-  required bool showLabel,
-}) {
+double _attentionReserved({required bool attention, required bool showLabel}) {
   if (!attention) return 0;
   return showLabel ? 140 : 40;
 }
@@ -46,6 +46,8 @@ class ShellContextBar extends StatelessWidget {
     required this.isFullscreen,
     required this.onToggleSidebar,
     this.onDoubleTap,
+    this.connectionStatus,
+    this.isFixture = false,
     super.key,
   });
 
@@ -57,18 +59,44 @@ class ShellContextBar extends StatelessWidget {
   final bool isFullscreen;
   final VoidCallback onToggleSidebar;
   final VoidCallback? onDoubleTap;
+  final FrankConnectionStatus? connectionStatus;
+  final bool isFixture;
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final platform = Theme.of(context).platform;
+        final platform = defaultTargetPlatform;
         final usesWindowedMacChrome =
             platform == TargetPlatform.macOS && !isFullscreen;
         final inset = usesWindowedMacChrome ? 76.0 : 12.0;
         final showSubtitle = constraints.maxWidth >= 620;
         final showAttentionLabel = constraints.maxWidth >= 760;
         final showConnectionLabel = constraints.maxWidth >= 520;
+        final connection = connectionStatus;
+        final connectionLabel = isFixture
+            ? 'Demo'
+            : connection?.label ?? FrankConnectionPhase.checking.label;
+        final connectionColor = isFixture
+            ? FrankColors.aubergineAccent
+            : switch (connection?.phase) {
+                FrankConnectionPhase.reconnecting => FrankColors.warningAmber,
+                FrankConnectionPhase.offline ||
+                FrankConnectionPhase.incompatible => FrankColors.failure,
+                FrankConnectionPhase.checking => FrankColors.warningAmber,
+                FrankConnectionPhase.connected => FrankColors.green,
+                null => FrankColors.warningAmber,
+              };
+        final connectionIcon = isFixture
+            ? FrankIcons.infoOutline
+            : switch (connection?.phase) {
+                FrankConnectionPhase.reconnecting => FrankIcons.refresh,
+                FrankConnectionPhase.offline ||
+                FrankConnectionPhase.incompatible => FrankIcons.cloudOffOutlined,
+                FrankConnectionPhase.checking => FrankIcons.hourglassEmpty,
+                FrankConnectionPhase.connected => FrankIcons.circleCheck,
+                null => FrankIcons.hourglassEmpty,
+              };
         final contextTitle = mission?.title ?? project?.name ?? workspace.name;
         final contextSubtitle = _contextSubtitle(mission, project);
         final attention =
@@ -113,22 +141,19 @@ class ShellContextBar extends StatelessWidget {
                   child: SizedBox(
                     width: _toggleHitboxSize,
                     height: _toggleHitboxSize,
-                    child: IconButton(
-                      onPressed: onToggleSidebar,
-                      tooltip: sidebarVisible
+                    child: FButton.icon(
+                      onPress: onToggleSidebar,
+                      semanticsLabel: sidebarVisible
                           ? 'Hide the workspace sidebar'
                           : 'Show the workspace sidebar',
-                      icon: Icon(
+                      semanticsTooltip: sidebarVisible
+                          ? 'Hide the workspace sidebar'
+                          : 'Show the workspace sidebar',
+                      size: FButtonSizeVariant.sm,
+                      child: Icon(
                         sidebarVisible
                             ? FrankIcons.panelClose
                             : FrankIcons.panelOpen,
-                      ),
-                      iconSize: _glyphSize,
-                      color: FrankColors.muted,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: _toggleHitboxSize,
-                        height: _toggleHitboxSize,
                       ),
                     ),
                   ),
@@ -244,21 +269,22 @@ class ShellContextBar extends StatelessWidget {
                     Semantics(
                       container: true,
                       label: 'Connection status',
-                      value: 'Connected',
+                      value: connectionLabel,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            FrankIcons.circleCheck,
+                          Icon(
+                            connectionIcon,
                             size: 15,
-                            color: FrankColors.green,
+                            color: connectionColor,
+                            semanticLabel: connectionLabel,
                           ),
                           if (showConnectionLabel) ...[
                             const SizedBox(width: 5),
-                            const Text(
-                              'Connected',
+                            Text(
+                              connectionLabel,
                               style: TextStyle(
-                                color: FrankColors.muted,
+                                color: connectionColor,
                                 fontSize: 11,
                               ),
                             ),

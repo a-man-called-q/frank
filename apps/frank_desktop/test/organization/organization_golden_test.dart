@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,8 +121,13 @@ void main() {
     addTearDown(bloc.close);
     await tester.tap(find.byKey(const ValueKey('organization-add')));
     await tester.pumpAndSettle();
+    final paletteOverlay = find.ancestor(
+      of: find.byKey(const ValueKey('organization-add-results')),
+      matching: find.byType(Overlay),
+    );
+    expect(paletteOverlay, findsWidgets);
     await expectLater(
-      find.byType(Overlay),
+      paletteOverlay.last,
       matchesGoldenFile('goldens/organization-add-palette.png'),
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
@@ -138,8 +144,13 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('add-group')));
     await tester.pumpAndSettle();
+    final groupOverlay = find.ancestor(
+      of: find.byKey(const ValueKey('organization-group-name')),
+      matching: find.byType(Overlay),
+    );
+    expect(groupOverlay, findsWidgets);
     await expectLater(
-      find.byType(Overlay),
+      groupOverlay.last,
       matchesGoldenFile('goldens/organization-add-group.png'),
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
@@ -164,9 +175,9 @@ Future<OrganizationBloc> _pumpOrganization(
       ),
       child: RepaintBoundary(
         key: const ValueKey('organization-golden-root'),
-        child: MaterialApp(
+        child: FrankTestApp(
           debugShowCheckedModeBanner: false,
-          theme: buildFrankTheme(Brightness.dark),
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
             child: OrganizationSurface(workspace: _workspace()),

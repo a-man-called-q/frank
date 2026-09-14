@@ -1,7 +1,9 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flow_ui/flow_ui.dart';
 import 'package:frank_desktop/app/theme.dart';
@@ -63,7 +65,8 @@ void main() {
     );
     final backgroundColor =
         (transcriptBackground.decoration as BoxDecoration).color!;
-    expect(backgroundColor.a, closeTo(0.15, 1e-6));
+    // Color channels are stored as 8-bit values (38/255 ≈ 0.149).
+    expect(backgroundColor.a, closeTo(0.15, 0.001));
     final scrollbar = tester.widget<RawScrollbar>(
       find.byKey(const ValueKey('chat-transcript-scrollbar')),
     );
@@ -111,15 +114,12 @@ void main() {
       ),
       findsOneWidget,
     );
-    final resetButton = tester.widget<IconButton>(
+    final resetButton = tester.widget<FButton>(
       find.byKey(const ValueKey('floor-reset-view-button')),
     );
-    expect(
-      resetButton.style?.overlayColor?.resolve(const <WidgetState>{
-        WidgetState.hovered,
-      }),
-      Colors.transparent,
-    );
+    // The headless host has no ready GPU scene, so reset remains visible but
+    // disabled until the scene reports readiness.
+    expect(resetButton.onPress, isNull);
     final floorPanelRect = tester.getRect(floorPanel);
     final floorPanelDecoration =
         (tester.widget<Container>(floorPanel).decoration as BoxDecoration);
@@ -152,7 +152,6 @@ void main() {
     expect(find.byType(FlowMarkdown), findsNWidgets(2));
     expect(find.byType(FlowMessage), findsNothing);
     expect(find.byType(FlowChatView), findsNothing);
-    expect(find.byType(CircleAvatar), findsNothing);
     expect(find.byType(FocusableComposer), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -233,9 +232,7 @@ void main() {
           )
           .style
           ?.color,
-      Theme.of(
-        tester.element(find.byType(AccountExecutiveChat)),
-      ).colorScheme.error,
+      buildFrankTheme().colors.error,
     );
     expect(tester.takeException(), isNull);
   });
@@ -287,7 +284,7 @@ void main() {
     final panel = find.byKey(const ValueKey('floor-control-panel'));
     final initialHeight = tester.getRect(composer).height;
     await tester.enterText(
-      find.byType(TextField),
+      find.byType(FTextField),
       'one\ntwo\nthree\nfour\nfive\nsix',
     );
     await tester.pumpAndSettle();
@@ -527,7 +524,7 @@ Future<void> _pumpChat(
       children: [
         OfficeSceneInteractionSurface(
           controller: sceneController!,
-          child: const ColoredBox(color: Colors.transparent),
+          child: const ColoredBox(color: Color(0x00000000)),
         ),
         chat,
       ],
@@ -535,9 +532,9 @@ Future<void> _pumpChat(
   }
 
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: SizedBox(width: size.width, height: size.height, child: chat),
+    FrankTestApp(
+      home: FScaffold(
+        child: SizedBox(width: size.width, height: size.height, child: chat),
       ),
     ),
   );
@@ -552,9 +549,9 @@ Future<void> _pumpMutableChat(
   required ValueNotifier<List<OfficeMessage>> messages,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      home: Scaffold(
-        body: SizedBox(
+    FrankTestApp(
+      home: FScaffold(
+        child: SizedBox(
           width: 900,
           height: 700,
           child: ValueListenableBuilder<List<OfficeMessage>>(

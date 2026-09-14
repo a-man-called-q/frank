@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
@@ -102,7 +102,7 @@ void main() {
 
   testWidgets('hidden sidebar full-width golden', (tester) async {
     await _pumpShell(tester);
-    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Hide the workspace sidebar'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
     await expectLater(
@@ -129,7 +129,7 @@ void main() {
     );
     await _openOffice(tester);
     await tester.tap(find.text('Show all 6'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     await expectLater(
       find.byKey(const ValueKey('golden-root')),
       matchesGoldenFile('goldens/completed-expanded.png'),
@@ -204,10 +204,7 @@ Future<void> _openOffice(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 220));
 }
 
-Finder _searchField() => find.byWidgetPredicate(
-  (widget) =>
-      widget is TextField && widget.decoration?.hintText == 'Search workspace',
-);
+Finder _searchField() => find.byKey(const ValueKey('work-inbox-search-field'));
 
 OfficeWorkspace _completedWorkspace() {
   const ae = OfficeEmployee(

@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 
 import '../../app/icons.dart';
 import '../../app/layout/office_surface_frame.dart';
@@ -60,13 +61,16 @@ class JournalEmptyState extends StatelessWidget {
           child: Opacity(
             opacity: .55,
             child: IgnorePointer(
-              child: OutlinedButton.icon(
-                onPressed: null,
-                icon: const Icon(
+              child: FButton(
+                onPress: null,
+                variant: FButtonVariant.outline,
+                prefix: const Icon(
                   FrankIcons.filter,
                   size: FrankUiTokens.iconSize,
                 ),
-                label: const Text('Filter events'),
+                child: const Flexible(
+                  child: Text('Filter events', overflow: TextOverflow.ellipsis),
+                ),
               ),
             ),
           ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/frank_app.dart';
@@ -18,9 +18,7 @@ void main() {
       find.byType(FSidebarData).first,
     );
     final decoration = sidebar.style.decoration as BoxDecoration;
-    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
-
-    expect(scaffold.backgroundColor, FrankColors.canvas);
+    expect(find.byType(FScaffold), findsOneWidget);
     expect(sidebar.style.backgroundFilter, isNull);
     expect(decoration.color, FrankColors.sidebarSolid);
     expect(find.byKey(const ValueKey('fake-sidebar-effect')), findsNothing);
@@ -31,10 +29,7 @@ void main() {
     (tester) async {
       _setWindow(tester);
       await tester.pumpWidget(
-        FrankApp(
-          showLogin: false,
-          sidebarEffectBuilder: _fakeSidebarEffect,
-        ),
+        FrankApp(showLogin: false, sidebarEffectBuilder: _fakeSidebarEffect),
       );
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -43,7 +38,7 @@ void main() {
       expect(tester.getSize(wrapper).width, SidebarLayout.defaultWidth);
       expect(tester.getSize(wrapper).width, tester.getSize(slot).width);
 
-      await tester.tap(find.byTooltip('Hide the workspace sidebar'));
+      await tester.tap(find.bySemanticsLabel('Hide the workspace sidebar'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 140));
       final midAnimationWidth = tester.getSize(wrapper).width;
@@ -55,7 +50,7 @@ void main() {
       expect(tester.getSize(wrapper).width, 0);
       expect(tester.getSize(slot).width, 0);
 
-      await tester.tap(find.byTooltip('Show the workspace sidebar'));
+      await tester.tap(find.bySemanticsLabel('Show the workspace sidebar'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 320));
       final handle = find.bySemanticsLabel('Resize sidebar');
@@ -74,17 +69,14 @@ void main() {
     (tester) async {
       _setWindow(tester);
       await tester.pumpWidget(
-        FrankApp(
-          showLogin: false,
-          sidebarEffectBuilder: _fakeSidebarEffect,
-        ),
+        FrankApp(showLogin: false, sidebarEffectBuilder: _fakeSidebarEffect),
       );
       await tester.pump(const Duration(milliseconds: 500));
       // macos_window_utils schedules a zero-duration update after mounting;
       // flush it before the test's invariant check disposes the tree.
       await tester.pumpAndSettle();
 
-      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+      expect(find.byType(FScaffold), findsOneWidget);
       final contextStrip = tester.widget<SizedBox>(
         find.byKey(const ValueKey('main-context-strip')),
       );
@@ -101,7 +93,10 @@ void main() {
         find.byKey(const ValueKey('main-surface-background')),
       );
 
-      expect(scaffold.backgroundColor, Colors.transparent);
+      expect(
+        find.byKey(const ValueKey('main-surface-background')),
+        findsOneWidget,
+      );
       expect(contextStrip.height, ShellContextBar.height);
       expect(contextPaint.color, FrankColors.sidebarGlass);
       expect(mainPaint.color, FrankColors.canvas);

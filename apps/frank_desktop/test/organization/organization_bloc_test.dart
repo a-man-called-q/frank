@@ -164,19 +164,14 @@ void main() {
     )!;
 
     bloc.add(
-      OrganizationGroupMoved(
-        builtIn.id,
-        const OrganizationPoint(200, 200),
-      ),
+      OrganizationGroupMoved(builtIn.id, const OrganizationPoint(200, 200)),
     );
     await bloc.stream.firstWhere(
       (state) => state.error == 'Built-in groups cannot be moved.',
     );
     expect(bloc.state.graph!.groupById(builtIn.id), builtIn);
 
-    bloc.add(
-      OrganizationGroupUpdated(builtIn.copyWith(label: 'Renamed')),
-    );
+    bloc.add(OrganizationGroupUpdated(builtIn.copyWith(label: 'Renamed')));
     await bloc.stream.firstWhere(
       (state) => state.error == 'Built-in groups cannot be edited.',
     );

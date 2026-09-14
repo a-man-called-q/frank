@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_scene/scene.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
@@ -44,7 +44,7 @@ void main() {
     // The host app keeps sidebar visibility in shared preferences. A previous
     // smoke run may have left it collapsed, so normalize the starting state
     // before exercising section navigation, resize, and collapse.
-    final showSidebar = find.byTooltip('Show the workspace sidebar');
+    final showSidebar = find.bySemanticsLabel('Show the workspace sidebar');
     if (showSidebar.evaluate().isNotEmpty) {
       await tester.tap(showSidebar);
       await tester.pump(const Duration(milliseconds: 320));
@@ -103,9 +103,9 @@ void main() {
     expect(identical(retainedScene, resizedSceneView.scene), isTrue);
     expect(identical(retainedCamera, resizedSceneView.camera), isTrue);
 
-    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Hide the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show the workspace sidebar'), findsOneWidget);
     expect(find.byKey(const ValueKey('office-scene-view')), findsOneWidget);
     expect(identical(stageElement, tester.element(stage)), isTrue);
     expect(
@@ -121,7 +121,7 @@ void main() {
     // desktop mouse contract against that same camera: the floor remains
     // interactive outside chat, the transcript owns wheel input, and reset
     // restores the initial view.
-    await tester.tap(find.byTooltip('Show the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Show the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 420));
     final officeSelector = find.bySemanticsLabel('Office view');
     await tester.tap(officeSelector, warnIfMissed: false);

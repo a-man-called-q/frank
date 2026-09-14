@@ -95,6 +95,17 @@ pub(crate) fn validate_graph(
         }
         match node.kind {
             OrganizationNodeKind::Staff => {
+                if node.capability.is_some()
+                    || node.connector_profile_id.is_some()
+                    || node.profile_ref.is_some()
+                    || node.role_id.is_some()
+                    || node.taskboard_id.is_some()
+                    || node.child_workflow_id.is_some()
+                {
+                    return Err(OrchestratorError::Validation(
+                        "staff organization nodes may reference only an agent".into(),
+                    ));
+                }
                 let agent_id = node.agent_id.ok_or_else(|| {
                     OrchestratorError::Validation(
                         "staff organization nodes require an agent".into(),
@@ -114,6 +125,16 @@ pub(crate) fn validate_graph(
                 }
             }
             OrganizationNodeKind::Capability => {
+                if node.agent_id.is_some()
+                    || node.role_id.is_some()
+                    || node.taskboard_id.is_some()
+                    || node.child_workflow_id.is_some()
+                    || node.profile_ref.is_some()
+                {
+                    return Err(OrchestratorError::Validation(
+                        "capability organization nodes may reference only a capability and connector profile".into(),
+                    ));
+                }
                 let capability = node.capability.ok_or_else(|| {
                     OrchestratorError::Validation(
                         "capability organization nodes require a capability kind".into(),
@@ -145,10 +166,16 @@ pub(crate) fn validate_graph(
                     ));
                 }
             }
-            OrganizationNodeKind::Approval => {}
+            OrganizationNodeKind::Approval => {
+                return Err(OrchestratorError::Validation(
+                    "Approval nodes are retired; use a Taskboard question/review".into(),
+                ));
+            }
             OrganizationNodeKind::Role => {
                 if node.agent_id.is_some()
                     || node.capability.is_some()
+                    || node.connector_profile_id.is_some()
+                    || node.profile_ref.is_some()
                     || node.taskboard_id.is_some()
                     || node.child_workflow_id.is_some()
                 {
@@ -172,9 +199,11 @@ pub(crate) fn validate_graph(
                     || node.capability.is_some()
                     || node.role_id.is_some()
                     || node.child_workflow_id.is_some()
+                    || node.connector_profile_id.is_some()
+                    || node.profile_ref.is_some()
                 {
                     return Err(OrchestratorError::Validation(
-                        "taskboard organization nodes may reference a board only".into(),
+                        "taskboard organization nodes may reference only an internal board".into(),
                     ));
                 }
                 let board_id = node.taskboard_id.ok_or_else(|| {
@@ -193,6 +222,8 @@ pub(crate) fn validate_graph(
             OrganizationNodeKind::ChildWorkflow => {
                 if node.agent_id.is_some()
                     || node.capability.is_some()
+                    || node.connector_profile_id.is_some()
+                    || node.profile_ref.is_some()
                     || node.role_id.is_some()
                     || node.taskboard_id.is_some()
                 {
@@ -496,7 +527,7 @@ pub(crate) fn validate_profile_config_for_kind(config: &Value, kind: ConnectorKi
                 }
             }
         }
-        ConnectorKind::Taskboard | ConnectorKind::Terminal => {}
+        ConnectorKind::Terminal => {}
     }
     Ok(())
 }
@@ -567,9 +598,6 @@ pub(crate) fn profile_compatible(
         ) | (
             OrganizationCapabilityKind::Drive,
             ConnectorKind::GoogleWorkspace
-        ) | (
-            OrganizationCapabilityKind::Taskboard,
-            ConnectorKind::Taskboard
         ) | (OrganizationCapabilityKind::Browser, ConnectorKind::Browser)
             | (
                 OrganizationCapabilityKind::Terminal,

@@ -4,13 +4,16 @@ import 'dart:math';
 import '../models/ledger_models.dart';
 import '../models/organization_models.dart';
 import '../models/openrouter_models.dart';
+import '../models/project_models.dart';
 import '../models/taskboard_models.dart';
 import '../models/team_models.dart';
 import '../models/workspace_models.dart';
 import '../models/workflow_models.dart';
+import '../auth/auth_models.dart';
 import 'frank_gateway.dart';
 import 'snapshot_store.dart';
 import '../transport/frank_transport.dart';
+import '../models/connection_models.dart';
 
 /// Remote gateway used by the production desktop entrypoint.
 ///
@@ -32,7 +35,7 @@ class HttpFrankGateway implements FrankGateway {
                 'POST',
                 '/v2/commands',
                 body: {
-                  'protocol_version': 1,
+                  'protocol_version': FrankApiVersion.current,
                   'command_id': _uuid(),
                   'expected_revision': expectedRevision,
                   'command': {'type': type, 'data': data},
@@ -46,6 +49,13 @@ class HttpFrankGateway implements FrankGateway {
   bool get isFixture => false;
 
   @override
+  FrankConnectionStatus get connectionStatus => _transport.connectionStatus;
+
+  @override
+  Stream<FrankConnectionStatus> watchConnectionStatus() =>
+      _transport.connectionStatusStream;
+
+  @override
   int get snapshotRevision => _snapshots.revision;
 
   @override
@@ -55,17 +65,77 @@ class HttpFrankGateway implements FrankGateway {
 
   final FrankTransport _transport;
   late final SnapshotStore _snapshots;
+  FrankServerCapabilities? _capabilities;
+  Future<FrankServerCapabilities>? _capabilitiesInFlight;
+
+  FrankServerCapabilities? get capabilities => _capabilities;
+
+  /// Bootstrap metadata is intentionally readable before authentication.
+  @override
+  Future<FrankServerCapabilities> preflightCapabilities({
+    bool refresh = false,
+  }) => _loadCapabilities(refresh: refresh, preflight: true);
+
+  /// Loads a single shared capability document for feature guards.
+  Future<FrankServerCapabilities> loadCapabilities({bool refresh = false}) =>
+      _loadCapabilities(refresh: refresh, preflight: false);
 
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
     Map<String, dynamic>? body,
-  }) {
+  }) async {
+    // Keep every mutating HTTP endpoint behind the same compatibility and
+    // connection gate as command envelopes. Credential writes, provider
+    // probes, catalog refreshes, and connector mutations must not slip past
+    // the shell's disabled-CTA state just because they are not commands.
+    final verb = method.toUpperCase();
+    if (verb != 'GET' && verb != 'HEAD' && verb != 'OPTIONS') {
+      await _ensureMutationAllowed();
+    }
     return _transport.authorizedJson(method, path, body: body);
   }
 
   Stream<int> _watchEventCursors({int after = 0}) {
     return _transport.watchEvents(after: after);
+  }
+
+  Future<FrankServerCapabilities> _loadCapabilities({
+    required bool refresh,
+    required bool preflight,
+  }) {
+    final pending = _capabilitiesInFlight;
+    // Refresh requests still share an already-running negotiation. This is
+    // the single-flight boundary; `refresh` only bypasses the completed cache.
+    if (pending != null) return pending;
+    if (!refresh && _capabilities != null) {
+      return Future<FrankServerCapabilities>.value(_capabilities!);
+    }
+    _transport.markChecking();
+    final request =
+        (preflight
+                ? _transport.request('GET', '/v2/capabilities')
+                : _request('GET', '/v2/capabilities'))
+            .then((json) {
+              final capabilities = FrankServerCapabilities.fromJson(json);
+              _capabilities = capabilities;
+              _transport.markCapabilities(capabilities);
+              return capabilities;
+            });
+    _capabilitiesInFlight = request;
+    request.then<void>(
+      (_) {
+        if (identical(_capabilitiesInFlight, request)) {
+          _capabilitiesInFlight = null;
+        }
+      },
+      onError: (_, _) {
+        if (identical(_capabilitiesInFlight, request)) {
+          _capabilitiesInFlight = null;
+        }
+      },
+    );
+    return request;
   }
 
   @override
@@ -148,7 +218,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<List<TeamAgentProfile>> createRole(TeamRoleDraft draft) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand(
       'create_role',
       Map<String, dynamic>.from(draft.toJson()),
@@ -159,7 +229,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<List<TeamAgentProfile>> createAgent(TeamAgentDraft draft) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand(
       'create_agent',
       Map<String, dynamic>.from(draft.toJson()),
@@ -174,7 +244,7 @@ class HttpFrankGateway implements FrankGateway {
     required TeamAgentPatch patch,
     required int expectedRevision,
   }) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand('update_agent', <String, dynamic>{
       'agent_id': agentId,
       'patch': Map<String, dynamic>.from(patch.toJson()),
@@ -187,7 +257,7 @@ class HttpFrankGateway implements FrankGateway {
     required String agentId,
     required int expectedRevision,
   }) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand('archive_agent', <String, dynamic>{
       'agent_id': agentId,
     }, expectedRevision: expectedRevision);
@@ -200,7 +270,7 @@ class HttpFrankGateway implements FrankGateway {
     required TeamRolePatch patch,
     required int expectedRevision,
   }) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand('update_role', <String, dynamic>{
       'role_id': roleId,
       'patch': Map<String, dynamic>.from(patch.toJson()),
@@ -213,7 +283,7 @@ class HttpFrankGateway implements FrankGateway {
     required String roleId,
     required int expectedRevision,
   }) async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     await _sendCommand('archive_role', <String, dynamic>{
       'role_id': roleId,
     }, expectedRevision: expectedRevision);
@@ -244,6 +314,111 @@ class HttpFrankGateway implements FrankGateway {
   }
 
   @override
+  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([
+    String? path,
+  ]) async {
+    final query = path == null || path.trim().isEmpty
+        ? ''
+        : '?path=${Uri.encodeQueryComponent(path.trim())}';
+    final json = await _request('GET', '/v2/projects/browse$query');
+    final entries = json['entries'];
+    if (entries is! List) return const <ProjectDirectoryEntry>[];
+    return [
+      for (final value in entries)
+        if (value is Map)
+          ProjectDirectoryEntry(
+            name: _string(value['name']),
+            directory: value['directory'] == true,
+          ),
+    ];
+  }
+
+  @override
+  Future<void> registerProject(ProjectRegistrationDraft draft) async {
+    final name = draft.name.trim();
+    final path = draft.path.trim();
+    if (name.isEmpty || path.isEmpty) {
+      throw ArgumentError('Project name and path are required.');
+    }
+    await _requireFeature('projects');
+    await _sendCommand('create_project', <String, dynamic>{
+      'name': name,
+      'path': path,
+      'clone_url': null,
+      'base_branch': draft.baseBranch.trim().isEmpty
+          ? 'main'
+          : draft.baseBranch.trim(),
+      'remote': 'origin',
+      'check_commands': const <String>[],
+      'worktree_root': null,
+      'push_policy': 'mission-branch',
+      'pr_policy': 'draft',
+    }, expectedRevision: snapshotRevision);
+  }
+
+  @override
+  Future<ProjectCloneReceipt> cloneProject(ProjectCloneDraft draft) async {
+    final url = draft.url.trim();
+    final destination = draft.destination.trim();
+    if (url.isEmpty || destination.isEmpty) {
+      throw ArgumentError('Repository URL and destination are required.');
+    }
+    await _requireFeature('projects');
+    final response = await _sendCommand('clone_project', <String, dynamic>{
+      'url': url,
+      'destination': destination,
+    }, expectedRevision: snapshotRevision);
+    final result = response['result'];
+    final data = result is Map && result['data'] is Map
+        ? Map<String, dynamic>.from(result['data'] as Map)
+        : const <String, dynamic>{};
+    final operationId = _string(data['id']);
+    if (operationId.isEmpty) {
+      throw StateError('The server did not return a clone operation.');
+    }
+    return ProjectCloneReceipt(
+      operationId: operationId,
+      destination: destination,
+    );
+  }
+
+  @override
+  Future<ProjectOperation> loadProjectOperation(String operationId) async {
+    final requested = operationId.trim();
+    if (requested.isEmpty) {
+      throw ArgumentError.value(operationId, 'operationId');
+    }
+    final snapshot = await _snapshot(force: true);
+    final operations = snapshot['operations'];
+    if (operations is List) {
+      for (final value in operations) {
+        if (value is! Map || _string(value['id']) != requested) continue;
+        return _projectOperationFrom(Map<String, dynamic>.from(value));
+      }
+    }
+    throw StateError(
+      'Project operation $requested was not reported by the server.',
+    );
+  }
+
+  @override
+  Future<void> createMission(String projectId, String objective) async {
+    final trimmedProject = projectId.trim();
+    final trimmedObjective = objective.trim();
+    if (trimmedProject.isEmpty || trimmedObjective.isEmpty) {
+      throw ArgumentError('Project and objective are required.');
+    }
+    await _requireFeature('missions');
+    await _sendCommand('create_mission', <String, dynamic>{
+      'project_id': trimmedProject,
+      'objective': trimmedObjective,
+    }, expectedRevision: snapshotRevision);
+  }
+
+  @override
+  Stream<void> watchWorkspaceChanges() => _snapshots.watchInvalidations();
+
+  @override
   Future<List<TeamAgentProfile>> loadTeamProfiles() async {
     final json = await _snapshot();
     final profiles = _profilesFrom(json);
@@ -252,15 +427,15 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<List<TeamRoleSummary>> loadTeamRoles() async {
-    await _requireFeature('team-crud-v1');
+    await _requireFeature('team');
     final json = await _snapshot();
     return [
       for (final role in _roleMaps(json))
         TeamRoleSummary(
           id: _string(role['id']),
-          name: _string(role['name'], fallback: 'Role'),
+          name: _string(role['name'], fallback: 'Not reported'),
           description: _string(role['description']),
-          template: _string(role['template'], fallback: 'generalist'),
+          template: _string(role['template']),
           defaultModel: _nullableString(role['default_model'] ?? role['model']),
           packId: _nullableString(role['pack_id']),
           packLevel: _nullableString(role['pack_level']),
@@ -269,9 +444,9 @@ class HttpFrankGateway implements FrankGateway {
           budget: _mapObject(role['budget']),
           avatarPalette: _string(
             (role['avatar'] as Map?)?['palette'],
-            fallback: 'frank',
+            fallback: '',
           ),
-          avatarSeed: _intOrNull((role['avatar'] as Map?)?['seed']) ?? 1,
+          avatarSeed: _intOrNull((role['avatar'] as Map?)?['seed']) ?? 0,
           revision: _intOrNull(role['revision']) ?? 0,
           archived: role['archived'] == true,
         ),
@@ -297,7 +472,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<OrganizationGraph> loadOrganization() async {
-    await _requireFeature('organization-v1');
+    await _requireFeature('organization');
     final json = await _snapshot();
     final organization = json['organization'];
     if (organization is! Map) {
@@ -325,7 +500,7 @@ class HttpFrankGateway implements FrankGateway {
   Future<OrganizationGraph> saveOrganizationDraft(
     OrganizationGraph graph,
   ) async {
-    await _requireFeature('organization-v1');
+    await _requireFeature('organization');
     await _sendCommand('save_organization_draft', <String, dynamic>{
       'graph': graph.toJson(),
       'expected_draft_revision': graph.draftRevision,
@@ -338,7 +513,7 @@ class HttpFrankGateway implements FrankGateway {
     OrganizationGraph graph, {
     required int expectedPublishedRevision,
   }) async {
-    await _requireFeature('organization-v1');
+    await _requireFeature('organization');
     await _sendCommand('publish_organization', <String, dynamic>{
       'expected_published_revision': expectedPublishedRevision,
     }, organizationExpectedRevision: expectedPublishedRevision);
@@ -347,7 +522,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<List<ConnectorProfile>> loadConnectorProfiles() async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     final json = await _snapshot();
     return _connectorProfilesFrom(json);
   }
@@ -356,7 +531,7 @@ class HttpFrankGateway implements FrankGateway {
   Future<ConnectorProfile> testConnectorProfile({
     required String profileId,
   }) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     final result = await _request('POST', '/v2/connectors/$profileId/test');
     final snapshot = await _snapshot();
     final profile = _connectorProfilesFrom(snapshot).firstWhere(
@@ -382,7 +557,7 @@ class HttpFrankGateway implements FrankGateway {
     required ConnectorKind kind,
     Map<String, Object?> config = const <String, Object?>{},
   }) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     await _sendCommand('create_connector_profile', <String, dynamic>{
       'name': name,
       'kind': kind.wireName,
@@ -398,7 +573,7 @@ class HttpFrankGateway implements FrankGateway {
     ConnectorKind? kind,
     Map<String, Object?>? config,
   }) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     await _sendCommand('update_connector_profile', <String, dynamic>{
       'profile_id': profileId,
       'patch': <String, dynamic>{
@@ -414,7 +589,7 @@ class HttpFrankGateway implements FrankGateway {
   Future<List<ConnectorProfile>> archiveConnectorProfile({
     required String profileId,
   }) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     await _sendCommand('archive_connector_profile', <String, dynamic>{
       'profile_id': profileId,
     }, expectedRevision: snapshotRevision);
@@ -426,7 +601,7 @@ class HttpFrankGateway implements FrankGateway {
     required String profileId,
     required String secret,
   }) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     if (secret.trim().isEmpty) throw ArgumentError.value(secret, 'secret');
     await _request(
       'PUT',
@@ -437,7 +612,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<void> removeConnectorCredential({required String profileId}) async {
-    await _requireFeature('connector-registry-v1');
+    await _requireFeature('connector-registry');
     await _request('DELETE', '/v2/connectors/$profileId/credential');
   }
 
@@ -506,7 +681,7 @@ class HttpFrankGateway implements FrankGateway {
 
   @override
   Future<WorkflowProjection> loadWorkflowProjection() async {
-    await _requireFeature('organization-workflows-v2');
+    await _requireFeature('taskboard-routing');
     return WorkflowProjection.fromSnapshot(
       Map<String, Object?>.from(await _snapshot()),
     );
@@ -517,7 +692,7 @@ class HttpFrankGateway implements FrankGateway {
     required String type,
     Map<String, Object?> data = const <String, Object?>{},
   }) async {
-    await _requireFeature('organization-workflows-v2');
+    await _requireFeature('taskboard-routing');
     if (type.trim().isEmpty) {
       throw ArgumentError.value(type, 'type');
     }
@@ -530,11 +705,7 @@ class HttpFrankGateway implements FrankGateway {
   }
 
   @override
-  Stream<void> watchTaskboard() async* {
-    await for (final _ in _watchEventCursors()) {
-      yield null;
-    }
-  }
+  Stream<void> watchTaskboard() => _snapshots.watchInvalidations();
 
   @override
   Stream<String> replyTo(
@@ -556,6 +727,7 @@ class HttpFrankGateway implements FrankGateway {
     int? organizationExpectedRevision,
   }) async {
     try {
+      await _ensureMutationAllowed();
       return await _snapshots.command(
         type: type,
         data: data,
@@ -600,19 +772,20 @@ class HttpFrankGateway implements FrankGateway {
     final agents = _agentMaps(json);
     final projects = _projectMaps(json);
     final missions = _missionMaps(json);
-    final employees = [for (final agent in agents) _employeeFrom(agent)];
+    final roles = _roleMaps(json);
+    final employees = [for (final agent in agents) _employeeFrom(agent, roles)];
     final accountExecutive =
         employees.firstOrNull ??
         const OfficeEmployee(
-          id: 'frank-supervisor',
-          name: 'Frank supervisor',
-          role: 'Supervisor',
-          status: 'Available',
-          initials: 'FR',
-          color: 0xFF9A68A5,
+          id: 'unavailable',
+          name: 'Not reported',
+          role: 'Not reported',
+          status: 'Unavailable',
+          initials: '—',
+          color: 0xFF65686C,
         );
     return OfficeWorkspace(
-      name: _mapString(json['server'], 'name', fallback: 'Frank Agency'),
+      name: _mapString(json['server'], 'name', fallback: 'Workspace'),
       employees: employees,
       accountExecutive: accountExecutive,
       projects: [
@@ -629,7 +802,7 @@ class HttpFrankGateway implements FrankGateway {
                     project['id'])
                   _agentName(task['assigned_agent'], agents),
             }.toList(),
-            summary: 'Remote Frank project',
+            summary: '',
             messages: const [],
             missions: [
               for (final mission in missions)
@@ -668,12 +841,64 @@ class HttpFrankGateway implements FrankGateway {
   }
 
   Future<void> _requireFeature(String feature) async {
-    // Capabilities are cheap metadata and intentionally are not a second raw
-    // cache. SnapshotStore remains the sole cache/invalidation boundary.
-    final json = await _request('GET', '/v2/capabilities');
-    final features = json['features'];
-    if (features is! List || !features.contains(feature)) {
+    final capabilities = await loadCapabilities();
+    if (!capabilities.supportsFeature(feature)) {
       throw StateError('This Frank daemon does not support $feature.');
+    }
+  }
+
+  ProjectOperation _projectOperationFrom(Map<String, dynamic> value) {
+    final rawStatus = _string(value['status']).toLowerCase();
+    final status = switch (rawStatus) {
+      'queued' => ProjectOperationStatus.queued,
+      'running' => ProjectOperationStatus.running,
+      'waiting' => ProjectOperationStatus.waiting,
+      'succeeded' => ProjectOperationStatus.succeeded,
+      'failed' => ProjectOperationStatus.failed,
+      'cancelled' => ProjectOperationStatus.cancelled,
+      'recovering' => ProjectOperationStatus.recovering,
+      _ => ProjectOperationStatus.unknown,
+    };
+    return ProjectOperation(
+      id: _string(value['id']),
+      status: status,
+      phase: _string(value['phase'], fallback: 'working'),
+      error: _nullableString(value['error']),
+    );
+  }
+
+  Future<void> _ensureMutationAllowed() async {
+    // The first mutation can race shell bootstrap. Resolve the same
+    // single-flight capability request before checking the gate so a command
+    // can never slip through while compatibility is still unknown.
+    final capabilities = _capabilities ?? await loadCapabilities();
+    if (!capabilities.isCompatibleWith(FrankApiVersion.current)) {
+      throw AuthFailure(
+        kind: AuthFailureKind.protocolMismatch,
+        message:
+            'This Frank app is not compatible with the server protocol. Update required.',
+        statusCode: 426,
+      );
+    }
+    final status = _transport.connectionStatus;
+    if (status.phase == FrankConnectionPhase.incompatible) {
+      throw AuthFailure(
+        kind: AuthFailureKind.protocolMismatch,
+        message:
+            status.detail ??
+            'This Frank app is not compatible with the server.',
+        statusCode: 426,
+      );
+    }
+    // Existing fixture transport test doubles intentionally bypass the base
+    // request implementation and therefore remain in the initial checking
+    // phase. Once a real capability document exists, an offline/reconnecting
+    // transport must not issue a mutation.
+    if (status.phase != FrankConnectionPhase.checking && !status.canMutate) {
+      throw AuthFailure(
+        kind: AuthFailureKind.network,
+        message: status.detail ?? 'The Frank server is not ready for changes.',
+      );
     }
   }
 
@@ -690,52 +915,69 @@ class HttpFrankGateway implements FrankGateway {
       json,
     ).where((task) => _string(task['assigned_agent']) == _string(agent['id']));
     final current = tasks.firstOrNull;
-    final template = _string(
-      role?['template'] ?? agent['template'],
-      fallback: 'Generalist',
+    final template = _string(role?['template'] ?? agent['template']);
+    final modelOverride = _nullableString(agent['model_override']);
+    final roleDefaultModel = _nullableString(
+      role?['default_model'] ?? role?['model'],
     );
+    // Resolve the worker model at the gateway boundary as well as in the
+    // daemon. Some older snapshots omit effective_model, but the precedence
+    // contract remains agent override > role default; supervisor settings
+    // are never a worker fallback.
+    final effectiveModel =
+        modelOverride ??
+        _nullableString(agent['effective_model']) ??
+        _nullableString(agent['model']) ??
+        roleDefaultModel;
+    final avatar = agent['avatar'] is Map
+        ? Map<String, dynamic>.from(agent['avatar'] as Map)
+        : role?['avatar'] is Map
+        ? Map<String, dynamic>.from(role?['avatar'] as Map)
+        : null;
     return TeamAgentProfile(
       employeeId: _string(agent['id']),
       roleId: role == null ? null : _string(role['id']),
       roleRevision: _intOrNull(agent['role_revision']) ?? 0,
       name: _string(agent['display_name'], fallback: 'Agent'),
       role: roleName,
-      specialization: template,
+      specialization: template.isEmpty ? null : template,
       initials: _initials(_string(agent['display_name'], fallback: 'Agent')),
       status: _agentStatus(_string(agent['status'])),
       accentColor: _accentFor(_string(agent['id'])),
-      imageAsset: 'assets/branding/frank-logo.png',
-      tagline: _string(
-        role?['description'],
-        fallback: 'A member of the Frank team.',
-      ),
-      currentProject: current == null ? 'No active project' : 'Assigned task',
+      imageAsset: '',
+      // These fields are deliberately descriptive only when the daemon has
+      // supplied the underlying fact. Do not invent a persona, project, or
+      // assignment for a remote member.
+      tagline: _string(role?['description']),
+      currentProject: current == null
+          ? 'Not reported'
+          : _string(current['project_id'], fallback: 'Not reported'),
       assignment: current == null
-          ? 'Waiting for an assignment'
-          : _string(current['title']),
-      model: _string(
-        agent['effective_model'] ?? agent['model'] ?? role?['model'],
-        fallback: 'Unconfigured',
+          ? 'No active task'
+          : _string(current['title'], fallback: 'Untitled task'),
+      model: effectiveModel ?? 'Unconfigured',
+      modelOverride: modelOverride,
+      modelSource: _string(
+        agent['model_source'],
+        fallback: modelOverride != null
+            ? 'agent'
+            : effectiveModel == null
+            ? 'unavailable'
+            : role == null
+            ? 'system'
+            : 'role',
       ),
-      modelOverride: _nullableString(agent['model_override']),
-      modelSource: _string(agent['model_source'], fallback: 'role'),
-      roleDefaultModel: _nullableString(
-        role?['default_model'] ?? role?['model'],
-      ),
+      roleDefaultModel: roleDefaultModel,
       pendingModelOverride: _nullableString(agent['pending_model_override']),
       pendingModelChange: agent['pending_model_change'] == true,
       revision: _intOrNull(json['revision']) ?? 0,
-      promptPack: _string(
-        role?['pack_id'] ?? agent['pack_id'],
-        fallback: 'caveman',
-      ),
-      level: _string(
-        role?['pack_level'] ?? agent['pack_level'],
-        fallback: 'full',
-      ),
-      traits: <String>[template, 'Taskboard-first'],
+      promptPack: _string(role?['pack_id'] ?? agent['pack_id']),
+      level: _string(role?['pack_level'] ?? agent['pack_level']),
+      traits: template.isEmpty ? const [] : <String>[template],
       capabilities: const [],
       activity: const [],
+      avatarPalette: _nullableString(avatar?['palette']),
+      avatarSeed: (avatar?['seed'] as num?)?.toInt(),
     );
   }
 
@@ -801,16 +1043,16 @@ class HttpFrankGateway implements FrankGateway {
     ];
     return TaskboardTask(
       id: _string(task['id']),
-      projectId: _string(project?['id'], fallback: 'unassigned-project'),
-      projectName: _string(project?['name'], fallback: 'Unassigned project'),
-      missionId: _string(mission?['id'], fallback: 'unassigned-mission'),
-      missionName: _string(mission?['objective'], fallback: 'Mission'),
+      projectId: _string(project?['id'], fallback: 'not-reported'),
+      projectName: _string(project?['name'], fallback: 'Not reported'),
+      missionId: _string(mission?['id'], fallback: 'not-reported'),
+      missionName: _string(mission?['objective'], fallback: 'Not reported'),
       agentId: agentId,
       agentName: _string(agent?['display_name'], fallback: 'Unassigned'),
       agentInitials: _initials(
         _string(agent?['display_name'], fallback: 'Unassigned'),
       ),
-      supervisorName: 'Frank supervisor',
+      supervisorName: 'Not reported',
       title: _string(task['title'], fallback: 'Task'),
       objective: _string(task['objective']),
       requiredRoleId: _nullableString(task['required_role_id']),
@@ -850,7 +1092,7 @@ class HttpFrankGateway implements FrankGateway {
         (candidate) => _string(candidate['id']) == _string(actor['id']),
       )?['display_name'],
     );
-    return agentName ?? 'Frank';
+    return agentName ?? 'Not reported';
   }
 
   LedgerDashboardData _ledgerFrom(Map<String, dynamic> json) {
@@ -1038,13 +1280,19 @@ String? _missionProject(
     )?['project_id']
     ?.toString();
 
-OfficeEmployee _employeeFrom(Map<String, dynamic> agent) {
-  final name = _string(agent['display_name'], fallback: 'Agent');
+OfficeEmployee _employeeFrom(
+  Map<String, dynamic> agent,
+  List<Map<String, dynamic>> roles,
+) {
+  final name = _string(agent['display_name'], fallback: 'Not reported');
+  final role = roles.firstOrNullWhere(
+    (candidate) => _string(candidate['id']) == _string(agent['role_id']),
+  );
   return OfficeEmployee(
     id: _string(agent['id']),
     name: name,
-    role: 'Frank agent',
-    status: _string(agent['status'], fallback: 'Idle'),
+    role: _string(role?['name'], fallback: 'Not reported'),
+    status: _string(agent['status'], fallback: 'Unavailable'),
     initials: _initials(name),
     color: _accentFor(_string(agent['id'])),
   );

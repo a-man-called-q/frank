@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 import 'package:frank_desktop/app/theme.dart';
@@ -43,7 +43,7 @@ void main() {
     expect(scrollbarRect.right, closeTo(sidebarRect.right, 1.5));
 
     await tester.drag(listFinder, const Offset(0, -280));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(controller.offset, greaterThan(0));
 
     controller.jumpTo(controller.position.maxScrollExtent);
@@ -63,7 +63,7 @@ void main() {
     final shelfList = find.byKey(const ValueKey('mission-shelf-scroll-view'));
     final shelfController = tester.widget<ListView>(shelfList).controller!;
     await tester.drag(shelfList, const Offset(0, -280));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(shelfController.offset, greaterThan(0));
 
     await tester.enterText(_searchField(), 'Mission');
@@ -92,8 +92,10 @@ void main() {
     await tester.pump();
     expect(searchController.offset, 0);
 
-    await tester.tap(find.byTooltip('Clear the workspace search'));
-    await tester.pump();
+    await tester.tap(
+      find.byKey(const ValueKey('work-inbox-search-clear')),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
     expect(
       tester
           .widget<ListView>(
@@ -154,10 +156,7 @@ void main() {
 RawScrollbar _scrollbar(WidgetTester tester) =>
     tester.widget<RawScrollbar>(find.byType(RawScrollbar));
 
-Finder _searchField() => find.byWidgetPredicate(
-  (widget) =>
-      widget is TextField && widget.decoration?.hintText == 'Search workspace',
-);
+Finder _searchField() => find.byKey(const ValueKey('work-inbox-search-field'));
 
 Future<void> _pumpInbox(
   WidgetTester tester, {

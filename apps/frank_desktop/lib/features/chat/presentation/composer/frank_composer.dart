@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/icons.dart';
 import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
@@ -138,30 +139,19 @@ class _FrankComposerState extends State<FrankComposer> {
         focusNode: _effectiveFocusNode,
         input: Focus(
           onKeyEvent: _handleKeyEvent,
-          child: TextField(
-            controller: _effectiveController,
-            focusNode: _effectiveFocusNode,
-            minLines: 2,
-            maxLines: 6,
-            style: const TextStyle(
-              color: FrankColors.ink,
-              fontSize: 14,
-              height: 1.42,
-            ),
-            cursorColor: FrankColors.aubergineAccent,
-            keyboardType: TextInputType.multiline,
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: EdgeInsets.zero,
-              border: InputBorder.none,
-              hintText:
+          child: ExcludeSemantics(
+            child: FTextField(
+              control: FTextFieldControl.managed(
+                controller: _effectiveController,
+              ),
+              focusNode: _effectiveFocusNode,
+              minLines: 2,
+              maxLines: 6,
+              keyboardType: TextInputType.multiline,
+              hint:
                   widget.placeholder ??
                   'Brief $shortExecutiveName about what you need…',
-              hintStyle: const TextStyle(
-                color: FrankColors.muted,
-                fontSize: 14,
-                fontWeight: FontWeight.normal,
-              ),
+              textInputAction: TextInputAction.newline,
             ),
           ),
         ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 // PathSegment is part of ConnectionStyle's public method signature, but
@@ -175,7 +175,8 @@ abstract final class OrganizationFlowAdapter {
       OrganizationNodeKind.taskboard => organizationTaskboardColor,
       OrganizationNodeKind.childWorkflow => organizationChildWorkflowColor,
     };
-    final isLegacyNode = node.kind == OrganizationNodeKind.staff ||
+    final isLegacyNode =
+        node.kind == OrganizationNodeKind.staff ||
         node.kind == OrganizationNodeKind.capability;
     final theme = NodeTheme.dark.copyWith(
       backgroundColor: node.kind == OrganizationNodeKind.approval
@@ -194,9 +195,7 @@ abstract final class OrganizationFlowAdapter {
       borderColor: isLegacyNode
           ? FrankColors.border
           : accent.withValues(alpha: .62),
-      selectedBorderColor: isLegacyNode
-          ? FrankColors.aubergineAccent
-          : accent,
+      selectedBorderColor: isLegacyNode ? FrankColors.aubergineAccent : accent,
       highlightBorderColor: FrankColors.aubergineAccent,
       borderWidth: FrankUiTokens.borderWidth,
       selectedBorderWidth: FrankUiTokens.borderWidth,

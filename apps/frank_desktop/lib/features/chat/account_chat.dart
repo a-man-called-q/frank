@@ -1,10 +1,11 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flow_ui/flow_ui.dart';
+import 'package:forui/forui.dart';
 // Not redundant with flutter/material above, and not removable: flow_ui builds
 // entirely on package:material_ui (29 of its files import it; it never imports
-// flutter/material). Its widgets therefore look up material_ui's own Material
+// Flutter's Material library). Its widgets therefore look up material_ui's own Material
 // and MaterialLocalizations *types*, which are distinct from Flutter's despite
 // the identical names. Dropping this import -- or either delegate below --
 // makes flow_ui widgets assert "No MaterialLocalizations found" at runtime.
@@ -19,7 +20,6 @@ import 'presentation/focusable_composer.dart';
 const _composerMaxWidth = 760.0;
 const _floorControlGap = 0.0;
 const _floorControlWidth = 40.0;
-const _floorControlButtonSize = 32.0;
 const _floorControlIconSize = 14.0;
 const _floorControlSlotWidth = _floorControlGap + _floorControlWidth;
 const _chatRailMaxWidth = _composerMaxWidth + _floorControlSlotWidth;
@@ -234,7 +234,6 @@ class _ConversationRail extends StatelessWidget {
         return Localizations(
           locale: const Locale('en', 'US'),
           delegates: const [
-            DefaultMaterialLocalizations.delegate,
             DefaultWidgetsLocalizations.delegate,
             mui.DefaultMaterialLocalizations.delegate,
           ],
@@ -411,55 +410,43 @@ class _PassiveConversationLogState extends State<_PassiveConversationLog> {
           ),
           child: DecoratedBox(
             key: const ValueKey('passive-chat-transcript-background'),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: .15),
-            ),
-            child: ScrollbarTheme(
-              data: ScrollbarTheme.of(context).copyWith(
-                thickness: const WidgetStatePropertyAll(4),
-                radius: const Radius.circular(4),
-                trackVisibility: const WidgetStatePropertyAll(false),
-                thumbColor: WidgetStatePropertyAll(
-                  FrankColors.muted.withValues(alpha: .56),
-                ),
-              ),
-              child: RawScrollbar(
-                key: const ValueKey('chat-transcript-scrollbar'),
+            decoration: BoxDecoration(color: const Color(0x26000000)),
+            child: RawScrollbar(
+              key: const ValueKey('chat-transcript-scrollbar'),
+              controller: _scrollController,
+              thumbVisibility: false,
+              trackVisibility: false,
+              interactive: true,
+              thickness: 4,
+              radius: const Radius.circular(4),
+              mainAxisMargin: 8,
+              crossAxisMargin: 4,
+              child: ListView.builder(
+                key: const ValueKey('chat-transcript-list'),
                 controller: _scrollController,
-                thumbVisibility: false,
-                trackVisibility: false,
-                interactive: true,
-                thickness: 4,
-                radius: const Radius.circular(4),
-                mainAxisMargin: 8,
-                crossAxisMargin: 4,
-                child: ListView.builder(
-                  key: const ValueKey('chat-transcript-list'),
-                  controller: _scrollController,
-                  reverse: true,
-                  shrinkWrap: true,
-                  primary: false,
-                  physics: const ClampingScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: widget.messages.length,
-                  itemBuilder: (context, index) {
-                    // A reversed list starts with the newest message at the bottom.
-                    final message =
-                        widget.messages[widget.messages.length - 1 - index];
-                    return Padding(
-                      key: ValueKey('chat-log-message-${message.id}'),
-                      padding: EdgeInsets.only(
-                        top: index == widget.messages.length - 1 ? 0 : 12,
+                reverse: true,
+                shrinkWrap: true,
+                primary: false,
+                physics: const ClampingScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                itemCount: widget.messages.length,
+                itemBuilder: (context, index) {
+                  // A reversed list starts with the newest message at the bottom.
+                  final message =
+                      widget.messages[widget.messages.length - 1 - index];
+                  return Padding(
+                    key: ValueKey('chat-log-message-${message.id}'),
+                    padding: EdgeInsets.only(
+                      top: index == widget.messages.length - 1 ? 0 : 12,
+                    ),
+                    child: IgnorePointer(
+                      child: _ChatLogMessage(
+                        executive: widget.executive,
+                        message: message,
                       ),
-                      child: IgnorePointer(
-                        child: _ChatLogMessage(
-                          executive: widget.executive,
-                          message: message,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -521,43 +508,12 @@ class _RecenterFloorButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: 'Reset floor view',
-      child: TooltipTheme(
-        data: TooltipTheme.of(context).copyWith(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-        ),
-        child: IconButton(
-          key: const ValueKey('floor-reset-view-button'),
-          onPressed: enabled ? onPressed : null,
-          tooltip: 'Reset floor view',
-          constraints: const BoxConstraints.tightFor(
-            width: _floorControlButtonSize,
-            height: _floorControlButtonSize,
-          ),
-          padding: EdgeInsets.zero,
-          style: ButtonStyle(
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            backgroundColor: const WidgetStatePropertyAll(Colors.transparent),
-            shape: const WidgetStatePropertyAll(
-              RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(14)),
-              ),
-            ),
-            // Keep the 32px hit target, but make the ghost control visually
-            // icon-only in every interaction state.
-            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-            foregroundColor: WidgetStateProperty.resolveWith((states) {
-              if (!enabled) return FrankColors.muted.withValues(alpha: 0.4);
-              if (states.contains(WidgetState.hovered) ||
-                  states.contains(WidgetState.focused)) {
-                return FrankColors.ink;
-              }
-              return FrankColors.muted;
-            }),
-            splashFactory: NoSplash.splashFactory,
-            animationDuration: Duration.zero,
-          ),
-          icon: const Icon(FrankIcons.recenter, size: _floorControlIconSize),
-        ),
+      child: FButton.icon(
+        key: const ValueKey('floor-reset-view-button'),
+        onPress: enabled ? onPressed : null,
+        semanticsTooltip: 'Reset floor view',
+        size: FButtonSizeVariant.sm,
+        child: const Icon(FrankIcons.recenter, size: _floorControlIconSize),
       ),
     );
   }
@@ -575,7 +531,7 @@ class _ChatLogMessage extends StatelessWidget {
     final speaker = assistant ? executive.name.split(' ').first : 'You';
     final nameColor = assistant ? Color(executive.color) : FrankColors.muted;
     final bodyColor = switch (message.status) {
-      OfficeMessageStatus.error => Theme.of(context).colorScheme.error,
+      OfficeMessageStatus.error => FrankColors.failure,
       OfficeMessageStatus.stopped => FrankColors.muted,
       _ => FrankColors.ink,
     };

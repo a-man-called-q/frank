@@ -1,7 +1,8 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../test/support/frank_test_app.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_scene/scene.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,17 +31,13 @@ void main() {
       target: vm.Vector3(0, 0.75, 0),
     );
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: Center(
           child: SizedBox.square(
             dimension: 512,
             child: RepaintBoundary(
               key: repaintKey,
-              child: SceneView(
-                scene,
-                camera: camera,
-                warmUp: true,
-              ),
+              child: SceneView(scene, camera: camera, warmUp: true),
             ),
           ),
         ),
@@ -52,8 +49,8 @@ void main() {
     }
     expect(tester.takeException(), isNull);
 
-    final boundary = repaintKey.currentContext!.findRenderObject()!
-        as RenderRepaintBoundary;
+    final boundary =
+        repaintKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
     final image = await boundary.toImage(pixelRatio: 1);
     final raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
     final bytes = raw!.buffer.asUint8List();

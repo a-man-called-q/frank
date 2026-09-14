@@ -9,7 +9,7 @@ void main() {
     final transport = TestFrankTransport((method, path, {body}) async {
       if (method == 'GET' && path == '/v2/capabilities') {
         return const {
-          'features': ['team-crud-v1'],
+          'features': ['team'],
         };
       }
       if (method == 'POST' && path == '/v2/commands') {

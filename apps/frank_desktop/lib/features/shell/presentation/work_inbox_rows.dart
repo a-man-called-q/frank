@@ -52,6 +52,7 @@ class _WorkInboxScrollRegionState extends State<_WorkInboxScrollRegion> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!widget.controller.hasClients ||
+          widget.controller.positions.length != 1 ||
           !widget.controller.position.hasContentDimensions) {
         // RawScrollbar attaches its controller after the first layout pass in
         // some hosts, and ScrollPosition receives content dimensions after
@@ -94,12 +95,6 @@ class _WorkInboxScrollRegionState extends State<_WorkInboxScrollRegion> {
 
   bool _handleNotification(ScrollNotification notification) {
     if (notification.metrics.axis != Axis.vertical) return false;
-    if (notification is ScrollStartNotification ||
-        notification is ScrollUpdateNotification ||
-        notification is OverscrollNotification ||
-        notification is ScrollMetricsNotification) {
-      FrankDesktopMenuDismissScope.dismissAll(context, restoreFocus: false);
-    }
     _syncFromMetrics(notification.metrics);
     if (notification is ScrollMetricsNotification) {
       // Content dimensions can be reported before the sliver finishes its
@@ -180,8 +175,8 @@ class _ScrollEdgeFadeMask extends StatelessWidget {
             _fadeColor(topStrength, 0.12),
             _fadeColor(topStrength, 0.5),
             _fadeColor(topStrength, 0.88),
-            Colors.white,
-            Colors.white,
+            const Color(0xFFFFFFFF),
+            const Color(0xFFFFFFFF),
             _fadeColor(bottomStrength, 0.88),
             _fadeColor(bottomStrength, 0.5),
             _fadeColor(bottomStrength, 0.12),
@@ -207,7 +202,7 @@ class _ScrollEdgeFadeMask extends StatelessWidget {
 
   Color _fadeColor(double strength, [double visibleAlpha = 0]) {
     final alpha = 1 - strength * (1 - visibleAlpha);
-    return Colors.white.withValues(alpha: alpha);
+    return const Color(0xFFFFFFFF).withValues(alpha: alpha);
   }
 }
 
@@ -289,41 +284,46 @@ class _ShelfSection extends StatelessWidget {
             ),
           ),
           if (group.shelf == SidebarShelf.pinned)
-            ReorderableListView.builder(
+            CustomScrollView(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              buildDefaultDragHandles: false,
-              itemCount: group.entries.length,
-              onReorderItem: (oldIndex, newIndex) {
-                final ids = group.entries
-                    .map((entry) => entry.mission.id)
-                    .toList();
-                final id = ids.removeAt(oldIndex);
-                ids.insert(newIndex, id);
-                onReorderPinnedMissions(ids);
-              },
-              itemBuilder: (context, index) {
-                final entry = group.entries[index];
-                return ReorderableDragStartListener(
-                  key: ValueKey('pinned-${entry.mission.id}'),
-                  index: index,
-                  child: _MissionRow(
-                    employees: employees,
-                    entry: entry,
-                    selected:
-                        entry.project.id == selectedProjectId &&
-                        entry.mission.id == selectedMissionId,
-                    onSelect: () =>
-                        onSelectMission(entry.project.id, entry.mission.id),
-                    onTogglePinned: () =>
-                        onTogglePinnedMission(entry.mission.id),
-                    onRename: () =>
-                        onRenameMission(entry.project.id, entry.mission.id),
-                    onArchive: () =>
-                        onArchiveMission(entry.project.id, entry.mission.id),
-                  ),
-                );
-              },
+              slivers: [
+                SliverReorderableList(
+                  itemCount: group.entries.length,
+                  onReorderItem: (oldIndex, newIndex) {
+                    final ids = group.entries
+                        .map((entry) => entry.mission.id)
+                        .toList();
+                    final id = ids.removeAt(oldIndex);
+                    ids.insert(newIndex, id);
+                    onReorderPinnedMissions(ids);
+                  },
+                  itemBuilder: (context, index) {
+                    final entry = group.entries[index];
+                    return ReorderableDragStartListener(
+                      key: ValueKey('pinned-${entry.mission.id}'),
+                      index: index,
+                      child: _MissionRow(
+                        employees: employees,
+                        entry: entry,
+                        selected:
+                            entry.project.id == selectedProjectId &&
+                            entry.mission.id == selectedMissionId,
+                        onSelect: () =>
+                            onSelectMission(entry.project.id, entry.mission.id),
+                        onTogglePinned: () =>
+                            onTogglePinnedMission(entry.mission.id),
+                        onRename: () =>
+                            onRenameMission(entry.project.id, entry.mission.id),
+                        onArchive: () => onArchiveMission(
+                          entry.project.id,
+                          entry.mission.id,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             )
           else
             for (final entry in group.entries)
@@ -343,15 +343,15 @@ class _ShelfSection extends StatelessWidget {
                     onArchiveMission(entry.project.id, entry.mission.id),
               ),
           if (group.hasMore)
-            TextButton(
-              onPressed: onShowMoreCompleted,
-              style: TextButton.styleFrom(
-                foregroundColor: FrankColors.muted,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                alignment: Alignment.centerLeft,
-                textStyle: const TextStyle(fontSize: 11),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FButton(
+                onPress: onShowMoreCompleted,
+                variant: FButtonVariant.ghost,
+                size: FButtonSizeVariant.sm,
+                mainAxisSize: MainAxisSize.min,
+                child: Text('Show all ${group.totalCount}'),
               ),
-              child: Text('Show all ${group.totalCount}'),
             ),
         ],
       ),
@@ -392,13 +392,12 @@ class _MissionRowState extends State<_MissionRow> {
   bool _focused = false;
   bool? _lastShowActions;
   var _transitionGeneration = 0;
-  late final FrankDesktopMenuController _menuController;
+  FPopoverController? _menuController;
   late final FocusNode _rowFocusNode;
 
   @override
   void initState() {
     super.initState();
-    _menuController = FrankDesktopMenuController();
     _rowFocusNode = FocusNode(
       debugLabel: 'Mission ${widget.entry.mission.title}',
     );
@@ -406,7 +405,6 @@ class _MissionRowState extends State<_MissionRow> {
 
   @override
   void dispose() {
-    _menuController.close();
     _rowFocusNode.dispose();
     super.dispose();
   }
@@ -460,7 +458,7 @@ class _MissionRowState extends State<_MissionRow> {
             (event.logicalKey == LogicalKeyboardKey.f10 &&
                 HardwareKeyboard.instance.isShiftPressed);
         if (contextMenuPressed) {
-          _menuController.open();
+          _menuController?.show();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -480,108 +478,114 @@ class _MissionRowState extends State<_MissionRow> {
           button: true,
           selected: widget.selected,
           label: semanticsLabel,
-          child: Tooltip(
-            message: details,
-            child: FrankDesktopMenu(
-              controller: _menuController,
-              openOnSecondaryTap: true,
-              returnFocusNode: _rowFocusNode,
+          child: FTooltip(
+            tipBuilder: (_, _) => Text(details),
+            child: FContextMenu(
+              groupId: 'work-inbox-menu',
               semanticsLabel: 'Task actions for ${mission.title}',
-              width: 248,
-              groups: [
-                FrankMenuGroup([
-                  FrankMenuItem(
-                    label: entry.pinned ? 'Unpin' : 'Pin',
-                    icon: FrankIcons.pin,
-                    onPressed: widget.onTogglePinned,
-                  ),
-                  FrankMenuItem(
-                    label: 'Rename',
-                    icon: FrankIcons.edit,
-                    onPressed: widget.onRename,
-                  ),
-                  FrankMenuItem(
-                    label: 'Archive',
-                    icon: FrankIcons.archive,
-                    onPressed: widget.onArchive,
-                  ),
-                ]),
-              ],
-              child: Material(
-                color: widget.selected
-                    ? FrankColors.ink.withValues(alpha: 0.08)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(7),
-                child: InkWell(
-                  onTap: widget.onSelect,
-                  borderRadius: BorderRadius.circular(7),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 9,
+              menu: [
+                FItemGroup(
+                  children: [
+                    FItem(
+                      title: Text(entry.pinned ? 'Unpin' : 'Pin'),
+                      prefix: const Icon(FrankIcons.pin),
+                      onPress: widget.onTogglePinned,
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                mission.title,
-                                maxLines: 2,
-                                softWrap: true,
-                                overflow: TextOverflow.fade,
-                                style: TextStyle(
-                                  color: widget.selected
-                                      ? FrankColors.ink
-                                      : FrankColors.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                metadata,
-                                maxLines: 1,
-                                overflow: TextOverflow.fade,
-                                style: const TextStyle(
-                                  color: FrankColors.muted,
-                                  fontSize: 10,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        SizedBox(
-                          width: _trailingSlotWidth,
-                          height: 28,
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 140),
-                            reverseDuration: Duration.zero,
-                            switchInCurve: Curves.easeOutCubic,
-                            switchOutCurve: Curves.easeOutCubic,
-                            child: showActions
-                                ? _MissionActions(
-                                    key: ValueKey(
-                                      'mission-actions-$_transitionGeneration',
-                                    ),
-                                    entry: entry,
-                                    onTogglePinned: widget.onTogglePinned,
-                                    onOpenMenu: _menuController.open,
-                                  )
-                                : _PassiveMissionSignals(
-                                    key: ValueKey(
-                                      'mission-signals-$_transitionGeneration',
-                                    ),
-                                    entry: entry,
-                                  ),
-                          ),
-                        ),
-                      ],
+                    FItem(
+                      title: const Text('Rename'),
+                      prefix: const Icon(FrankIcons.edit),
+                      onPress: widget.onRename,
                     ),
-                  ),
+                    FItem(
+                      title: const Text('Archive'),
+                      prefix: const Icon(FrankIcons.archive),
+                      variant: FItemVariant.destructive,
+                      onPress: widget.onArchive,
+                    ),
+                  ],
                 ),
-              ),
+              ],
+              builder: (context, controller, _) {
+                _menuController = controller;
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: widget.selected
+                        ? FrankColors.ink.withValues(alpha: 0.08)
+                        : null,
+                    borderRadius: BorderRadius.circular(7),
+                  ),
+                  child: FTappable.static(
+                    onPress: widget.onSelect,
+                    semanticsLabel: semanticsLabel,
+                    selected: widget.selected,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 9,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  mission.title,
+                                  maxLines: 2,
+                                  softWrap: true,
+                                  overflow: TextOverflow.fade,
+                                  style: TextStyle(
+                                    color: widget.selected
+                                        ? FrankColors.ink
+                                        : FrankColors.muted,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  metadata,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.fade,
+                                  style: const TextStyle(
+                                    color: FrankColors.muted,
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          SizedBox(
+                            width: _trailingSlotWidth,
+                            height: 28,
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 140),
+                              reverseDuration: Duration.zero,
+                              switchInCurve: Curves.easeOutCubic,
+                              switchOutCurve: Curves.easeOutCubic,
+                              child: showActions
+                                  ? _MissionActions(
+                                      key: ValueKey(
+                                        'mission-actions-$_transitionGeneration',
+                                      ),
+                                      entry: entry,
+                                      onTogglePinned: widget.onTogglePinned,
+                                      onOpenMenu: () => controller.show(),
+                                    )
+                                  : _PassiveMissionSignals(
+                                      key: ValueKey(
+                                        'mission-signals-$_transitionGeneration',
+                                      ),
+                                      entry: entry,
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ),

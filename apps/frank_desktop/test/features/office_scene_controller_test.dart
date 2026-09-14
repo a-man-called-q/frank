@@ -1,5 +1,7 @@
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/features/floor/office_scene_floor.dart';
 
@@ -115,42 +117,43 @@ void main() {
     addTearDown(controller.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: SizedBox(
+      FrankTestApp(
+        home: FScaffold(
+          child: SizedBox(
             width: 240,
             height: 180,
             child: OfficeSceneInteractionSurface(
               controller: controller,
-              child: const ColoredBox(color: Colors.black),
+              child: const ColoredBox(color: Color(0xFF000000)),
             ),
           ),
         ),
       ),
     );
+    await tester.pump();
 
     final initialYaw = controller.yaw;
     final leftDrag = await tester.startGesture(
-      const Offset(100, 80),
+      const Offset(380, 80),
       kind: PointerDeviceKind.mouse,
       buttons: kPrimaryMouseButton,
     );
     await leftDrag.moveBy(const Offset(40, 20));
     await leftDrag.up();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(controller.canReset, isTrue);
     expect(controller.yaw, closeTo(initialYaw, 1e-9));
 
     controller.reset();
     final rightDrag = await tester.startGesture(
-      const Offset(100, 80),
+      const Offset(380, 80),
       kind: PointerDeviceKind.mouse,
       buttons: kSecondaryMouseButton,
     );
     await rightDrag.moveBy(const Offset(40, 20));
     await rightDrag.up();
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(controller.yaw, greaterThan(initialYaw));
     expect(controller.target.x, closeTo(0.0, 1e-9));
@@ -160,7 +163,7 @@ void main() {
     await tester.sendEventToBinding(
       const PointerScrollEvent(
         kind: PointerDeviceKind.trackpad,
-        position: Offset(100, 80),
+        position: Offset(380, 80),
         scrollDelta: Offset(0, -120),
       ),
     );
@@ -169,20 +172,20 @@ void main() {
 
     controller.reset();
     await tester.sendEventToBinding(
-      const PointerPanZoomStartEvent(position: Offset(100, 80)),
+      const PointerPanZoomStartEvent(position: Offset(380, 80)),
     );
     await tester.sendEventToBinding(
-      const PointerPanZoomUpdateEvent(position: Offset(100, 80), scale: 1.25),
+      const PointerPanZoomUpdateEvent(position: Offset(380, 80), scale: 1.25),
     );
     await tester.sendEventToBinding(
-      const PointerPanZoomEndEvent(position: Offset(100, 80)),
+      const PointerPanZoomEndEvent(position: Offset(380, 80)),
     );
     await tester.pump();
     expect(controller.zoom, closeTo(1.25, 1e-9));
 
     controller.reset();
     final clicked = await tester.startGesture(
-      const Offset(100, 80),
+      const Offset(380, 80),
       kind: PointerDeviceKind.mouse,
       buttons: kPrimaryMouseButton,
     );

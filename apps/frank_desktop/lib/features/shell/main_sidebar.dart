@@ -1,18 +1,21 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:forui/forui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../app/frank_logo.dart';
 import '../../app/icons.dart';
-import '../../app/controls/frank_desktop_menu.dart';
+import '../../app/office_ui.dart';
 import '../../app/theme.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/gateway/frank_gateway.dart';
 import '../../core/models/workspace_models.dart';
+import '../../core/models/project_models.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
+import 'bloc/connection_bloc.dart';
 import 'bloc/shell_bloc.dart';
 import 'presentation/work_inbox.dart';
 import 'sidebar_layout.dart';
@@ -77,7 +80,7 @@ final _frankSettingsNavigationStyle = FSidebarGroupStyleDelta.delta(
     ),
     borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
     backgroundColor: FVariantsValueDelta.delta([
-      FVariantValueDeltaOperation.all(Colors.transparent),
+      FVariantValueDeltaOperation.all(const Color(0x00000000)),
       FVariantValueDeltaOperation.exact({
         FTappableVariant.hovered,
       }, FrankColors.ink.withValues(alpha: FrankUiTokens.hoverInkOpacity)),
@@ -89,7 +92,7 @@ final _frankSettingsNavigationStyle = FSidebarGroupStyleDelta.delta(
       }, FrankColors.aubergineSelection.withValues(alpha: .34)),
     ]),
     focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
-      color: Colors.transparent,
+      color: const Color(0x00000000),
       spacing: 0,
     ),
   ),
@@ -110,12 +113,12 @@ FSidebarStyleDelta _frankSidebarStyle(
   ),
   groupStyle: FSidebarGroupStyleDelta.delta(
     focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
-      color: Colors.transparent,
+      color: const Color(0x00000000),
       spacing: 0,
     ),
     itemStyle: FSidebarItemStyleDelta.delta(
       focusedOutlineStyle: FFocusedOutlineStyleDelta.delta(
-        color: Colors.transparent,
+        color: const Color(0x00000000),
         spacing: 0,
       ),
     ),
@@ -174,6 +177,7 @@ class MainSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final shell = context.watch<ShellBloc>().state;
     final projectsState = context.watch<ProjectsBloc>().state;
+    final connection = context.watch<ConnectionBloc>().state;
     final workspace = shell.workspace;
     if (workspace == null) return const SizedBox.shrink();
     final sidebarWidth = SidebarLayout.contentWidthForPreview(
@@ -186,16 +190,7 @@ class MainSidebar extends StatelessWidget {
       listener: (context, state) {
         final notice = state.notice;
         if (notice == null) return;
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(notice.message),
-              behavior: SnackBarBehavior.floating,
-              width: 360,
-              duration: const Duration(milliseconds: 2200),
-            ),
-          );
+        showFrankToast(context, notice.message);
         context.read<ProjectsBloc>().add(ProjectsNoticeConsumed(notice.id));
       },
       child: LayoutBuilder(
@@ -240,8 +235,20 @@ class MainSidebar extends StatelessWidget {
                 MissionSelected(projectId: projectId, missionId: missionId),
               );
             },
-            onCreateMission: (projectId) => context.read<ProjectsBloc>().add(
-              MissionCreationRequested(projectId),
+            onCreateMission: (projectId) => _createMission(
+              context,
+              projectsState,
+              projectId,
+            ),
+            onAddProject: connection.canMutate ? () => _addProject(context) : null,
+            canMutate: connection.canMutate,
+            mutationDisabledReason: connection.status.detail ??
+                '${connection.status.label}: changes are paused.',
+            mutationStatus: projectsState.mutationStatus,
+            mutationError: projectsState.mutationError,
+            activeOperation: projectsState.activeOperation,
+            onRetryMutation: () => context.read<ProjectsBloc>().add(
+              const ProjectMutationRetryRequested(),
             ),
             onPinProject: (projectId) => context.read<ProjectsBloc>().add(
               ProjectPinRequested(projectId),
@@ -303,13 +310,49 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final project = state.projectById(projectId);
     if (project == null || !context.mounted) return;
-    final name = await showDialog<String>(
+    final name = await showFrankDialog<String>(
       context: context,
       builder: (_) => RenameProjectDialog(projectName: project.name),
     );
     if (!context.mounted || name == null) return;
     context.read<ProjectsBloc>().add(
       ProjectRenameConfirmed(projectId: projectId, name: name),
+    );
+  }
+
+  Future<void> _addProject(BuildContext context) async {
+    final result = await showFrankDialog<ProjectSetupResult>(
+      context: context,
+      builder: (_) => AddProjectDialog(
+        browseDirectories: context
+            .read<FrankGateway>()
+            .browseProjectDirectories,
+      ),
+    );
+    if (!context.mounted || result == null) return;
+    final bloc = context.read<ProjectsBloc>();
+    switch (result) {
+      case RegisterProjectResult(:final draft):
+        bloc.add(ProjectRegisterSubmitted(draft));
+      case CloneProjectResult(:final draft):
+        bloc.add(ProjectCloneSubmitted(draft));
+    }
+  }
+
+  Future<void> _createMission(
+    BuildContext context,
+    ProjectsState state,
+    String projectId,
+  ) async {
+    final project = state.projectById(projectId);
+    if (project == null) return;
+    final objective = await showFrankDialog<String>(
+      context: context,
+      builder: (_) => CreateMissionDialog(projectName: project.name),
+    );
+    if (!context.mounted || objective == null) return;
+    context.read<ProjectsBloc>().add(
+      MissionCreationSubmitted(projectId: projectId, objective: objective),
     );
   }
 
@@ -321,7 +364,7 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final mission = state.missionById(state.projectById(projectId), missionId);
     if (mission == null || !context.mounted) return;
-    final name = await showDialog<String>(
+    final name = await showFrankDialog<String>(
       context: context,
       builder: (_) => RenameMissionDialog(missionTitle: mission.title),
     );
@@ -342,7 +385,7 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final project = state.projectById(projectId);
     if (project == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showFrankDialog<bool>(
       context: context,
       builder: (_) => ProjectConfirmationDialog(
         title: 'Archive project?',
@@ -363,7 +406,7 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final mission = state.missionById(state.projectById(projectId), missionId);
     if (mission == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showFrankDialog<bool>(
       context: context,
       builder: (_) => ProjectConfirmationDialog(
         title: 'Archive task?',
@@ -385,7 +428,7 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final project = state.projectById(projectId);
     if (project == null || !context.mounted) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showFrankDialog<bool>(
       context: context,
       builder: (_) => ProjectConfirmationDialog(
         title: 'Remove project?',

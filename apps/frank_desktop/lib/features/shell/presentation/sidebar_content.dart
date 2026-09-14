@@ -32,6 +32,13 @@ class MainSidebarContent extends StatelessWidget {
     required this.onToggleProject,
     required this.onSelectMission,
     required this.onCreateMission,
+    this.onAddProject,
+    this.canMutate = true,
+    this.mutationDisabledReason,
+    this.mutationStatus = ProjectsMutationStatus.idle,
+    this.mutationError,
+    this.activeOperation,
+    this.onRetryMutation,
     required this.onPinProject,
     required this.onRenameProject,
     required this.onArchiveProject,
@@ -72,6 +79,13 @@ class MainSidebarContent extends StatelessWidget {
   final ValueChanged<String> onToggleProject;
   final void Function(String projectId, String missionId) onSelectMission;
   final ValueChanged<String> onCreateMission;
+  final VoidCallback? onAddProject;
+  final bool canMutate;
+  final String? mutationDisabledReason;
+  final ProjectsMutationStatus mutationStatus;
+  final String? mutationError;
+  final ProjectOperation? activeOperation;
+  final VoidCallback? onRetryMutation;
   final ValueChanged<String> onPinProject;
   final ValueChanged<String> onRenameProject;
   final ValueChanged<String> onArchiveProject;
@@ -125,6 +139,13 @@ class MainSidebarContent extends StatelessWidget {
                 onTogglePinnedMission: onTogglePinnedMission,
                 onReorderPinnedMissions: onReorderPinnedMissions,
                 onCreateMission: onCreateMission,
+                onAddProject: onAddProject,
+                canMutate: canMutate,
+                mutationDisabledReason: mutationDisabledReason,
+                mutationStatus: mutationStatus,
+                mutationError: mutationError,
+                activeOperation: activeOperation,
+                onRetryMutation: onRetryMutation,
                 onRenameMission: onRenameMission,
                 onArchiveMission: onArchiveMission,
               )

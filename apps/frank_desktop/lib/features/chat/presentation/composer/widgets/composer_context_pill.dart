@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:frank_desktop/app/theme.dart';
 
 /// Compact context label for the composer's quiet metadata row.
@@ -72,7 +72,7 @@ class _ComposerContextPillState extends State<ComposerContextPill> {
             decoration: BoxDecoration(
               color: widget.onTap != null && _hovered
                   ? FrankColors.aubergineSoft
-                  : Colors.transparent,
+                  : const Color(0x00000000),
               borderRadius: BorderRadius.circular(99),
             ),
             child: content,

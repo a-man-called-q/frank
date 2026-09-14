@@ -23,21 +23,23 @@ class _MissionActions extends StatelessWidget {
           SizedBox(
             width: 28,
             height: 28,
-            child: IconButton(
-              onPressed: onTogglePinned,
-              tooltip: entry.pinned
+            child: FButton.icon(
+              key: ValueKey('work-inbox-pin-${mission.id}'),
+              onPress: onTogglePinned,
+              semanticsLabel: entry.pinned
                   ? 'Unpin task ${mission.title} from the pinned list'
                   : 'Pin task ${mission.title} to the pinned list',
-              icon: Icon(
+              semanticsTooltip: entry.pinned
+                  ? 'Unpin task ${mission.title} from the pinned list'
+                  : 'Pin task ${mission.title} to the pinned list',
+              child: Icon(
                 FrankIcons.pin,
                 size: 14,
                 color: entry.pinned
                     ? FrankColors.aubergineAccent
                     : FrankColors.muted.withValues(alpha: 0.6),
               ),
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+              size: FButtonSizeVariant.sm,
             ),
           ),
           SizedBox(
@@ -46,16 +48,13 @@ class _MissionActions extends StatelessWidget {
             child: Semantics(
               button: true,
               label: 'Task actions for ${mission.title}',
-              child: IconButton(
-                onPressed: onOpenMenu,
-                tooltip: 'Open actions for ${mission.title}',
-                icon: const Icon(FrankIcons.more, size: 15),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints.tightFor(
-                  width: 28,
-                  height: 28,
-                ),
-                visualDensity: VisualDensity.compact,
+              child: FButton.icon(
+                key: ValueKey('work-inbox-actions-${mission.id}'),
+                onPress: onOpenMenu,
+                semanticsLabel: 'Open actions for ${mission.title}',
+                semanticsTooltip: 'Open actions for ${mission.title}',
+                size: FButtonSizeVariant.sm,
+                child: const Icon(FrankIcons.more, size: 15),
               ),
             ),
           ),
@@ -159,8 +158,7 @@ class _SearchResults extends StatelessWidget {
         primary: false,
         padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         itemCount: results.length,
-        separatorBuilder: (_, _) =>
-            const Divider(height: 1, color: FrankColors.border),
+        separatorBuilder: (_, _) => const FDivider(),
         itemBuilder: (context, index) {
           final result = results[index];
           final icon = switch (result.kind) {
@@ -169,37 +167,22 @@ class _SearchResults extends StatelessWidget {
             SidebarSearchKind.agent => FrankIcons.user,
             SidebarSearchKind.message => FrankIcons.message,
           };
-          return Material(
-            color: Colors.transparent,
-            child: ListTile(
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              leading: Icon(icon, size: 16, color: FrankColors.muted),
-              title: Text(
-                result.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: FrankColors.ink, fontSize: 12),
-              ),
-              subtitle: Text(
-                result.subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: FrankColors.muted, fontSize: 10),
-              ),
-              selected:
-                  result.projectId == selectedProjectId &&
-                  result.missionId == selectedMissionId,
-              onTap: () {
-                if (result.missionId case final missionId?) {
-                  onSelectMission(result.projectId!, missionId);
-                } else if (result.projectId case final projectId?) {
-                  onSelectProject(projectId);
-                } else if (result.kind == SidebarSearchKind.agent) {
-                  onSelectAgent();
-                }
-              },
-            ),
+          return FItem(
+            title: Text(result.title),
+            subtitle: Text(result.subtitle),
+            prefix: Icon(icon, size: 16, color: FrankColors.muted),
+            selected:
+                result.projectId == selectedProjectId &&
+                result.missionId == selectedMissionId,
+            onPress: () {
+              if (result.missionId case final missionId?) {
+                onSelectMission(result.projectId!, missionId);
+              } else if (result.projectId case final projectId?) {
+                onSelectProject(projectId);
+              } else if (result.kind == SidebarSearchKind.agent) {
+                onSelectAgent();
+              }
+            },
           );
         },
       ),

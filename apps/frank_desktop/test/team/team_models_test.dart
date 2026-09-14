@@ -47,4 +47,17 @@ void main() {
       expect(patch.keys, contains('name'));
     },
   );
+
+  test('new members only send identity, role, and an explicit model override', () {
+    const member = TeamAgentDraft(
+      displayName: 'Nia',
+      roleId: 'role-researcher',
+      modelOverride: 'openai/gpt-5-mini',
+    );
+    expect(member.toJson(), {
+      'role_id': 'role-researcher',
+      'display_name': 'Nia',
+      'model_override': 'openai/gpt-5-mini',
+    });
+  });
 }

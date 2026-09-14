@@ -52,18 +52,10 @@ pub(crate) async fn snapshot(
 
 fn refresh_connector_status(state: &ServerState, snapshot: &mut Snapshot) {
     for profile in &mut snapshot.organization.connector_profiles {
-        if profile.kind == ConnectorKind::Taskboard {
-            // Taskboard is a daemon-owned adapter and has no external
-            // credential or connection test.
-            profile.configured = true;
-            profile.health = ConnectorHealth::Healthy;
-            profile.diagnostic = None;
-        } else {
-            profile.configured = state.connector_credentials.configured(profile.id);
-            if !profile.configured {
-                profile.health = ConnectorHealth::Unknown;
-                profile.diagnostic = Some("credential is not configured".into());
-            }
+        profile.configured = state.connector_credentials.configured(profile.id);
+        if !profile.configured {
+            profile.health = ConnectorHealth::Unknown;
+            profile.diagnostic = Some("credential is not configured".into());
         }
     }
 }

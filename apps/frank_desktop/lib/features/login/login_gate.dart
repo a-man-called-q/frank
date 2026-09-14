@@ -1,12 +1,17 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 
 import '../../app/frank_logo.dart';
+import '../../app/icons.dart';
 import '../../app/theme.dart';
+import '../../app/office_ui.dart';
 import '../../core/auth/auth_models.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/gateway/frank_gateway.dart';
+import '../../core/models/connection_models.dart';
 import '../floor/office_scene_floor.dart';
 import '../shell/bloc/shell_bloc.dart';
 import '../shell/office_shell.dart';
@@ -61,6 +66,7 @@ class _LoginGateState extends State<LoginGate>
   ShellLoadStatus _shellStatus = ShellLoadStatus.loading;
   bool _passwordVisible = false;
   String? _error;
+  FrankConnectionStatus? _compatibilityStatus;
   bool _restoring = true;
   bool _shellMounted = false;
   Timer? _sessionTimer;
@@ -163,6 +169,10 @@ class _LoginGateState extends State<LoginGate>
       }
     } on AuthFailure catch (error) {
       if (!mounted) return;
+      if (error.kind == AuthFailureKind.protocolMismatch) {
+        _showCompatibilityFailure(error);
+        return;
+      }
       setState(() {
         _error = error.userMessage;
         _phase = _LoginPhase.form;
@@ -182,6 +192,19 @@ class _LoginGateState extends State<LoginGate>
 
   Future<void> _restoreSession() async {
     try {
+      final capabilities = await widget.gateway.preflightCapabilities();
+      if (capabilities != null &&
+          !capabilities.isCompatibleWith(FrankApiVersion.current)) {
+        if (!mounted) return;
+        setState(() {
+          _restoring = false;
+          _compatibilityStatus = capabilities.statusFor(
+            FrankApiVersion.current,
+          );
+          _error = null;
+        });
+        return;
+      }
       final status = await _auth.status();
       if (!status.configured) {
         if (!mounted) return;
@@ -197,6 +220,10 @@ class _LoginGateState extends State<LoginGate>
       if (session != null) await _revealShell();
     } on AuthFailure catch (error) {
       if (!mounted) return;
+      if (error.kind == AuthFailureKind.protocolMismatch) {
+        _showCompatibilityFailure(error);
+        return;
+      }
       setState(() {
         _restoring = false;
         _error = error.userMessage;
@@ -309,7 +336,7 @@ class _LoginGateState extends State<LoginGate>
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    return ColoredBox(
       color: FrankColors.canvas,
       child: Stack(
         fit: StackFit.expand,
@@ -341,6 +368,10 @@ class _LoginGateState extends State<LoginGate>
   }
 
   Widget _buildLoginSurface() {
+    final compatibility = _compatibilityStatus;
+    if (compatibility != null) {
+      return _buildCompatibilitySurface(compatibility);
+    }
     return IgnorePointer(
       ignoring: !_isFormEnabled,
       child: ExcludeSemantics(
@@ -399,6 +430,89 @@ class _LoginGateState extends State<LoginGate>
     );
   }
 
+  Widget _buildCompatibilitySurface(FrankConnectionStatus status) {
+    return Semantics(
+      container: true,
+      label: 'Frank server compatibility required',
+      explicitChildNodes: true,
+      child: ColoredBox(
+        color: FrankColors.canvas,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: FrankPanel(
+                raised: true,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Icon(
+                      FrankIcons.warningAmberOutlined,
+                      color: FrankColors.failure,
+                      size: 28,
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Update required',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: FrankColors.ink,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      status.detail ??
+                          'This Frank app is not compatible with the server.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: FrankColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Server: ${widget.authRepository?.serverUrl ?? 'Configured Frank server'}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: FrankColors.muted,
+                        fontSize: 11,
+                        fontFamily: FrankTypography.monoFontFamily,
+                      ),
+                    ),
+                    if (status.serverVersion case final version?) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'App protocol: ${status.appProtocolVersion} · Server version: $version · protocol ${status.serverProtocolVersion ?? 'unknown'}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: FrankColors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Upgrade the Frank desktop app or server, then retry the compatibility check.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: FrankColors.ink, fontSize: 12),
+                    ),
+                    const SizedBox(height: 18),
+                    FButton(
+                      key: const ValueKey('compatibility-retry-button'),
+                      onPress: _retryConnection,
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildForm() {
     final submitting = _phase == _LoginPhase.submitting;
     final enabled = _isFormEnabled && !_restoring;
@@ -438,51 +552,63 @@ class _LoginGateState extends State<LoginGate>
             },
           ),
           const SizedBox(height: 34),
-          TextFormField(
-            key: const ValueKey('login-username-field'),
-            controller: _usernameController,
-            enabled: enabled,
-            style: const TextStyle(color: FrankColors.ink, fontSize: 13),
-            cursorColor: FrankColors.aubergineAccent,
-            keyboardType: TextInputType.name,
-            textInputAction: TextInputAction.next,
-            onFieldSubmitted: (_) => _passwordFocusNode.requestFocus(),
-            autofillHints: const [AutofillHints.username],
-            validator: _validateUsername,
-            decoration: _loginInputDecoration(
-              labelText: 'Username',
-              hintText: 'owner',
+          Semantics(
+            container: true,
+            label: 'Username',
+            child: ExcludeSemantics(
+              child: FTextFormField(
+                key: const ValueKey('login-username-field'),
+                control: FTextFieldControl.managed(
+                  controller: _usernameController,
+                ),
+                enabled: enabled,
+                keyboardType: TextInputType.name,
+                textInputAction: TextInputAction.next,
+                onSubmit: (_) => _passwordFocusNode.requestFocus(),
+                autofillHints: const [AutofillHints.username],
+                validator: _validateUsername,
+                label: const Text('Username'),
+                hint: 'owner',
+              ),
             ),
           ),
           const SizedBox(height: 12),
-          TextFormField(
-            key: const ValueKey('login-password-field'),
-            controller: _passwordController,
-            focusNode: _passwordFocusNode,
-            enabled: enabled,
-            style: const TextStyle(color: FrankColors.ink, fontSize: 13),
-            cursorColor: FrankColors.aubergineAccent,
-            obscureText: !_passwordVisible,
-            textInputAction: TextInputAction.done,
-            autofillHints: const [AutofillHints.password],
-            onFieldSubmitted: (_) => unawaited(_submit()),
-            validator: _validatePassword,
-            decoration: _loginInputDecoration(
-              labelText: 'Password',
-              hintText: 'Your workspace password',
-              suffixIcon: IconButton(
-                tooltip: _passwordVisible ? 'Hide password' : 'Show password',
-                visualDensity: VisualDensity.compact,
-                color: FrankColors.muted,
-                onPressed: !enabled
-                    ? null
-                    : () =>
-                          setState(() => _passwordVisible = !_passwordVisible),
-                icon: Icon(
-                  _passwordVisible
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  size: 18,
+          Semantics(
+            container: true,
+            label: 'Password',
+            child: ExcludeSemantics(
+              child: FTextFormField(
+                key: const ValueKey('login-password-field'),
+                control: FTextFieldControl.managed(
+                  controller: _passwordController,
+                ),
+                focusNode: _passwordFocusNode,
+                enabled: enabled,
+                obscureText: !_passwordVisible,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.password],
+                onSubmit: (_) => unawaited(_submit()),
+                validator: _validatePassword,
+                label: const Text('Password'),
+                hint: 'Your workspace password',
+                suffixBuilder: (_, _, _) => FButton.icon(
+                  onPress: !enabled
+                      ? null
+                      : () => setState(
+                          () => _passwordVisible = !_passwordVisible,
+                        ),
+                  semanticsLabel: _passwordVisible
+                      ? 'Hide password'
+                      : 'Show password',
+                  semanticsTooltip: _passwordVisible
+                      ? 'Hide password'
+                      : 'Show password',
+                  child: Icon(
+                    _passwordVisible
+                        ? FrankIcons.visibilityOffOutlined
+                        : FrankIcons.visibilityOutlined,
+                    size: 18,
+                  ),
                 ),
               ),
             ),
@@ -490,38 +616,23 @@ class _LoginGateState extends State<LoginGate>
           const SizedBox(height: 20),
           SizedBox(
             height: FrankUiTokens.controlHeight + 4,
-            child: FilledButton(
+            child: FButton(
               key: const ValueKey('login-submit-button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: FrankColors.aubergine,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(
-                  FrankUiTokens.controlHeight + 4,
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: enabled ? () => unawaited(_submit()) : null,
+              onPress: enabled ? () => unawaited(_submit()) : null,
+              variant: FButtonVariant.primary,
+              size: FButtonSizeVariant.md,
               child: submitting
-                  ? const Row(
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(
-                          width: 15,
-                          height: 15,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
+                        const FCircularProgress(
+                          size: FCircularProgressSizeVariant.sm,
                         ),
                         SizedBox(width: 10),
-                        Flexible(
-                          child: Text(
-                            'Preparing workspace…',
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                        const Text(
+                          'Preparing workspace…',
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     )
@@ -548,9 +659,10 @@ class _LoginGateState extends State<LoginGate>
                   ),
                 ),
                 const SizedBox(height: 6),
-                TextButton(
+                FButton(
                   key: const ValueKey('login-retry-button'),
-                  onPressed: _retryConnection,
+                  onPress: _retryConnection,
+                  variant: FButtonVariant.ghost,
                   child: const Text('Retry connection'),
                 ),
               ],
@@ -626,8 +738,22 @@ class _LoginGateState extends State<LoginGate>
     setState(() {
       _restoring = true;
       _error = null;
+      _compatibilityStatus = null;
     });
     unawaited(_restoreSession());
+  }
+
+  void _showCompatibilityFailure(AuthFailure error) {
+    final current = widget.gateway.connectionStatus;
+    setState(() {
+      _restoring = false;
+      _phase = _LoginPhase.form;
+      _compatibilityStatus = current.copyWith(
+        phase: FrankConnectionPhase.incompatible,
+        detail: error.userMessage,
+      );
+      _error = null;
+    });
   }
 
   void _resetToLogin(String? message) {
@@ -642,40 +768,4 @@ class _LoginGateState extends State<LoginGate>
       _restoring = false;
     });
   }
-}
-
-InputDecoration _loginInputDecoration({
-  required String labelText,
-  required String hintText,
-  Widget? suffixIcon,
-}) {
-  final border = OutlineInputBorder(
-    borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-    borderSide: BorderSide(color: FrankColors.border.withValues(alpha: 0.92)),
-  );
-  return InputDecoration(
-    labelText: labelText,
-    hintText: hintText,
-    suffixIcon: suffixIcon,
-    isDense: true,
-    filled: true,
-    fillColor: FrankColors.panelRaised.withValues(alpha: 0.78),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-    border: border,
-    enabledBorder: border,
-    focusedBorder: border.copyWith(
-      borderSide: const BorderSide(color: FrankColors.aubergineAccent),
-    ),
-    errorBorder: border,
-    focusedErrorBorder: border.copyWith(
-      borderSide: const BorderSide(color: FrankColors.warningAmber),
-    ),
-    labelStyle: const TextStyle(color: FrankColors.muted, fontSize: 12),
-    floatingLabelStyle: const TextStyle(
-      color: FrankColors.aubergineAccent,
-      fontSize: 12,
-    ),
-    hintStyle: const TextStyle(color: FrankColors.muted, fontSize: 12),
-    errorStyle: const TextStyle(color: FrankColors.warningAmber, fontSize: 11),
-  );
 }

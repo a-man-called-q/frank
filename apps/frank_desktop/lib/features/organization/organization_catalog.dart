@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../app/icons.dart';
 import '../../core/models/organization_models.dart';
@@ -7,7 +7,6 @@ extension OrganizationCapabilityMetadata on OrganizationCapabilityKind {
   String get label => switch (this) {
     OrganizationCapabilityKind.email => 'Email',
     OrganizationCapabilityKind.calendar => 'Calendar',
-    OrganizationCapabilityKind.taskboard => 'Taskboard',
     OrganizationCapabilityKind.drive => 'Drive',
     OrganizationCapabilityKind.browser => 'Browser',
     OrganizationCapabilityKind.terminal => 'Terminal',
@@ -17,7 +16,6 @@ extension OrganizationCapabilityMetadata on OrganizationCapabilityKind {
   String get category => switch (this) {
     OrganizationCapabilityKind.email ||
     OrganizationCapabilityKind.calendar => 'Communication',
-    OrganizationCapabilityKind.taskboard => 'Operations',
     OrganizationCapabilityKind.drive ||
     OrganizationCapabilityKind.browser => 'Knowledge',
     OrganizationCapabilityKind.terminal ||
@@ -27,7 +25,6 @@ extension OrganizationCapabilityMetadata on OrganizationCapabilityKind {
   IconData get icon => switch (this) {
     OrganizationCapabilityKind.email => FrankIcons.mail,
     OrganizationCapabilityKind.calendar => FrankIcons.calendar,
-    OrganizationCapabilityKind.taskboard => FrankIcons.dashboard,
     OrganizationCapabilityKind.drive => FrankIcons.drive,
     OrganizationCapabilityKind.browser => FrankIcons.browser,
     OrganizationCapabilityKind.terminal => FrankIcons.terminal,
@@ -37,12 +34,6 @@ extension OrganizationCapabilityMetadata on OrganizationCapabilityKind {
   List<String> get permissions => switch (this) {
     OrganizationCapabilityKind.email => const ['read', 'send'],
     OrganizationCapabilityKind.calendar => const ['read', 'create', 'update'],
-    OrganizationCapabilityKind.taskboard => const [
-      'read',
-      'create',
-      'update',
-      'assign',
-    ],
     OrganizationCapabilityKind.drive => const ['read', 'write', 'share'],
     OrganizationCapabilityKind.browser => const ['browse', 'download'],
     OrganizationCapabilityKind.terminal => const ['execute'],

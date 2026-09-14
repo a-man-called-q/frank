@@ -234,7 +234,7 @@ class _LedgerMeasures extends StatelessWidget {
     final result = <Widget>[];
     for (var index = 0; index < cards.length; index++) {
       if (index > 0) {
-        result.add(const Divider(height: 1, color: FrankColors.border));
+        result.add(const FDivider());
       }
       result.add(cards[index]);
     }
@@ -363,7 +363,7 @@ class _LedgerTrendPanel extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(
-                            Icons.timeline_outlined,
+                            FrankIcons.timelineOutlined,
                             size: 20,
                             color: FrankColors.muted,
                           ),

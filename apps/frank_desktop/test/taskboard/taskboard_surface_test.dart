@@ -1,6 +1,8 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/layout/office_surface_frame.dart';
@@ -28,8 +30,8 @@ void main() {
     );
     final loadedWorkspace = workspace!;
     await tester.pumpWidget(
-      MaterialApp(
-        theme: buildFrankTheme(Brightness.dark),
+      FrankTestApp(
+        theme: buildFrankTheme(),
         home: BlocProvider(
           create: (_) => TaskboardBloc(gateway: gateway),
           child: TaskboardSurface(workspace: loadedWorkspace),
@@ -154,7 +156,7 @@ void main() {
     );
 
     await tester.tap(find.byKey(const ValueKey('taskboard-list-task-NS-03')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     final inspector = tester.getRect(
       find.byKey(const ValueKey('taskboard-inspector-rail')),
     );
@@ -168,7 +170,7 @@ void main() {
     );
 
     await tester.tap(find.byKey(const ValueKey('taskboard-close-detail')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(
       find.byKey(const ValueKey('taskboard-inspector-rail')),
       findsNothing,
@@ -183,7 +185,7 @@ void main() {
 
     gateway.taskboardLoadError = null;
     await tester.tap(find.text('Retry'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await tester.pump();
     expect(find.text('Taskboard'), findsOneWidget);
     expect(find.byKey(const ValueKey('taskboard-task-NS-03')), findsOneWidget);
@@ -212,10 +214,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('taskboard-decision-MF-02')));
       await tester.pumpAndSettle();
       expect(find.textContaining('offline'), findsOneWidget);
-      final input = tester.widget<TextField>(
+      final input = tester.widget<FTextField>(
         find.byKey(const ValueKey('taskboard-input-MF-02')),
       );
-      expect(input.controller?.text, '5000');
+      expect(
+        (input.control as FTextFieldManagedControl).controller?.text,
+        '5000',
+      );
     },
   );
 
@@ -232,8 +237,8 @@ void main() {
       final bloc = TaskboardBloc(gateway: gateway);
       addTearDown(bloc.close);
 
-      Widget host(Widget child) => MaterialApp(
-        theme: buildFrankTheme(Brightness.dark),
+      Widget host(Widget child) => FrankTestApp(
+        theme: buildFrankTheme(),
         home: BlocProvider.value(value: bloc, child: child),
       );
 
@@ -241,11 +246,11 @@ void main() {
       await tester.pump();
       await tester.pump();
       await tester.tap(find.byKey(const ValueKey('taskboard-view-list')));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(
         find.byKey(const ValueKey('taskboard-attention-filter')),
       );
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       expect(
         find.byKey(const ValueKey('taskboard-list-scroll')),
         findsOneWidget,
@@ -253,7 +258,7 @@ void main() {
       expect(find.text('Needs attention  2'), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('taskboard-list-task-NS-03')));
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
       expect(
         find.byKey(const ValueKey('taskboard-close-detail')),
         findsOneWidget,

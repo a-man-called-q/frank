@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 
 import '../../../app/theme.dart';
@@ -20,7 +20,7 @@ MinimapTheme frankOrganizationMinimapTheme() => const MinimapTheme(
 );
 
 NodeFlowTheme frankOrganizationFlowTheme() => NodeFlowTheme.dark.copyWith(
-  backgroundColor: Colors.transparent,
+  backgroundColor: const Color(0x00000000),
   nodeTheme: NodeTheme.dark.copyWith(
     backgroundColor: FrankColors.panel,
     selectedBackgroundColor: FrankColors.panelRaised,

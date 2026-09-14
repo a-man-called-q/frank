@@ -299,9 +299,6 @@ fn profile_supports(kind: ConnectorKind, capability: OrganizationCapabilityKind)
         ) | (
             ConnectorKind::GoogleWorkspace,
             OrganizationCapabilityKind::Drive
-        ) | (
-            ConnectorKind::Taskboard,
-            OrganizationCapabilityKind::Taskboard
         ) | (ConnectorKind::Browser, OrganizationCapabilityKind::Browser)
             | (
                 ConnectorKind::Terminal,
@@ -321,7 +318,9 @@ fn organization_tool_permission(tool: &str) -> Option<(OrganizationCapabilityKin
         "email" => OrganizationCapabilityKind::Email,
         "calendar" => OrganizationCapabilityKind::Calendar,
         "drive" => OrganizationCapabilityKind::Drive,
-        "taskboard" => OrganizationCapabilityKind::Taskboard,
+        // Coordination tools are authorized by the published Taskboard
+        // routing graph, not by an external connector profile.
+        "taskboard" => return None,
         "browser" => OrganizationCapabilityKind::Browser,
         "terminal" => OrganizationCapabilityKind::Terminal,
         "database" => OrganizationCapabilityKind::Database,
@@ -906,24 +905,6 @@ pub(crate) fn apply_agent_patch(agent: &mut AgentView, patch: AgentPatch) {
     }
     if let Some(value) = patch.display_name {
         agent.display_name = value;
-    }
-    if let Some(value) = patch.model {
-        agent.model = value;
-    }
-    if let Some(value) = patch.pack_id {
-        agent.pack_id = value;
-    }
-    if let Some(value) = patch.pack_level {
-        agent.pack_level = value;
-    }
-    if let Some(value) = patch.instructions {
-        agent.instructions = value;
-    }
-    if let Some(value) = patch.policy {
-        agent.policy = value;
-    }
-    if let Some(value) = patch.budget {
-        agent.budget = value;
     }
     if let Some(value) = patch.avatar {
         agent.avatar = value;

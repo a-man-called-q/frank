@@ -39,8 +39,8 @@ class _TaskboardInspector extends StatelessWidget {
   Widget build(BuildContext context) {
     final metrics = OfficeLayoutMetricsScope.maybeOf(context);
     final gutter = metrics?.gutter ?? FrankUiTokens.inset;
-    final inspector = Material(
-      color: FrankColors.panel,
+    final inspector = DecoratedBox(
+      decoration: const BoxDecoration(color: FrankColors.panel),
       child: SafeArea(
         top: false,
         bottom: false,
@@ -63,21 +63,20 @@ class _TaskboardInspector extends StatelessWidget {
                         ),
                       ),
                     ),
-                    IconButton(
+                    FButton.icon(
                       key: const ValueKey('taskboard-close-detail'),
-                      onPressed: onClose,
-                      tooltip: compact
+                      onPress: onClose,
+                      semanticsLabel: compact
                           ? 'Back to taskboard'
                           : 'Close task details',
-                      icon: Icon(
+                      semanticsTooltip: compact
+                          ? 'Back to taskboard'
+                          : 'Close task details',
+                      variant: FButtonVariant.ghost,
+                      size: FButtonSizeVariant.sm,
+                      child: Icon(
                         compact ? FrankIcons.back : FrankIcons.close,
                         size: FrankUiTokens.iconSize,
-                      ),
-                      color: FrankColors.muted,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints.tightFor(
-                        width: FrankUiTokens.controlHeight,
-                        height: FrankUiTokens.controlHeight,
                       ),
                     ),
                   ],
@@ -102,7 +101,7 @@ class _TaskboardInspector extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 _TaskStatusLine(lane: task.lane),
-                const Divider(height: 25, color: FrankColors.border),
+                const FDivider(),
                 _DetailMetadata(task: task, profile: profile, compact: compact),
                 const SizedBox(height: 20),
                 _ClaimPanel(
@@ -252,10 +251,19 @@ class _ClaimPanelState extends State<_ClaimPanel> {
                     ),
                   ),
                   if (assigned)
-                    TextButton(
-                      key: ValueKey('taskboard-release-${widget.task.id}'),
-                      onPressed: mutating ? null : widget.onRelease,
-                      child: const Text('Release'),
+                    Flexible(
+                      child: FButton(
+                        key: ValueKey('taskboard-release-${widget.task.id}'),
+                        onPress: mutating ? null : widget.onRelease,
+                        variant: FButtonVariant.ghost,
+                        size: FButtonSizeVariant.sm,
+                        child: const Flexible(
+                          child: Text(
+                            'Release',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
                     ),
                 ],
               ),
@@ -274,53 +282,58 @@ class _ClaimPanelState extends State<_ClaimPanel> {
               ),
               if (!assigned && eligible.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                FrankDesktopSelectField<String?>(
-                  key: ValueKey('taskboard-claim-agent-${widget.task.id}'),
-                  fieldKey: ValueKey(
-                    'taskboard-claim-agent-trigger-${widget.task.id}',
-                  ),
-                  value: selectedAgentId,
+                Semantics(
                   label: 'Eligible member',
-                  hint: 'Choose a member',
-                  enabled: !mutating,
-                  options: [
-                    for (final profile in eligible)
-                      FrankDesktopSelectOption<String?>(
-                        value: profile.employeeId,
-                        label: profile.name,
-                      ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => _selectedAgentId = value),
+                  child: FSelect<String?>.rich(
+                    key: ValueKey('taskboard-claim-agent-${widget.task.id}'),
+                    format: (value) => eligible
+                        .firstWhere(
+                          (profile) => profile.employeeId == value,
+                          orElse: () => eligible.first,
+                        )
+                        .name,
+                    control: FSelectControl<String?>.lifted(
+                      value: selectedAgentId,
+                      onChange: (value) =>
+                          setState(() => _selectedAgentId = value),
+                    ),
+                    label: const Text('Eligible member'),
+                    hint: 'Choose a member',
+                    enabled: !mutating,
+                    children: [
+                      for (final profile in eligible)
+                        FSelectItem<String?>.item(
+                          value: profile.employeeId,
+                          title: Text(profile.name),
+                        ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 9),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: FilledButton.icon(
-                    key: ValueKey('taskboard-claim-${widget.task.id}'),
-                    onPressed: mutating || selectedAgentId == null
-                        ? null
-                        : () => widget.onClaim(selectedAgentId),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size(0, FrankUiTokens.controlHeight),
-                      padding: const EdgeInsets.symmetric(horizontal: 11),
-                      backgroundColor: FrankColors.aubergine,
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: mutating
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FButton(
+                      key: ValueKey('taskboard-claim-${widget.task.id}'),
+                      onPress: mutating || selectedAgentId == null
+                          ? null
+                          : () => widget.onClaim(selectedAgentId),
+                      prefix: mutating
+                          ? const FCircularProgress(
+                              size: FCircularProgressSizeVariant.sm,
+                            )
+                          : const Icon(
+                              FrankIcons.check,
+                              size: FrankUiTokens.iconSize,
                             ),
-                          )
-                        : const Icon(
-                            FrankIcons.check,
-                            size: FrankUiTokens.iconSize,
-                          ),
-                    label: const Text('Claim task'),
+                      child: const Flexible(
+                        child: Text(
+                          'Claim task',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -369,44 +382,35 @@ class _CommentComposer extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _DetailSectionTitle('Add to task feed'),
-        TextField(
+        FTextField(
           key: const ValueKey('taskboard-comment-input'),
-          controller: controller,
+          control: FTextFieldControl.managed(controller: controller),
           enabled: !submitting,
           minLines: 2,
           maxLines: 5,
-          style: const TextStyle(color: FrankColors.ink, fontSize: 12),
-          decoration: InputDecoration(
-            hintText: 'Document the handoff for the next role member…',
-            hintStyle: const TextStyle(color: FrankColors.muted, fontSize: 12),
-            filled: true,
-            fillColor: FrankColors.panelRaised.withValues(alpha: .45),
-            contentPadding: const EdgeInsets.all(10),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-              borderSide: const BorderSide(color: FrankColors.border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-              borderSide: const BorderSide(color: FrankColors.border),
-            ),
-          ),
+          hint: 'Document the handoff for the next role member…',
         ),
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
-            key: const ValueKey('taskboard-comment-submit'),
-            onPressed: submitting
-                ? null
-                : () {
-                    final body = controller.text.trim();
-                    if (body.isEmpty) return;
-                    onSubmit(body);
-                    controller.clear();
-                  },
-            icon: const Icon(FrankIcons.send, size: FrankUiTokens.iconSize),
-            label: const Text('Post note'),
+          child: SizedBox(
+            width: double.infinity,
+            child: FButton(
+              key: const ValueKey('taskboard-comment-submit'),
+              onPress: submitting
+                  ? null
+                  : () {
+                      final body = controller.text.trim();
+                      if (body.isEmpty) return;
+                      onSubmit(body);
+                      controller.clear();
+                    },
+              variant: FButtonVariant.outline,
+              prefix: const Icon(FrankIcons.send, size: FrankUiTokens.iconSize),
+              child: const Flexible(
+                child: Text('Post note', overflow: TextOverflow.ellipsis),
+              ),
+            ),
           ),
         ),
       ],
@@ -567,37 +571,19 @@ class _DecisionPanel extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                TextField(
-                  key: ValueKey('taskboard-input-${task.id}'),
-                  controller: controller,
-                  enabled: !submitting,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  style: const TextStyle(color: FrankColors.ink, fontSize: 12),
-                  decoration: InputDecoration(
-                    isDense: true,
-                    filled: true,
-                    fillColor: FrankColors.panel,
-                    hintText: 'e.g. 5000',
-                    hintStyle: const TextStyle(
-                      color: FrankColors.muted,
-                      fontSize: 12,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 9,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        FrankUiTokens.controlRadius,
+                Semantics(
+                  container: true,
+                  label: decision.inputLabel ?? 'Decision input',
+                  child: ExcludeSemantics(
+                    child: FTextField(
+                      key: ValueKey('taskboard-input-${task.id}'),
+                      control: FTextFieldControl.managed(
+                        controller: controller,
                       ),
-                      borderSide: const BorderSide(color: FrankColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        FrankUiTokens.controlRadius,
-                      ),
-                      borderSide: const BorderSide(color: FrankColors.border),
+                      enabled: !submitting,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      hint: 'e.g. 5000',
                     ),
                   ),
                 ),
@@ -616,46 +602,39 @@ class _DecisionPanel extends StatelessWidget {
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerLeft,
-                child: FilledButton.icon(
-                  key: ValueKey('taskboard-decision-${task.id}'),
-                  onPressed: submitting
-                      ? null
-                      : () {
-                          final value = decision.requiresInput
-                              ? int.tryParse(controller.text.trim())
-                              : null;
-                          onSubmit(
-                            decision.requiresInput
-                                ? TaskboardDecisionInput.positiveInteger(
-                                    value ?? 0,
-                                  )
-                                : const TaskboardDecisionInput.approve(),
-                          );
-                        },
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, FrankUiTokens.controlHeight),
-                    padding: const EdgeInsets.symmetric(horizontal: 11),
-                    backgroundColor: FrankColors.aubergine,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: FrankColors.aubergine.withValues(
-                      alpha: .55,
-                    ),
-                  ),
-                  icon: submitting
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FButton(
+                    key: ValueKey('taskboard-decision-${task.id}'),
+                    onPress: submitting
+                        ? null
+                        : () {
+                            final value = decision.requiresInput
+                                ? int.tryParse(controller.text.trim())
+                                : null;
+                            onSubmit(
+                              decision.requiresInput
+                                  ? TaskboardDecisionInput.positiveInteger(
+                                      value ?? 0,
+                                    )
+                                  : const TaskboardDecisionInput.approve(),
+                            );
+                          },
+                    prefix: submitting
+                        ? const FCircularProgress(
+                            size: FCircularProgressSizeVariant.sm,
+                          )
+                        : const Icon(
+                            FrankIcons.check,
+                            size: FrankUiTokens.iconSize,
                           ),
-                        )
-                      : const Icon(
-                          FrankIcons.check,
-                          size: FrankUiTokens.iconSize,
-                        ),
-                  label: Text(
-                    error == null ? decision.actionLabel : 'Try again',
+                    child: Flexible(
+                      child: Text(
+                        error == null ? decision.actionLabel : 'Try again',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ),
                   ),
                 ),
               ),

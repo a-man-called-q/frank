@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
@@ -70,8 +72,8 @@ void main() {
 }
 
 Widget _app(Widget child) {
-  return MaterialApp(
-    theme: buildFrankTheme(Brightness.dark),
-    home: Scaffold(body: child),
+  return FrankTestApp(
+    theme: buildFrankTheme(),
+    home: FScaffold(child: child),
   );
 }

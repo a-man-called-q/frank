@@ -285,4 +285,102 @@ mod tests {
         assert!(organization_tool_denial(&snapshot, agent_id, "shell_exec").is_none());
         assert!(organization_tool_denial(&snapshot, agent_id, "database_read").is_some());
     }
+
+    #[test]
+    fn taskboard_publishes_without_a_connector_and_rejects_foreign_fields() {
+        let role_id = RoleId::new();
+        let taskboard_id = TaskboardId::new();
+        let mut snapshot = Snapshot::empty(ServerId::new());
+        snapshot.roles.push(RoleView {
+            id: role_id,
+            name: "Researcher".into(),
+            description: "Research role".into(),
+            template: AgentTemplate::Researcher,
+            model: None,
+            pack_id: None,
+            pack_level: None,
+            instructions: String::new(),
+            policy: AgentPolicy::default(),
+            budget: Budget::unlimited(),
+            avatar: AvatarSpec {
+                palette: "default".into(),
+                seed: 0,
+            },
+            revision: 1,
+            archived: false,
+        });
+        let now = timestamp_now();
+        snapshot.taskboards.push(TaskboardView {
+            id: taskboard_id,
+            name: "Inbox".into(),
+            project_id: None,
+            workflow_id: None,
+            dispatch_mode: TaskboardDispatchMode::Pull,
+            default_role_id: Some(role_id),
+            archived: false,
+            created_at: now.clone(),
+            updated_at: now,
+        });
+
+        let graph = OrganizationGraph {
+            id: snapshot.organization.draft.id,
+            draft_revision: 0,
+            published_revision: 0,
+            nodes: vec![
+                OrganizationNode {
+                    id: "role".into(),
+                    kind: OrganizationNodeKind::Role,
+                    label: "Researcher".into(),
+                    position: OrganizationPoint::default(),
+                    group_id: None,
+                    agent_id: None,
+                    capability: None,
+                    connector_profile_id: None,
+                    profile_ref: None,
+                    configured: false,
+                    approval_required: false,
+                    role_id: Some(role_id),
+                    taskboard_id: None,
+                    child_workflow_id: None,
+                    input_port: None,
+                    output_port: None,
+                    rework_limit: None,
+                },
+                OrganizationNode {
+                    id: "inbox".into(),
+                    kind: OrganizationNodeKind::Taskboard,
+                    label: "Inbox".into(),
+                    position: OrganizationPoint::default(),
+                    group_id: None,
+                    agent_id: None,
+                    capability: None,
+                    connector_profile_id: None,
+                    profile_ref: None,
+                    configured: false,
+                    approval_required: false,
+                    role_id: None,
+                    taskboard_id: Some(taskboard_id),
+                    child_workflow_id: None,
+                    input_port: None,
+                    output_port: None,
+                    rework_limit: None,
+                },
+            ],
+            relations: vec![OrganizationRelation {
+                id: "drop".into(),
+                kind: OrganizationRelationKind::Drop,
+                source_node_id: "role".into(),
+                target_node_id: "inbox".into(),
+                contract: OrganizationHandoffContract::default(),
+                permissions: Vec::new(),
+            }],
+            groups: Vec::new(),
+            viewport: OrganizationViewport::default(),
+        };
+        assert!(validate_graph(&snapshot, &graph, true).is_ok());
+
+        let mut malformed = graph;
+        malformed.nodes[1].connector_profile_id = Some(ConnectorProfileId::new());
+        assert!(validate_graph(&snapshot, &malformed, false).is_err());
+    }
 }

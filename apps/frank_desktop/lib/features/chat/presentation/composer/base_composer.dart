@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:frank_desktop/app/theme.dart';
 
 /// Focus-aware surface shared by Frank's chat and prompt composers.
@@ -96,7 +96,9 @@ class _BaseComposerState extends State<BaseComposer> {
       ),
       boxShadow: [
         BoxShadow(
-          color: Colors.black.withValues(alpha: _focused ? 0.42 : 0.32),
+          color: const Color(
+            0xFF000000,
+          ).withValues(alpha: _focused ? 0.42 : 0.32),
           blurRadius: _focused ? 24 : 18,
           spreadRadius: -6,
           offset: const Offset(0, 8),

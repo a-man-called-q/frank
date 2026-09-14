@@ -265,7 +265,6 @@ pub enum OrganizationNodeKind {
 pub enum OrganizationCapabilityKind {
     Email,
     Calendar,
-    Taskboard,
     Drive,
     Browser,
     Terminal,
@@ -277,7 +276,6 @@ impl OrganizationCapabilityKind {
         match self {
             Self::Email => &["read", "send"],
             Self::Calendar => &["read", "create", "update"],
-            Self::Taskboard => &["read", "create", "update", "assign"],
             Self::Drive => &["read", "write", "share"],
             Self::Browser => &["browse", "download"],
             Self::Terminal => &["execute"],
@@ -472,7 +470,6 @@ pub struct OrganizationRelation {
 #[serde(rename_all = "snake_case")]
 pub enum ConnectorKind {
     GoogleWorkspace,
-    Taskboard,
     Browser,
     Terminal,
     Postgres,
@@ -529,24 +526,14 @@ pub struct ConnectorProfileView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSpec {
-    /// The primary role whose full template is applied to this agent.  None
-    /// is retained for compatibility with pre-Team clients; new desktop
-    /// clients always provide it.
-    #[serde(default)]
-    pub role_id: Option<RoleId>,
+    /// The primary role whose full template is materialized into this agent.
+    /// A member cannot be created without a role in the production contract.
+    pub role_id: RoleId,
     pub display_name: String,
-    pub template: AgentTemplate,
-    pub model: Option<String>,
-    /// Optional per-member OpenRouter model override.  `model` remains the
-    /// role/default field for compatibility with the existing DTO shape.
     #[serde(default)]
     pub model_override: Option<String>,
-    pub pack_id: Option<String>,
-    pub pack_level: Option<String>,
-    pub instructions: String,
-    pub policy: AgentPolicy,
-    pub budget: Budget,
-    pub avatar: AvatarSpec,
+    #[serde(default)]
+    pub avatar: Option<AvatarSpec>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -554,7 +541,6 @@ pub struct AgentPatch {
     #[serde(default)]
     pub role_id: Option<Option<RoleId>>,
     pub display_name: Option<String>,
-    pub model: Option<Option<String>>,
     #[serde(default)]
     pub model_override: Option<Option<String>>,
     /// JSON cannot distinguish an omitted `Option<Option<String>>` from a
@@ -562,11 +548,6 @@ pub struct AgentPatch {
     /// override without making model selection stringly typed.
     #[serde(default)]
     pub clear_model_override: bool,
-    pub pack_id: Option<Option<String>>,
-    pub pack_level: Option<Option<String>>,
-    pub instructions: Option<String>,
-    pub policy: Option<AgentPolicy>,
-    pub budget: Option<Budget>,
     pub avatar: Option<AvatarSpec>,
 }
 

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'support/frank_test_app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
@@ -59,11 +60,8 @@ void main() {
     for (final group in ['agency', 'insights', 'system']) {
       expect(find.byKey(ValueKey('global-navigation-$group')), findsNothing);
     }
-    expect(
-      find.byKey(const ValueKey('settings-section-models')),
-      findsNothing,
-    );
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-section-models')), findsNothing);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const ValueKey('global-navigation'))).width,
       greaterThan(180),
@@ -241,8 +239,6 @@ void main() {
       find.descendant(of: userButton, matching: find.text('U')),
       findsOneWidget,
     );
-    expect(find.byTooltip('User profile is not available yet'), findsOneWidget);
-
     final semantics = tester.getSemantics(userButton);
     expect(semantics.flagsCollection.isButton, isTrue);
     expect(semantics.flagsCollection.isEnabled, Tristate.isFalse);
@@ -250,7 +246,7 @@ void main() {
     expect(semantics.hint, 'User profile is not available yet');
 
     await tester.tap(userButton);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(
       find.byKey(const ValueKey('mission-shelf-scroll-view')),
       findsOneWidget,
@@ -452,14 +448,14 @@ void main() {
     final floorElement = tester.element(floor);
     final openRect = tester.getRect(find.byKey(const ValueKey('main-surface')));
 
-    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Hide the workspace sidebar'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 220));
 
     final closedRect = tester.getRect(
       find.byKey(const ValueKey('main-surface')),
     );
-    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show the workspace sidebar'), findsOneWidget);
     expect(closedRect.width, greaterThan(openRect.width + 200));
     expect(tester.widget<OfficeSceneFloor>(floor), isNotNull);
     expect(identical(floorElement, tester.element(floor)), isTrue);
@@ -471,7 +467,7 @@ void main() {
   ) async {
     final resources = Completer<void>();
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: OfficeSceneFloor(initializeResources: () => resources.future),
       ),
     );
@@ -492,7 +488,7 @@ void main() {
     }
 
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: OfficeSceneFloor(initializeResources: failToInitialize),
       ),
     );
@@ -505,7 +501,7 @@ void main() {
     expect(attempts, 1);
 
     await tester.tap(find.text('Retry'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
     expect(attempts, 2);
     expect(find.bySemanticsLabel('Office floor unavailable'), findsOneWidget);
@@ -518,7 +514,7 @@ void main() {
     _setWindow(tester, const Size(880, 640));
     await _pumpApp(tester);
 
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
     expect(find.bySemanticsLabel('Resize sidebar'), findsOneWidget);
     expect(find.bySemanticsLabel('Close sidebar'), findsNothing);
     expect(
@@ -540,13 +536,13 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show the workspace sidebar'), findsOneWidget);
 
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyB);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
   });
 
   testWidgets('Cmd/Ctrl+K reopens the sidebar and focuses inline search', (
@@ -555,14 +551,14 @@ void main() {
     _setWindow(tester);
     await _pumpApp(tester);
 
-    await tester.tap(find.byTooltip('Hide the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Hide the workspace sidebar'));
     await tester.pump(const Duration(milliseconds: 220));
     await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await tester.pump(const Duration(milliseconds: 220));
 
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
     expect(FocusManager.instance.primaryFocus?.debugLabel, 'workspace-search');
   });
 
@@ -570,17 +566,19 @@ void main() {
     tester,
   ) async {
     _setWindow(tester);
-    await _pumpApp(tester);
+    await _pumpAppWithoutToaster(tester);
     await _openOffice(tester);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
-    expect(find.byTooltip('Clear the workspace search'), findsOneWidget);
+    final clearSearch = find.byKey(const ValueKey('work-inbox-search-clear'));
+    expect(clearSearch, findsOneWidget);
+    expect(tester.widget<FButton>(clearSearch).onPress, isNotNull);
 
-    await tester.tap(find.byTooltip('Clear the workspace search'));
-    await tester.pump();
+    await tester.tap(clearSearch);
+    await tester.pump(const Duration(milliseconds: 150));
     expect(_searchController(tester).text, isEmpty);
-    expect(find.byTooltip('Clear the workspace search'), findsNothing);
+    expect(tester.widget<FButton>(clearSearch).onPress, isNull);
 
     await tester.enterText(_searchField(), 'warehouse');
     await tester.pump();
@@ -624,11 +622,9 @@ void main() {
     );
 
     await tester.tap(find.text('Design replenishment dashboard'));
-    await tester.pump();
-    await tester.tap(
-      find.byTooltip('Open actions for Design replenishment dashboard'),
-    );
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.tap(_dashboardActions());
+    await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Pin'), findsOneWidget);
     expect(find.text('Rename'), findsOneWidget);
     expect(find.text('Archive'), findsOneWidget);
@@ -642,42 +638,17 @@ void main() {
     await _pumpApp(tester);
     await _openOffice(tester);
 
-    expect(
-      find.byTooltip(
-        'Pin task Design replenishment dashboard to the pinned list',
-      ),
-      findsNothing,
-    );
-    expect(
-      find.byTooltip('Open actions for Design replenishment dashboard'),
-      findsNothing,
-    );
+    expect(_dashboardPin(), findsNothing);
+    expect(_dashboardActions(), findsNothing);
 
     await tester.tap(find.text('Design replenishment dashboard'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
+    expect(_dashboardPin(), findsOneWidget);
+    expect(_dashboardActions(), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r'1 approvals pending')), findsWidgets);
     expect(
-      find.byTooltip(
-        'Pin task Design replenishment dashboard to the pinned list',
-      ),
-      findsOneWidget,
-    );
-    expect(
-      find.byTooltip('Open actions for Design replenishment dashboard'),
-      findsOneWidget,
-    );
-    expect(
-      find.bySemanticsLabel(RegExp(r'1 approvals pending')),
-      findsOneWidget,
-    );
-    expect(
-      find.byTooltip(
-        'Design replenishment dashboard\n'
-        'Project: Northstar Inventory\n'
-        'Status: Draft\n'
-        'Agent assignment: Unassigned\n'
-        'Approval count: 0',
-      ),
+      find.byKey(const ValueKey('draft-northstar-dashboard')),
       findsOneWidget,
     );
   });
@@ -705,7 +676,14 @@ void main() {
       findsOneWidget,
     );
     expect(_searchController(tester).text, isEmpty);
-    expect(find.byTooltip('Clear the workspace search'), findsNothing);
+    expect(
+      tester
+          .widget<FButton>(
+            find.byKey(const ValueKey('work-inbox-search-clear')),
+          )
+          .onPress,
+      isNull,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -716,24 +694,15 @@ void main() {
     await _pumpApp(tester);
     await _openOffice(tester);
 
-    expect(
-      find.byTooltip(
-        'Pin task Design replenishment dashboard to the pinned list',
-      ),
-      findsNothing,
-    );
+    expect(_dashboardPin(), findsNothing);
     await tester.tap(find.text('Design replenishment dashboard'));
     await tester.pump();
-    final pin = find.byTooltip(
-      'Pin task Design replenishment dashboard to the pinned list',
-    );
+    final pin = _dashboardPin();
     expect(pin, findsOneWidget);
     await tester.tap(pin);
     await tester.pump();
     expect(
-      find.byTooltip(
-        'Unpin task Design replenishment dashboard from the pinned list',
-      ),
+      find.byKey(const ValueKey('work-inbox-pin-northstar-dashboard')),
       findsOneWidget,
     );
 
@@ -764,20 +733,18 @@ void main() {
 
     await tester.tap(find.text('Design replenishment dashboard'));
     await tester.pump();
-    final actionTrigger = find.byTooltip(
-      'Open actions for Design replenishment dashboard',
-    );
+    final actionTrigger = _dashboardActions();
     await tester.tap(actionTrigger);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('Pin'), findsOneWidget);
 
     await tester.tap(find.text('All projects'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('Pin'), findsNothing);
     expect(find.text('Atlas Handoff'), findsWidgets);
 
     await tester.tap(actionTrigger);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     expect(find.text('Atlas Handoff'), findsNothing);
     expect(find.text('Pin'), findsOneWidget);
   });
@@ -813,7 +780,7 @@ void main() {
     );
     // The headless test host has no GPU scene, so the action stays visible but
     // disabled until the real scene reports readiness.
-    expect(tester.widget<IconButton>(resetButton).onPressed, isNull);
+    expect(tester.widget<FButton>(resetButton).onPress, isNull);
     expect(tester.takeException(), isNull);
   });
 }
@@ -829,8 +796,18 @@ Future<void> _pumpApp(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 500));
 }
 
+Future<void> _pumpAppWithoutToaster(WidgetTester tester) async {
+  await tester.pumpWidget(const FrankApp(showLogin: false, withToaster: false));
+  await tester.pump(const Duration(milliseconds: 500));
+}
+
 Future<void> _openOffice(WidgetTester tester) async {
-  await tester.tap(find.bySemanticsLabel('Office view'));
+  final office = find.byKey(const ValueKey('global-nav-office'));
+  await tester.tap(
+    office.evaluate().isNotEmpty
+        ? office
+        : find.bySemanticsLabel('Office view'),
+  );
   await tester.pump(const Duration(milliseconds: 220));
 }
 
@@ -839,10 +816,15 @@ Future<void> _openSettings(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 220));
 }
 
-Finder _searchField() => find.byWidgetPredicate(
-  (widget) =>
-      widget is TextField && widget.decoration?.hintText == 'Search workspace',
-);
+Finder _searchField() => find.byKey(const ValueKey('work-inbox-search-field'));
+
+Finder _dashboardActions() =>
+    find.byKey(const ValueKey('work-inbox-actions-northstar-dashboard'));
+
+Finder _dashboardPin() =>
+    find.byKey(const ValueKey('work-inbox-pin-northstar-dashboard'));
 
 TextEditingController _searchController(WidgetTester tester) =>
-    tester.widget<TextField>(_searchField()).controller!;
+    (tester.widget<FTextField>(_searchField()).control
+            as FTextFieldManagedControl)
+        .controller!;

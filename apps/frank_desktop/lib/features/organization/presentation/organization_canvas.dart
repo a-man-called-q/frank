@@ -71,55 +71,60 @@ class _OrganizationSurfaceState extends State<OrganizationSurface> {
                     onDelete: () => _editorKey.currentState?._deleteSelection(),
                     onDuplicate: () =>
                         _editorKey.currentState?._duplicateSelection(),
+                    canMutate: widget.canMutate,
+                    mutationDisabledReason: widget.mutationDisabledReason,
                   )
                 : null;
             final frame = OfficeSurfaceFrame.canvas(
-              backgroundColor: Colors.transparent,
+              backgroundColor: const Color(0x00000000),
               header: OfficePageHeader(
                 title: 'Organization',
                 description:
                     'Configure agents, connections, and taskboard assignments.',
-                actions: const FrankSampleDataBadge(),
+                actions: widget.isFixture ? const FrankSampleDataBadge() : null,
               ),
-              child: Material(
-                type: MaterialType.transparency,
-                child: Semantics(
-                  container: true,
-                  label: 'Organization flow editor',
-                  child: switch (state.loadStatus) {
-                    OrganizationLoadStatus.initial ||
-                    OrganizationLoadStatus.loading =>
-                      const _OrganizationLoading(),
-                    OrganizationLoadStatus.failure =>
-                      frankIsUnsupportedError(state.error)
-                          ? const FrankUnavailableState(
-                              title: 'Organization unavailable',
-                              message:
-                                  'Organization editor isn’t available on this server build.',
-                              icon: Icons.account_tree_outlined,
-                            )
-                          : _OrganizationFailure(
-                              message: frankFriendlyError(
-                                state.error,
-                                fallback:
-                                    'The organization could not be loaded.',
-                              ),
+              child: Semantics(
+                container: true,
+                explicitChildNodes: true,
+                label: 'Organization flow editor',
+                child: switch (state.loadStatus) {
+                  OrganizationLoadStatus.initial ||
+                  OrganizationLoadStatus.loading =>
+                    const _OrganizationLoading(),
+                  OrganizationLoadStatus.failure =>
+                    frankIsUnsupportedError(state.error)
+                        ? const FrankUnavailableState(
+                            title: 'Organization unavailable',
+                            message:
+                                'Organization editor isn’t available on this server build.',
+                            icon: FrankIcons.accountTreeOutlined,
+                          )
+                        : _OrganizationFailure(
+                            message: frankFriendlyError(
+                              state.error,
+                              fallback: 'The organization could not be loaded.',
                             ),
-                    OrganizationLoadStatus.ready =>
-                      state.graph == null
-                          ? const _OrganizationLoading()
-                          : _OrganizationEditor(
-                              key: _editorKey,
-                              graph: state.graph!,
-                              state: state,
-                              workspace: widget.workspace,
-                              profiles: widget.profiles,
-                              roles: widget.roles,
-                              workflowProjection: widget.workflowProjection,
-                              lookupIndex: _indexFor(state.graph!, state),
-                            ),
-                  },
-                ),
+                          ),
+                  OrganizationLoadStatus.ready =>
+                    state.graph == null
+                        ? const _OrganizationLoading()
+                        : _OrganizationEditor(
+                            key: _editorKey,
+                            graph: state.graph!,
+                            state: state,
+                            workspace: widget.workspace,
+                            profiles: widget.profiles,
+                            roles: widget.roles,
+                            workflowProjection: widget.workflowProjection,
+                            lookupIndex: _indexFor(state.graph!, state),
+                            viewMode:
+                                widget.viewMode ?? OrganizationViewMode.canvas,
+                            onViewModeChanged: widget.onViewModeChanged,
+                            canMutate: widget.canMutate,
+                            mutationDisabledReason:
+                                widget.mutationDisabledReason,
+                          ),
+                },
               ),
             );
             return Focus(

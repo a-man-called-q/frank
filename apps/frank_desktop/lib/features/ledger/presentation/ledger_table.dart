@@ -80,7 +80,7 @@ class _LedgerAttributionPanel extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: FrankColors.border),
+          const FDivider(),
           if (data.attribution.isEmpty)
             const Padding(
               padding: EdgeInsets.all(18),

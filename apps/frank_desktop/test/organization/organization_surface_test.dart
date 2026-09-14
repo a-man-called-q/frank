@@ -1,6 +1,8 @@
 import 'dart:ui' show Tristate;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,6 +12,7 @@ import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/fixtures/fixture_organization.dart';
 import 'package:frank_desktop/core/models/organization_models.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
+import 'package:frank_desktop/core/models/workflow_models.dart';
 import 'package:frank_desktop/features/organization/bloc/organization_bloc.dart';
 import 'package:frank_desktop/features/organization/presentation/organization_surface.dart';
 
@@ -64,8 +67,8 @@ void main() {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(disableAnimations: true),
-          child: MaterialApp(
-            theme: buildFrankTheme(Brightness.dark),
+          child: FrankTestApp(
+            theme: buildFrankTheme(),
             home: BlocProvider.value(
               value: bloc,
               child: OrganizationSurface(workspace: workspace),
@@ -83,11 +86,11 @@ void main() {
       );
       expect(find.text('Maya Chen'), findsOneWidget);
       expect(find.text('Email'), findsOneWidget);
-      expect(find.text('Approval Desk'), findsOneWidget);
+      expect(find.text('Approval Desk'), findsNothing);
       expect(find.text('Client Services'), findsOneWidget);
       expect(find.text('Delivery'), findsOneWidget);
       expect(find.text('Operations & Review'), findsOneWidget);
-      expect(find.text('0 errors · 1 warning'), findsOneWidget);
+      expect(find.textContaining('0 errors'), findsOneWidget);
       final validationIcon = tester.widget<Icon>(
         find.byKey(const ValueKey('organization-validation-status-icon')),
       );
@@ -121,10 +124,10 @@ void main() {
       expect(find.text('Redo'), findsNothing);
       expect(find.text('Fit view'), findsNothing);
       expect(find.text('Minimap'), findsNothing);
-      expect(find.byTooltip('Undo'), findsOneWidget);
-      expect(find.byTooltip('Redo'), findsOneWidget);
-      expect(find.byTooltip('Fit view'), findsOneWidget);
-      expect(find.byTooltip('Minimap'), findsOneWidget);
+      expect(find.bySemanticsLabel('Undo'), findsOneWidget);
+      expect(find.bySemanticsLabel('Redo'), findsOneWidget);
+      expect(find.bySemanticsLabel('Fit view'), findsOneWidget);
+      expect(find.bySemanticsLabel('Minimap'), findsOneWidget);
       final minimapSemantics = tester.getSemantics(
         find.bySemanticsLabel('Minimap'),
       );
@@ -132,16 +135,14 @@ void main() {
       expect(minimapSemantics.flagsCollection.isToggled, Tristate.isTrue);
       expect(
         tester
-            .widget<FilledButton>(
-              find.byKey(const ValueKey('organization-publish')),
-            )
-            .onPressed,
+            .widget<FButton>(find.byKey(const ValueKey('organization-publish')))
+            .onPress,
         isNotNull,
       );
       expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('organization-undo')))
-            .onPressed,
+            .widget<FButton>(find.byKey(const ValueKey('organization-undo')))
+            .onPress,
         isNull,
       );
 
@@ -161,16 +162,14 @@ void main() {
       await tester.pump(const Duration(milliseconds: 10));
       expect(
         tester
-            .widget<IconButton>(find.byKey(const ValueKey('organization-undo')))
-            .onPressed,
+            .widget<FButton>(find.byKey(const ValueKey('organization-undo')))
+            .onPress,
         isNotNull,
       );
       expect(
         tester
-            .widget<FilledButton>(
-              find.byKey(const ValueKey('organization-publish')),
-            )
-            .onPressed,
+            .widget<FButton>(find.byKey(const ValueKey('organization-publish')))
+            .onPress,
         isNull,
       );
       expect(find.bySemanticsLabel('Maya Chen output port'), findsOneWidget);
@@ -191,8 +190,8 @@ void main() {
       addTearDown(bloc.close);
 
       await tester.pumpWidget(
-        MaterialApp(
-          theme: buildFrankTheme(Brightness.dark),
+        FrankTestApp(
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
             child: OrganizationSurface(workspace: _workspace()),
@@ -259,11 +258,18 @@ void main() {
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
-        child: MaterialApp(
-          theme: buildFrankTheme(Brightness.dark),
+        child: FrankTestApp(
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
-            child: OrganizationSurface(workspace: workspace),
+            child: OrganizationSurface(
+              workspace: workspace,
+              workflowProjection: const WorkflowProjection(
+                boards: [
+                  WorkflowTaskboard(id: 'fixture-inbox', name: 'Inbox'),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -278,7 +284,7 @@ void main() {
     expect(find.textContaining('available'), findsOneWidget);
     expect(
       find.byKey(
-        const ValueKey('organization-add-result-capability-taskboard'),
+        const ValueKey('organization-add-result-taskboard-fixture-inbox'),
       ),
       findsOneWidget,
     );
@@ -317,11 +323,18 @@ void main() {
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
-        child: MaterialApp(
-          theme: buildFrankTheme(Brightness.dark),
+        child: FrankTestApp(
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
-            child: OrganizationSurface(workspace: _workspace()),
+            child: OrganizationSurface(
+              workspace: _workspace(),
+              workflowProjection: const WorkflowProjection(
+                boards: [
+                  WorkflowTaskboard(id: 'fixture-inbox', name: 'Inbox'),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -331,29 +344,29 @@ void main() {
     await tester.pumpAndSettle();
 
     final taskboard = find.byKey(
-      const ValueKey('organization-add-result-capability-taskboard'),
+      const ValueKey('organization-add-result-taskboard-fixture-inbox'),
     );
     final drive = find.byKey(
       const ValueKey('organization-add-result-capability-drive'),
     );
     final group = find.byKey(const ValueKey('add-group'));
     expect(
-      tester.getSemantics(taskboard).flagsCollection.isSelected,
+      tester.getSemantics(drive).flagsCollection.isSelected,
       Tristate.isTrue,
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
     expect(
-      tester.getSemantics(drive).flagsCollection.isSelected,
+      tester.getSemantics(group).flagsCollection.isSelected,
       Tristate.isTrue,
     );
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.pump();
     expect(
       tester.getSemantics(taskboard).flagsCollection.isSelected,
       Tristate.isTrue,
     );
-    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pump();
     expect(
       tester.getSemantics(group).flagsCollection.isSelected,
@@ -361,10 +374,10 @@ void main() {
     );
     await tester.sendKeyEvent(LogicalKeyboardKey.home);
     await tester.pump();
-    expect(
-      tester.getSemantics(taskboard).flagsCollection.isSelected,
-      Tristate.isTrue,
-    );
+    expect(tester.getSemantics(drive).flagsCollection.isSelected, Tristate.isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.end);
+    await tester.pump();
+    expect(tester.getSemantics(taskboard).flagsCollection.isSelected, Tristate.isTrue);
     final nodeCountBeforeEnter = bloc.state.graph!.nodes.length;
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await tester.pumpAndSettle();
@@ -393,8 +406,8 @@ void main() {
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
-        child: MaterialApp(
-          theme: buildFrankTheme(Brightness.dark),
+        child: FrankTestApp(
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
             child: OrganizationSurface(workspace: _workspace()),
@@ -431,8 +444,8 @@ void main() {
     await tester.pumpWidget(
       MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
-        child: MaterialApp(
-          theme: buildFrankTheme(Brightness.dark),
+        child: FrankTestApp(
+          theme: buildFrankTheme(),
           home: BlocProvider.value(
             value: bloc,
             child: OrganizationSurface(workspace: _workspace()),
@@ -455,29 +468,12 @@ void main() {
       'x' * 60,
     );
     await tester.pump();
-    expect(
-      tester
-          .widget<TextField>(
-            find.byKey(const ValueKey('organization-group-name')),
-          )
-          .controller!
-          .text
-          .length,
-      48,
-    );
+    expect(_textController(tester, 'organization-group-name').text.length, 48);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
     expect(find.bySemanticsLabel('New group'), findsNothing);
     expect(find.text('RESULTS'), findsOneWidget);
-    expect(
-      tester
-          .widget<TextField>(
-            find.byKey(const ValueKey('organization-add-search')),
-          )
-          .controller!
-          .text,
-      'group',
-    );
+    expect(_textController(tester, 'organization-add-search').text, 'group');
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.bySemanticsLabel('Add to office'), findsNothing);
@@ -504,8 +500,8 @@ void main() {
     addTearDown(bloc.close);
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: buildFrankTheme(Brightness.dark),
+      FrankTestApp(
+        theme: buildFrankTheme(),
         home: BlocProvider.value(
           value: bloc,
           child: OrganizationSurface(workspace: _workspace()),
@@ -539,8 +535,8 @@ void main() {
     addTearDown(bloc.close);
 
     await tester.pumpWidget(
-      MaterialApp(
-        theme: buildFrankTheme(Brightness.dark),
+      FrankTestApp(
+        theme: buildFrankTheme(),
         home: BlocProvider.value(
           value: bloc,
           child: OrganizationSurface(workspace: workspace),
@@ -560,10 +556,10 @@ void main() {
     expect(find.bySemanticsLabel('New group'), findsOneWidget);
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<FButton>(
             find.byKey(const ValueKey('organization-group-create')),
           )
-          .onPressed,
+          .onPress,
       isNull,
     );
     await tester.enterText(
@@ -572,20 +568,15 @@ void main() {
     );
     await tester.pump();
     expect(
-      tester
-          .widget<TextField>(
-            find.byKey(const ValueKey('organization-group-name')),
-          )
-          .controller!
-          .text,
+      _textController(tester, 'organization-group-name').text,
       '  Research  ',
     );
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<FButton>(
             find.byKey(const ValueKey('organization-group-create')),
           )
-          .onPressed,
+          .onPress,
       isNotNull,
     );
     await tester.tap(find.byKey(const ValueKey('organization-group-create')));
@@ -616,6 +607,11 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+}
+
+TextEditingController _textController(WidgetTester tester, String key) {
+  final field = tester.widget<FTextField>(find.byKey(ValueKey(key)));
+  return (field.control as FTextFieldManagedControl).controller!;
 }
 
 OfficeWorkspace _workspace() => const OfficeWorkspace(

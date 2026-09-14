@@ -165,30 +165,22 @@ class _ProjectTree extends StatefulWidget {
 
 class _ProjectTreeState extends State<_ProjectTree> {
   late final FocusNode _focusNode;
-  late final FrankDesktopMenuController _actionsController;
-  late final FrankDesktopMenuController _contextMenuController;
   bool _hovered = false;
   bool _focused = false;
   bool _actionsOpen = false;
-  bool _contextMenuOpen = false;
   bool _showAllMissions = false;
+  FPopoverController? _actionsController;
 
   bool get _projectSelected =>
       widget.containsSelection && widget.selectedMissionId == null;
 
   bool get _showActions =>
-      _projectSelected ||
-      _hovered ||
-      _focused ||
-      _actionsOpen ||
-      _contextMenuOpen;
+      _projectSelected || _hovered || _focused || _actionsOpen;
 
   @override
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'Project ${widget.project.name}');
-    _actionsController = FrankDesktopMenuController();
-    _contextMenuController = FrankDesktopMenuController();
   }
 
   @override
@@ -198,11 +190,13 @@ class _ProjectTreeState extends State<_ProjectTree> {
   }
 
   void _toggleActions() {
-    _actionsController.toggle();
+    _actionsController?.toggle();
+    setState(() => _actionsOpen = !_actionsOpen);
   }
 
   void _selectProject() {
     widget.onToggle();
+    if (mounted) setState(() => _focused = true);
     _focusNode.requestFocus();
   }
 
@@ -237,56 +231,60 @@ class _ProjectTreeState extends State<_ProjectTree> {
     return KeyEventResult.ignored;
   }
 
-  List<FrankMenuGroup> _actionMenu() {
-    VoidCallback invoke(VoidCallback action) => action;
-
+  List<FItemGroupMixin> _actionMenu() {
     return [
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('project-action-pin'),
-          label: 'Pin',
-          icon: FrankIcons.pin,
-          semanticsLabel: 'Pin project',
-          onPressed: invoke(widget.onPin),
-        ),
-        FrankMenuItem(
-          key: const ValueKey('project-action-rename'),
-          label: 'Rename',
-          icon: FrankIcons.edit,
-          semanticsLabel: 'Rename project',
-          onPressed: invoke(widget.onRename),
-        ),
-      ]),
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('project-action-reveal'),
-          label: 'Reveal in Finder',
-          icon: FrankIcons.folderOpen,
-          enabled: false,
-          semanticsLabel: 'Reveal project in Finder',
-        ),
-      ]),
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('project-action-archive'),
-          label: 'Archive project',
-          icon: FrankIcons.archive,
-          semanticsLabel: 'Archive project',
-          onPressed: invoke(widget.onArchive),
-        ),
-        FrankMenuItem(
-          key: const ValueKey('project-action-remove'),
-          label: 'Remove project',
-          icon: FrankIcons.close,
-          destructive: true,
-          semanticsLabel: 'Remove project',
-          onPressed: invoke(widget.onRemove),
-        ),
-      ]),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('project-action-pin'),
+            title: const Text('Pin'),
+            prefix: const Icon(FrankIcons.pin),
+            semanticsLabel: 'Pin project',
+            onPress: widget.onPin,
+          ),
+          FItem(
+            key: const ValueKey('project-action-rename'),
+            title: const Text('Rename'),
+            prefix: const Icon(FrankIcons.edit),
+            semanticsLabel: 'Rename project',
+            onPress: widget.onRename,
+          ),
+        ],
+      ),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('project-action-reveal'),
+            title: const Text('Reveal in Finder'),
+            prefix: const Icon(FrankIcons.folderOpen),
+            enabled: false,
+            semanticsLabel: 'Reveal project in Finder',
+          ),
+        ],
+      ),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('project-action-archive'),
+            title: const Text('Archive project'),
+            prefix: const Icon(FrankIcons.archive),
+            semanticsLabel: 'Archive project',
+            onPress: widget.onArchive,
+          ),
+          FItem(
+            key: const ValueKey('project-action-remove'),
+            title: const Text('Remove project'),
+            prefix: const Icon(FrankIcons.close),
+            variant: FItemVariant.destructive,
+            semanticsLabel: 'Remove project',
+            onPress: widget.onRemove,
+          ),
+        ],
+      ),
     ];
   }
 
-  Widget _actionsButton() {
+  Widget _actionsButton({VoidCallback? onPress}) {
     return SizedBox(
       width: 28,
       height: 28,
@@ -297,14 +295,13 @@ class _ProjectTreeState extends State<_ProjectTree> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: IconButton(
-              onPressed: _toggleActions,
-              tooltip: 'Project actions for ${widget.project.name}',
-              icon: const Icon(FrankIcons.more, size: 17),
-              color: _projectSelected ? FrankColors.ink : FrankColors.muted,
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            child: FButton(
+              key: ValueKey('project-actions-${widget.project.id}'),
+              onPress: onPress ?? _toggleActions,
+              semanticsLabel: 'Project actions for ${widget.project.name}',
+              semanticsTooltip: 'Project actions for ${widget.project.name}',
+              size: FButtonSizeVariant.sm,
+              child: const Icon(FrankIcons.more, size: 17),
             ),
           ),
         ),
@@ -312,12 +309,12 @@ class _ProjectTreeState extends State<_ProjectTree> {
     );
   }
 
-  Widget _projectRow() {
+  Widget _projectRow(VoidCallback toggleActions) {
     return InteractiveTreeRow(
       key: ValueKey('project-row-${widget.project.id}'),
       selected: _projectSelected,
       hovered: _hovered,
-      menuOpen: _actionsOpen || _contextMenuOpen,
+      menuOpen: _actionsOpen,
       onPointerDown: widget.inputModality.pointerDown,
       onTap: _selectProject,
       prefix: Icon(
@@ -350,22 +347,27 @@ class _ProjectTreeState extends State<_ProjectTree> {
       ),
       suffix: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [_actionsButton(), _createMissionAction()],
+        children: [
+          _actionsButton(onPress: toggleActions),
+          _createMissionAction(),
+        ],
       ),
     );
   }
 
   Widget _actionsPopover() {
-    return FrankDesktopMenu(
+    return FPopoverMenu(
       key: ValueKey('project-popover-${widget.project.id}'),
-      controller: _actionsController,
-      width: 248,
-      onOpenChanged: (shown) {
-        if (mounted) setState(() => _actionsOpen = shown);
-      },
-      groups: _actionMenu(),
+      groupId: 'project-tree-menu',
+      menu: _actionMenu(),
       semanticsLabel: 'Project actions for ${widget.project.name}',
-      child: _projectRow(),
+      builder: (_, controller, _) {
+        _actionsController = controller;
+        return _projectRow(() {
+          controller.toggle();
+          if (mounted) setState(() => _actionsOpen = !_actionsOpen);
+        });
+      },
     );
   }
 
@@ -390,15 +392,10 @@ class _ProjectTreeState extends State<_ProjectTree> {
             child: MouseRegion(
               onEnter: (_) => setState(() => _hovered = true),
               onExit: (_) => setState(() => _hovered = false),
-              child: FrankDesktopMenu(
-                controller: _contextMenuController,
-                width: 248,
-                openOnSecondaryTap: true,
-                onOpenChanged: (shown) {
-                  if (mounted) setState(() => _contextMenuOpen = shown);
-                },
+              child: FContextMenu(
+                groupId: 'project-tree-menu',
                 semanticsLabel: 'Actions for ${widget.project.name}',
-                groups: _actionMenu(),
+                menu: _actionMenu(),
                 child: _actionsPopover(),
               ),
             ),
@@ -418,7 +415,7 @@ class _ProjectTreeState extends State<_ProjectTree> {
                               vertical: 7,
                             ),
                             child: Text(
-                              'No tasks yet',
+                              'No missions yet',
                               style: TextStyle(
                                 color: FrankColors.muted,
                                 fontSize: 14,
@@ -474,7 +471,7 @@ class _ProjectTreeState extends State<_ProjectTree> {
 
   Widget _createMissionAction() {
     return SizedBox(
-      width: 28,
+      width: 86,
       height: 28,
       child: ExcludeSemantics(
         excluding: !_showActions,
@@ -483,13 +480,13 @@ class _ProjectTreeState extends State<_ProjectTree> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: IconButton(
-              onPressed: widget.onCreateMission,
-              tooltip: 'Create a new task in ${widget.project.name}',
-              icon: const Icon(FrankIcons.editNote, size: 16),
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            child: FButton(
+              onPress: widget.onCreateMission,
+              semanticsLabel: 'New mission in ${widget.project.name}',
+              semanticsTooltip: 'New mission in ${widget.project.name}',
+              size: FButtonSizeVariant.sm,
+              prefix: const Icon(FrankIcons.editNote, size: 14),
+              child: const Text('New mission'),
             ),
           ),
         ),
@@ -507,18 +504,10 @@ class _ShowMoreMissions extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 32,
-      child: TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          foregroundColor: FrankColors.muted,
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w400,
-            height: 20 / 14,
-          ),
-        ),
+      child: FButton(
+        onPress: onPressed,
+        variant: FButtonVariant.ghost,
+        size: FButtonSizeVariant.sm,
         child: const Text('Show more'),
       ),
     );
@@ -551,26 +540,18 @@ class _MissionTreeRow extends StatefulWidget {
 
 class _MissionTreeRowState extends State<_MissionTreeRow> {
   late final FocusNode _focusNode;
-  late final FrankDesktopMenuController _actionsController;
-  late final FrankDesktopMenuController _contextMenuController;
   bool _hovered = false;
   bool _focused = false;
   bool _actionsOpen = false;
-  bool _contextMenuOpen = false;
+  FPopoverController? _actionsController;
 
   bool get _showActions =>
-      widget.selected ||
-      _hovered ||
-      _focused ||
-      _actionsOpen ||
-      _contextMenuOpen;
+      widget.selected || _hovered || _focused || _actionsOpen;
 
   @override
   void initState() {
     super.initState();
     _focusNode = FocusNode(debugLabel: 'Mission ${widget.mission.title}');
-    _actionsController = FrankDesktopMenuController();
-    _contextMenuController = FrankDesktopMenuController();
   }
 
   @override
@@ -580,11 +561,13 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
   }
 
   void _toggleActions() {
-    _actionsController.toggle();
+    _actionsController?.toggle();
+    setState(() => _actionsOpen = !_actionsOpen);
   }
 
   void _selectMission() {
     widget.onTap();
+    if (mounted) setState(() => _focused = true);
     _focusNode.requestFocus();
   }
 
@@ -607,39 +590,41 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
     return KeyEventResult.ignored;
   }
 
-  List<FrankMenuGroup> _actionMenu() {
-    VoidCallback invoke(VoidCallback action) => action;
-
+  List<FItemGroupMixin> _actionMenu() {
     return [
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('mission-action-pin'),
-          label: 'Pin',
-          icon: FrankIcons.pin,
-          semanticsLabel: 'Pin task',
-          onPressed: invoke(widget.onPin),
-        ),
-        FrankMenuItem(
-          key: const ValueKey('mission-action-rename'),
-          label: 'Rename',
-          icon: FrankIcons.edit,
-          semanticsLabel: 'Rename task',
-          onPressed: invoke(widget.onRename),
-        ),
-      ]),
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('mission-action-archive'),
-          label: 'Archive task',
-          icon: FrankIcons.archive,
-          semanticsLabel: 'Archive task',
-          onPressed: invoke(widget.onArchive),
-        ),
-      ]),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('mission-action-pin'),
+            title: const Text('Pin'),
+            prefix: const Icon(FrankIcons.pin),
+            semanticsLabel: 'Pin mission',
+            onPress: widget.onPin,
+          ),
+          FItem(
+            key: const ValueKey('mission-action-rename'),
+            title: const Text('Rename'),
+            prefix: const Icon(FrankIcons.edit),
+            semanticsLabel: 'Rename mission',
+            onPress: widget.onRename,
+          ),
+        ],
+      ),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('mission-action-archive'),
+            title: const Text('Archive mission'),
+            prefix: const Icon(FrankIcons.archive),
+            semanticsLabel: 'Archive mission',
+            onPress: widget.onArchive,
+          ),
+        ],
+      ),
     ];
   }
 
-  Widget _actionsButton() {
+  Widget _actionsButton({VoidCallback? onPress}) {
     return SizedBox(
       width: 28,
       height: 28,
@@ -650,14 +635,12 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: IconButton(
-              onPressed: _toggleActions,
-              tooltip: 'Task actions for ${widget.mission.title}',
-              icon: const Icon(FrankIcons.more, size: 16),
-              color: widget.selected ? FrankColors.ink : FrankColors.muted,
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            child: FButton.icon(
+              onPress: onPress ?? _toggleActions,
+              semanticsLabel: 'Mission actions for ${widget.mission.title}',
+              semanticsTooltip: 'Mission actions for ${widget.mission.title}',
+              size: FButtonSizeVariant.sm,
+              child: const Icon(FrankIcons.more, size: 16),
             ),
           ),
         ),
@@ -665,12 +648,12 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
     );
   }
 
-  Widget _missionRow() {
+  Widget _missionRow(VoidCallback toggleActions) {
     return InteractiveTreeRow(
       key: ValueKey('mission-surface-${widget.mission.id}'),
       selected: widget.selected,
       hovered: _hovered,
-      menuOpen: _actionsOpen || _contextMenuOpen,
+      menuOpen: _actionsOpen,
       onPointerDown: widget.inputModality.pointerDown,
       onTap: _selectMission,
       label: Semantics(
@@ -697,22 +680,27 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
       ),
       suffix: Row(
         mainAxisSize: MainAxisSize.min,
-        children: [_pinAction(), _actionsButton()],
+        children: [
+          _pinAction(),
+          _actionsButton(onPress: toggleActions),
+        ],
       ),
     );
   }
 
   Widget _actionsPopover() {
-    return FrankDesktopMenu(
+    return FPopoverMenu(
       key: ValueKey('mission-popover-${widget.mission.id}'),
-      controller: _actionsController,
-      width: 248,
-      onOpenChanged: (shown) {
-        if (mounted) setState(() => _actionsOpen = shown);
+      groupId: 'project-tree-menu',
+      menu: _actionMenu(),
+      semanticsLabel: 'Mission actions for ${widget.mission.title}',
+      builder: (_, controller, _) {
+        _actionsController = controller;
+        return _missionRow(() {
+          controller.toggle();
+          if (mounted) setState(() => _actionsOpen = !_actionsOpen);
+        });
       },
-      groups: _actionMenu(),
-      semanticsLabel: 'Task actions for ${widget.mission.title}',
-      child: _missionRow(),
     );
   }
 
@@ -727,13 +715,14 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: IconButton(
-              onPressed: widget.onPin,
-              tooltip: 'Pin task ${widget.mission.title} to the pinned list',
-              icon: const Icon(FrankIcons.pin, size: 16),
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            child: FButton.icon(
+              onPress: widget.onPin,
+              semanticsLabel:
+                  'Pin mission ${widget.mission.title} to the pinned list',
+              semanticsTooltip:
+                  'Pin mission ${widget.mission.title} to the pinned list',
+              size: FButtonSizeVariant.sm,
+              child: const Icon(FrankIcons.pin, size: 16),
             ),
           ),
         ),
@@ -754,15 +743,10 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
           cursor: SystemMouseCursors.click,
           onEnter: (_) => setState(() => _hovered = true),
           onExit: (_) => setState(() => _hovered = false),
-          child: FrankDesktopMenu(
-            controller: _contextMenuController,
-            width: 248,
-            openOnSecondaryTap: true,
-            onOpenChanged: (shown) {
-              if (mounted) setState(() => _contextMenuOpen = shown);
-            },
+          child: FContextMenu(
+            groupId: 'project-tree-menu',
             semanticsLabel: 'Actions for ${widget.mission.title}',
-            groups: _actionMenu(),
+            menu: _actionMenu(),
             child: _actionsPopover(),
           ),
         ),
@@ -803,18 +787,17 @@ class InteractiveTreeRow extends StatelessWidget {
         ? FrankColors.ink.withValues(alpha: 0.08)
         : hovered
         ? FrankColors.ink.withValues(alpha: 0.06)
-        : Colors.transparent;
+        : const Color(0x00000000);
 
-    return Material(
-      color: background,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTapDown: (_) => onPointerDown(),
-        onTap: onTap,
-        excludeFromSemantics: true,
-        focusColor: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
+    return FTappable.static(
+      onPressDown: (_) => onPointerDown(),
+      onPress: onTap,
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: SizedBox(
           width: double.infinity,
           height: 32,

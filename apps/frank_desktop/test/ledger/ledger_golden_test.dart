@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
@@ -34,9 +35,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         debugShowCheckedModeBanner: false,
-        theme: buildFrankTheme(Brightness.dark),
+        theme: buildFrankTheme(),
         home: RepaintBoundary(
           key: const ValueKey('ledger-golden-root'),
           child: LedgerSurface(
@@ -53,7 +54,7 @@ void main() {
     );
 
     await tester.tap(find.byKey(const ValueKey('ledger-tab-operational')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     await expectLater(
       find.byKey(const ValueKey('ledger-golden-root')),
       matchesGoldenFile('goldens/ledger-operational.png'),

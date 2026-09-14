@@ -15,8 +15,11 @@ void main() {
     final capability = graph.nodes.firstWhere(
       (node) => node.kind == OrganizationNodeKind.capability,
     );
-    final approval = graph.nodes.firstWhere(
-      (node) => node.kind == OrganizationNodeKind.approval,
+    final role = graph.nodes.firstWhere(
+      (node) => node.kind == OrganizationNodeKind.role,
+    );
+    final taskboard = graph.nodes.firstWhere(
+      (node) => node.kind == OrganizationNodeKind.taskboard,
     );
 
     expect(
@@ -28,24 +31,28 @@ void main() {
       OrganizationRelationKind.toolAccess,
     );
     expect(
-      inferOrganizationRelationKind(source: staff, target: approval),
-      OrganizationRelationKind.review,
+      inferOrganizationRelationKind(source: role, target: taskboard),
+      OrganizationRelationKind.drop,
     );
     expect(
-      inferOrganizationRelationKind(source: capability, target: approval),
+      inferOrganizationRelationKind(source: capability, target: taskboard),
       isNull,
     );
   });
 
   test('structural errors block and handoff loops only warn', () {
     final graph = fixtureOrganizationGraph();
-    final withoutStaff = graph.copyWith(
+    final withoutWorker = graph.copyWith(
       nodes: graph.nodes
-          .where((node) => node.kind != OrganizationNodeKind.staff)
+          .where(
+            (node) =>
+                node.kind != OrganizationNodeKind.staff &&
+                node.kind != OrganizationNodeKind.role,
+          )
           .toList(),
       relations: const [],
     );
-    expect(validateOrganization(withoutStaff).hasErrors, isTrue);
+    expect(validateOrganization(withoutWorker).hasErrors, isTrue);
 
     final staff = graph.nodes
         .where((node) => node.kind == OrganizationNodeKind.staff)

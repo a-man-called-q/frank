@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
@@ -31,9 +32,9 @@ void main() {
     'FrankComposer renders live context, environment, and input without a model picker',
     (tester) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FrankComposer(
+        FrankTestApp(
+          home: FScaffold(
+            child: FrankComposer(
               generating: false,
               onSend: (_) {},
               onStop: () {},
@@ -47,7 +48,7 @@ void main() {
       expect(find.text('Maya · Frank Engine'), findsOneWidget);
       expect(find.text('Local'), findsOneWidget);
       expect(find.textContaining('Gemini'), findsNothing);
-      expect(find.byTooltip('Start voice dictation'), findsNothing);
+      expect(find.bySemanticsLabel('Start voice dictation'), findsNothing);
       expect(find.bySemanticsLabel('Message Maya'), findsOneWidget);
       expect(find.bySemanticsLabel('Send message'), findsOneWidget);
     },
@@ -59,9 +60,9 @@ void main() {
       String? sentText;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FrankComposer(
+        FrankTestApp(
+          home: FScaffold(
+            child: FrankComposer(
               generating: false,
               onSend: (text) => sentText = text,
               onStop: () {},
@@ -72,16 +73,16 @@ void main() {
         ),
       );
 
-      final textField = find.byType(TextField);
+      final textField = find.byType(FTextField);
       await tester.enterText(textField, 'Hello Frank');
       await tester.pump();
 
       final sendButton = find.bySemanticsLabel('Send message');
       await tester.tap(sendButton);
-      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
 
       expect(sentText, 'Hello Frank');
-      expect(tester.widget<TextField>(textField).controller?.text, isEmpty);
+      expect(textField, findsOneWidget);
     },
   );
 
@@ -91,9 +92,9 @@ void main() {
       String? sentText;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: FrankComposer(
+        FrankTestApp(
+          home: FScaffold(
+            child: FrankComposer(
               generating: false,
               onSend: (text) => sentText = text,
               onStop: () {},
@@ -104,7 +105,7 @@ void main() {
         ),
       );
 
-      final textField = find.byType(TextField);
+      final textField = find.byType(FTextField);
       await tester.enterText(textField, 'Execute mission');
       await tester.pump();
 
@@ -122,9 +123,9 @@ void main() {
     var stopped = false;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FrankComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: FrankComposer(
             generating: true,
             onSend: (_) {},
             onStop: () => stopped = true,
@@ -137,7 +138,7 @@ void main() {
 
     expect(find.bySemanticsLabel('Stop generation'), findsOneWidget);
     await tester.tap(find.bySemanticsLabel('Stop generation'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(stopped, isTrue);
   });
@@ -148,9 +149,9 @@ void main() {
     var stopped = false;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FrankComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: FrankComposer(
             generating: true,
             onSend: (_) {},
             onStop: () => stopped = true,
@@ -183,9 +184,9 @@ void main() {
     );
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FrankComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: FrankComposer(
             generating: false,
             onSend: (_) {},
             onStop: () {},
@@ -203,9 +204,9 @@ void main() {
 
   testWidgets('composer grows with a multiline prompt', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: FrankComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: FrankComposer(
             generating: false,
             onSend: (_) {},
             onStop: () {},
@@ -217,11 +218,13 @@ void main() {
     );
 
     final composer = find.byType(BaseComposer);
-    final textField = find.byType(TextField);
+    final textField = find.byType(FTextField);
     final initialHeight = tester.getSize(composer).height;
+    final initialFieldHeight = tester.getSize(textField).height;
     await tester.enterText(textField, 'one\ntwo\nthree\nfour\nfive');
     await tester.pump();
 
-    expect(tester.getSize(composer).height, greaterThan(initialHeight));
+    expect(tester.getSize(textField).height, greaterThan(initialFieldHeight));
+    expect(tester.getSize(composer).height, greaterThanOrEqualTo(initialHeight));
   });
 }

@@ -34,48 +34,44 @@ class _ValidationPanelState extends State<_ValidationPanel> {
             toggled: _expanded,
             label: 'Validation results',
             value: organizationValidationSummary(widget.validation),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () => setState(() => _expanded = !_expanded),
-                borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
-                child: SizedBox(
-                  height: FrankUiTokens.toolbarHeight,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Row(
-                      children: [
-                        Icon(
-                          key: const ValueKey(
-                            'organization-validation-status-icon',
-                          ),
-                          hasIssues
-                              ? FrankIcons.circleAlert
-                              : FrankIcons.circleCheck,
-                          color: hasIssues
-                              ? FrankColors.warningAmber
-                              : FrankColors.muted,
-                          size: FrankUiTokens.iconSize,
+            child: GestureDetector(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: SizedBox(
+                height: FrankUiTokens.toolbarHeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        key: const ValueKey(
+                          'organization-validation-status-icon',
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            organizationValidationSummary(widget.validation),
-                            style: const TextStyle(
-                              color: FrankColors.ink,
-                              fontSize: FrankUiTokens.textSize,
-                            ),
+                        hasIssues
+                            ? FrankIcons.circleAlert
+                            : FrankIcons.circleCheck,
+                        color: hasIssues
+                            ? FrankColors.warningAmber
+                            : FrankColors.muted,
+                        size: FrankUiTokens.iconSize,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          organizationValidationSummary(widget.validation),
+                          style: const TextStyle(
+                            color: FrankColors.ink,
+                            fontSize: FrankUiTokens.textSize,
                           ),
                         ),
-                        Icon(
-                          _expanded
-                              ? FrankIcons.chevronUp
-                              : FrankIcons.chevronDown,
-                          color: FrankColors.muted,
-                          size: FrankUiTokens.iconSize,
-                        ),
-                      ],
-                    ),
+                      ),
+                      Icon(
+                        _expanded
+                            ? FrankIcons.chevronUp
+                            : FrankIcons.chevronDown,
+                        color: FrankColors.muted,
+                        size: FrankUiTokens.iconSize,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -110,48 +106,44 @@ class _ValidationIssueRow extends StatelessWidget {
         issue.nodeId != null ||
         issue.relationId != null ||
         issue.groupId != null;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: actionable ? () => onFocus(issue) : null,
-        borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: FrankUiTokens.controlHeight,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  issue.severity == OrganizationIssueSeverity.error
-                      ? FrankIcons.circleAlert
-                      : FrankIcons.circleDashed,
-                  size: FrankUiTokens.iconSize - 1,
-                  color: FrankColors.warningAmber,
-                ),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    issue.message,
-                    style: const TextStyle(
-                      color: FrankColors.ink,
-                      fontSize: 11,
-                      height: 1.35,
-                    ),
+    return GestureDetector(
+      onTap: actionable ? () => onFocus(issue) : null,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: FrankUiTokens.controlHeight,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                issue.severity == OrganizationIssueSeverity.error
+                    ? FrankIcons.circleAlert
+                    : FrankIcons.circleDashed,
+                size: FrankUiTokens.iconSize - 1,
+                color: FrankColors.warningAmber,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  issue.message,
+                  style: const TextStyle(
+                    color: FrankColors.ink,
+                    fontSize: 11,
+                    height: 1.35,
                   ),
                 ),
-                if (actionable) ...[
-                  const SizedBox(width: 5),
-                  const Icon(
-                    FrankIcons.chevronRight,
-                    size: 14,
-                    color: FrankColors.muted,
-                  ),
-                ],
+              ),
+              if (actionable) ...[
+                const SizedBox(width: 5),
+                const Icon(
+                  FrankIcons.chevronRight,
+                  size: 14,
+                  color: FrankColors.muted,
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -161,43 +153,51 @@ class _ValidationIssueRow extends StatelessWidget {
 
 class _EmptyOrganization extends StatelessWidget {
   const _EmptyOrganization({required this.onAdd});
-  final VoidCallback onAdd;
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
-    return _OrganizationPanel(
-      padding: const EdgeInsets.all(28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            FrankIcons.workflow,
-            size: 32,
-            color: FrankColors.aubergineAccent,
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'Build your agency flow',
-            style: TextStyle(
-              color: FrankColors.ink,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440),
+      child: _OrganizationPanel(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              FrankIcons.workflow,
+              size: 32,
+              color: FrankColors.aubergineAccent,
             ),
-          ),
-          const SizedBox(height: 7),
-          const Text(
-            'Start with a staff member, then connect capabilities and approvals.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: FrankColors.muted, fontSize: 12),
-          ),
-          const SizedBox(height: 18),
-          FilledButton.icon(
-            onPressed: onAdd,
-            style: _publishButtonStyle(),
-            icon: const Icon(FrankIcons.plus),
-            label: const Text('Add office element'),
-          ),
-        ],
+            const SizedBox(height: 14),
+            const Text(
+              'Build your agency flow',
+              style: TextStyle(
+                color: FrankColors.ink,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 7),
+            const Text(
+              'Start with a member, then connect roles, tools, and internal taskboards.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: FrankColors.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 18),
+            FButton(
+              onPress: onAdd,
+              semanticsLabel: onAdd == null
+                  ? 'Reconnect before adding an office element'
+                  : 'Add office element',
+              semanticsTooltip: onAdd == null
+                  ? 'Reconnect before adding an office element'
+                  : 'Add office element',
+              prefix: const Icon(FrankIcons.plus),
+              child: const Text('Add office element'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -211,7 +211,7 @@ class _OrganizationLoading extends StatelessWidget {
     return Center(
       child: Semantics(
         label: 'Loading organization',
-        child: const CircularProgressIndicator(),
+        child: const FCircularProgress(),
       ),
     );
   }
@@ -233,11 +233,10 @@ class _OrganizationFailure extends StatelessWidget {
             const SizedBox(height: 10),
             Text(message, style: const TextStyle(color: FrankColors.ink)),
             const SizedBox(height: 14),
-            FilledButton(
-              onPressed: () => context.read<OrganizationBloc>().add(
+            FButton(
+              onPress: () => context.read<OrganizationBloc>().add(
                 const OrganizationRetryRequested(),
               ),
-              style: _publishButtonStyle(),
               child: const Text('Retry'),
             ),
           ],
@@ -288,6 +287,7 @@ class _ToolbarTextButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.semanticsTooltip,
     this.selected = false,
   });
 
@@ -295,18 +295,26 @@ class _ToolbarTextButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
+  final String? semanticsTooltip;
   final bool selected;
 
   @override
   Widget build(BuildContext context) {
-    return TextButton.icon(
-      key: buttonKey,
-      onPressed: onPressed,
-      style: _toolbarButtonStyle(selected: selected),
-      icon: Icon(icon, size: FrankUiTokens.iconSize),
-      label: Text(
-        label,
-        style: const TextStyle(fontSize: FrankUiTokens.textSize),
+    return Semantics(
+      button: true,
+      enabled: onPressed != null,
+      label: label,
+      hint: semanticsTooltip,
+      child: FButton(
+        key: buttonKey,
+        onPress: onPressed,
+        variant: selected ? FButtonVariant.secondary : FButtonVariant.ghost,
+        size: FButtonSizeVariant.sm,
+        prefix: Icon(icon, size: FrankUiTokens.iconSize),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: FrankUiTokens.textSize),
+        ),
       ),
     );
   }
@@ -337,14 +345,13 @@ class _ToolbarIconButton extends StatelessWidget {
       label: label,
       toggled: toggled,
       excludeSemantics: true,
-      child: Tooltip(
-        message: label,
-        child: IconButton(
-          key: buttonKey,
-          onPressed: onPressed,
-          style: _toolbarIconButtonStyle(selected: selected),
-          icon: Icon(icon, size: FrankUiTokens.iconSize),
-        ),
+      child: FButton.icon(
+        key: buttonKey,
+        onPress: onPressed,
+        variant: selected ? FButtonVariant.secondary : FButtonVariant.ghost,
+        size: FButtonSizeVariant.sm,
+        semanticsTooltip: label,
+        child: Icon(icon, size: FrankUiTokens.iconSize),
       ),
     );
   }
@@ -365,116 +372,6 @@ class _ToolbarDivider extends StatelessWidget {
     );
   }
 }
-
-ButtonStyle _toolbarButtonStyle({bool selected = false}) => ButtonStyle(
-  minimumSize: const WidgetStatePropertyAll(
-    Size(0, FrankUiTokens.controlHeight),
-  ),
-  padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  shape: WidgetStatePropertyAll(
-    RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-    ),
-  ),
-  foregroundColor: WidgetStateProperty.resolveWith((states) {
-    if (states.contains(WidgetState.disabled)) {
-      return FrankColors.muted.withValues(alpha: .42);
-    }
-    return selected ? FrankColors.ink : FrankColors.muted;
-  }),
-  backgroundColor: WidgetStateProperty.resolveWith((states) {
-    if (states.contains(WidgetState.disabled)) return Colors.transparent;
-    if (states.contains(WidgetState.pressed)) {
-      return FrankColors.ink.withValues(
-        alpha: FrankUiTokens.selectedInkOpacity,
-      );
-    }
-    if (states.contains(WidgetState.hovered)) {
-      return FrankColors.ink.withValues(alpha: FrankUiTokens.hoverInkOpacity);
-    }
-    return selected
-        ? FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)
-        : Colors.transparent;
-  }),
-  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-  textStyle: const WidgetStatePropertyAll(
-    TextStyle(fontSize: FrankUiTokens.textSize),
-  ),
-);
-
-ButtonStyle _toolbarIconButtonStyle({bool selected = false}) => ButtonStyle(
-  minimumSize: const WidgetStatePropertyAll(
-    Size.square(FrankUiTokens.controlHeight),
-  ),
-  maximumSize: const WidgetStatePropertyAll(
-    Size.square(FrankUiTokens.controlHeight),
-  ),
-  fixedSize: const WidgetStatePropertyAll(
-    Size.square(FrankUiTokens.controlHeight),
-  ),
-  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  shape: WidgetStatePropertyAll(
-    RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-    ),
-  ),
-  foregroundColor: WidgetStateProperty.resolveWith((states) {
-    if (states.contains(WidgetState.disabled)) {
-      return FrankColors.muted.withValues(alpha: .42);
-    }
-    return selected ? FrankColors.ink : FrankColors.muted;
-  }),
-  backgroundColor: WidgetStateProperty.resolveWith((states) {
-    if (states.contains(WidgetState.disabled)) return Colors.transparent;
-    if (states.contains(WidgetState.pressed)) {
-      return FrankColors.ink.withValues(
-        alpha: FrankUiTokens.selectedInkOpacity,
-      );
-    }
-    if (states.contains(WidgetState.hovered)) {
-      return FrankColors.ink.withValues(alpha: FrankUiTokens.hoverInkOpacity);
-    }
-    return selected
-        ? FrankColors.ink.withValues(alpha: FrankUiTokens.selectedInkOpacity)
-        : Colors.transparent;
-  }),
-  overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-);
-
-ButtonStyle _compactTextButtonStyle() => TextButton.styleFrom(
-  minimumSize: const Size(0, FrankUiTokens.controlHeight),
-  padding: const EdgeInsets.symmetric(horizontal: 8),
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-  ),
-  foregroundColor: FrankColors.muted,
-  disabledForegroundColor: FrankColors.muted.withValues(alpha: .42),
-  overlayColor: FrankColors.ink.withValues(
-    alpha: FrankUiTokens.hoverInkOpacity,
-  ),
-  textStyle: const TextStyle(fontSize: FrankUiTokens.textSize),
-);
-
-ButtonStyle _publishButtonStyle() => FilledButton.styleFrom(
-  minimumSize: const Size(0, FrankUiTokens.controlHeight),
-  padding: const EdgeInsets.symmetric(horizontal: 12),
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-  ),
-  backgroundColor: FrankColors.aubergine,
-  foregroundColor: FrankColors.ink,
-  disabledBackgroundColor: FrankColors.border,
-  disabledForegroundColor: FrankColors.muted.withValues(alpha: .52),
-  overlayColor: Colors.transparent,
-  textStyle: const TextStyle(
-    fontSize: FrankUiTokens.textSize,
-    fontWeight: FontWeight.w600,
-  ),
-);
 
 class _DraftStatus extends StatelessWidget {
   const _DraftStatus({required this.state});

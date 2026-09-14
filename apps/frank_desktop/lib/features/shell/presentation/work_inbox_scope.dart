@@ -20,24 +20,35 @@ class _ScopeSelector extends StatelessWidget {
         break;
       }
     }
-    return FrankDesktopSelectField<String?>(
-      fieldKey: const ValueKey('project-scope-selector'),
-      value: selectedProjectId,
-      options: [
-        const FrankDesktopSelectOption<String?>(
-          value: null,
-          label: 'All projects',
+    return Semantics(
+      label: 'Project scope',
+      child: FSelect<String?>.rich(
+        key: const ValueKey('project-scope-selector'),
+        format: (value) => value == null
+            ? 'All projects'
+            : projects
+                  .firstWhere(
+                    (project) => project.id == value,
+                    orElse: () => projects.first,
+                  )
+                  .name,
+        control: FSelectControl<String?>.lifted(
+          value: selectedProjectId,
+          onChange: onChanged,
         ),
-        ...projects.map(
-          (project) => FrankDesktopSelectOption<String?>(
-            value: project.id,
-            label: project.name,
+        hint: selectedName,
+        children: [
+          FSelectItem<String?>.item(
+            value: null,
+            title: const Text('All projects'),
           ),
-        ),
-      ],
-      onChanged: onChanged,
-      semanticsLabel: 'Project scope',
-      hint: selectedName,
+          for (final project in projects)
+            FSelectItem<String?>.item(
+              value: project.id,
+              title: Text(project.name),
+            ),
+        ],
+      ),
     );
   }
 }

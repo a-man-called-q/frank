@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/icons.dart';
-import 'package:frank_desktop/app/theme.dart';
 
 /// Primary action button for the composer: Send or Stop generation.
 class ComposerActionButton extends StatelessWidget {
@@ -23,26 +23,12 @@ class ComposerActionButton extends StatelessWidget {
       return Semantics(
         button: true,
         label: 'Stop generation',
-        child: IconButton(
-          onPressed: onStop,
-          tooltip: 'Stop generation',
-          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-          padding: EdgeInsets.zero,
-          style: ButtonStyle(
-            minimumSize: const WidgetStatePropertyAll(Size(32, 32)),
-            maximumSize: const WidgetStatePropertyAll(Size(32, 32)),
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            backgroundColor: const WidgetStatePropertyAll(
-              FrankColors.aubergine,
-            ),
-            shape: WidgetStatePropertyAll(
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            foregroundColor: const WidgetStatePropertyAll(Colors.white),
-            splashFactory: NoSplash.splashFactory,
-            animationDuration: Duration.zero,
-          ),
-          icon: const Icon(FrankIcons.square, size: 13),
+        child: FButton.icon(
+          onPress: onStop,
+          semanticsTooltip: 'Stop generation',
+          size: FButtonSizeVariant.sm,
+          variant: FButtonVariant.destructive,
+          child: const Icon(FrankIcons.square, size: 13),
         ),
       );
     }
@@ -51,30 +37,12 @@ class ComposerActionButton extends StatelessWidget {
       button: true,
       enabled: canSend,
       label: 'Send message',
-      child: IconButton(
-        onPressed: canSend ? onSend : null,
-        tooltip: 'Send message',
-        constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-        padding: EdgeInsets.zero,
-        style: ButtonStyle(
-          minimumSize: const WidgetStatePropertyAll(Size(32, 32)),
-          maximumSize: const WidgetStatePropertyAll(Size(32, 32)),
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          backgroundColor: WidgetStateProperty.resolveWith((states) {
-            if (!canSend) return FrankColors.muted.withValues(alpha: 0.2);
-            return FrankColors.aubergine;
-          }),
-          shape: WidgetStatePropertyAll(
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-          foregroundColor: WidgetStateProperty.resolveWith((states) {
-            if (!canSend) return FrankColors.muted.withValues(alpha: 0.5);
-            return Colors.white;
-          }),
-          splashFactory: NoSplash.splashFactory,
-          animationDuration: Duration.zero,
-        ),
-        icon: const Icon(FrankIcons.arrowUp, size: 15),
+      child: FButton.icon(
+        onPress: canSend ? onSend : null,
+        semanticsTooltip: 'Send message',
+        size: FButtonSizeVariant.sm,
+        variant: FButtonVariant.primary,
+        child: const Icon(FrankIcons.arrowUp, size: 15),
       ),
     );
   }

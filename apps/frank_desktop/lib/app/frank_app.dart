@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 import '../core/fixtures/fixture_workspace.dart';
@@ -16,6 +16,7 @@ class FrankApp extends StatelessWidget {
     this.authRepository,
     this.sidebarEffectBuilder,
     this.showLogin = true,
+    this.withToaster = true,
     super.key,
   });
 
@@ -23,28 +24,35 @@ class FrankApp extends StatelessWidget {
   final AuthRepository? authRepository;
   final SidebarEffectBuilder? sidebarEffectBuilder;
   final bool showLogin;
+  /// Allows widget tests that exercise transient overlays to isolate their
+  /// semantics tree; production always leaves the ForUI toaster enabled.
+  final bool withToaster;
 
   @override
   Widget build(BuildContext context) {
-    final lightTheme = buildFrankTheme(Brightness.light);
-    final darkTheme = buildFrankTheme(Brightness.dark);
-
-    return MaterialApp(
+    return WidgetsApp(
       title: 'Frank',
       debugShowCheckedModeBanner: false,
-      theme: lightTheme,
-      darkTheme: darkTheme,
-      themeMode: ThemeMode.dark,
-      localizationsDelegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-      ],
+      color: FrankColors.canvas,
+      pageRouteBuilder: <T>(settings, builder) => PageRouteBuilder<T>(
+        settings: settings,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            builder(context),
+      ),
+      locale: const Locale('en', 'US'),
+      supportedLocales: FLocalizations.supportedLocales,
+      localizationsDelegates: FLocalizations.localizationsDelegates,
       builder: (context, child) {
-        final brightness = Theme.of(context).brightness;
-        final foruiTheme = buildFrankForuiTheme(brightness);
         return FTheme(
-          data: foruiTheme,
-          child: FTooltipGroup(child: child ?? const SizedBox.shrink()),
+          data: buildFrankTheme(),
+          platform: FPlatformVariant.macOS,
+          child: withToaster
+              ? FToaster(
+                  child: FTooltipGroup(
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                )
+              : FTooltipGroup(child: child ?? const SizedBox.shrink()),
         );
       },
       home: Builder(

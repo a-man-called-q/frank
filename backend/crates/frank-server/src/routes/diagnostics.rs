@@ -233,18 +233,14 @@ pub(crate) async fn capability_document(state: &ServerState) -> Capabilities {
     let mut features = vec![LOCAL_AUTH_FEATURE.into()];
     if configured {
         features.extend([
+            "projects".into(),
             "missions".into(),
             "kanban".into(),
             "team-roles".into(),
-            "team-crud-v1".into(),
-            "organization-v1".into(),
-            // Organization v2 keeps Role nodes and routes work through
-            // durable shared Taskboards. The feature is additive: clients
-            // that only understand the legacy Staff graph can continue to
-            // use `organization-v1`.
-            "organization-workflows-v2".into(),
-            "taskboard-routing-v1".into(),
-            "connector-registry-v1".into(),
+            "team".into(),
+            "organization".into(),
+            "taskboard-routing".into(),
+            "connector-registry".into(),
             "task-claims".into(),
             "task-feed".into(),
             "task-artifacts".into(),

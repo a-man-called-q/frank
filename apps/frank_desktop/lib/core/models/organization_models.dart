@@ -1,14 +1,19 @@
 import 'team_models.dart';
 import 'workspace_models.dart';
 
+enum OrganizationViewMode { canvas, outline }
+
 enum OrganizationNodeKind {
   staff,
   capability,
   approval,
+
   /// Executable v2 worker node. It targets a Team role, never a person.
   role,
+
   /// Durable shared hand-off surface used by the taskboard broker.
   taskboard,
+
   /// One-level workflow composition/navigation node.
   childWorkflow,
 }
@@ -29,8 +34,7 @@ extension OrganizationNodeKindWire on OrganizationNodeKind {
     'approval' => OrganizationNodeKind.approval,
     'role' => OrganizationNodeKind.role,
     'taskboard' => OrganizationNodeKind.taskboard,
-    'child_workflow' || 'childWorkflow' =>
-      OrganizationNodeKind.childWorkflow,
+    'child_workflow' || 'childWorkflow' => OrganizationNodeKind.childWorkflow,
     // Legacy snapshots should never fail the whole Organization surface when
     // a future node kind is introduced. Keep the node visible as a neutral
     // role-like card until the client learns that kind.
@@ -41,11 +45,27 @@ extension OrganizationNodeKindWire on OrganizationNodeKind {
 enum OrganizationCapabilityKind {
   email,
   calendar,
-  taskboard,
   drive,
   browser,
   terminal,
   database,
+}
+
+extension OrganizationCapabilityKindJson on OrganizationCapabilityKind {
+  String get wireName => name;
+
+  static OrganizationCapabilityKind? fromWire(Object? value) => switch (value) {
+    'email' => OrganizationCapabilityKind.email,
+    'calendar' => OrganizationCapabilityKind.calendar,
+    'drive' => OrganizationCapabilityKind.drive,
+    'browser' => OrganizationCapabilityKind.browser,
+    'terminal' => OrganizationCapabilityKind.terminal,
+    'database' => OrganizationCapabilityKind.database,
+    // The legacy taskboard capability is intentionally not represented in
+    // the production capability union.
+    'taskboard' => null,
+    _ => null,
+  };
 }
 
 enum OrganizationRelationKind {
@@ -91,7 +111,7 @@ enum OrganizationIssueSeverity { error, warning }
 
 enum ConnectorKind {
   googleWorkspace,
-  taskboard,
+  unknown,
   browser,
   terminal,
   postgres,
@@ -103,7 +123,7 @@ enum ConnectorHealth { unknown, healthy, degraded, unhealthy }
 extension ConnectorKindJson on ConnectorKind {
   String get wireName => switch (this) {
     ConnectorKind.googleWorkspace => 'google_workspace',
-    ConnectorKind.taskboard => 'taskboard',
+    ConnectorKind.unknown => 'unknown',
     ConnectorKind.browser => 'browser',
     ConnectorKind.terminal => 'terminal',
     ConnectorKind.postgres => 'postgres',
@@ -112,12 +132,12 @@ extension ConnectorKindJson on ConnectorKind {
 
   static ConnectorKind fromWire(Object? value) => switch (value) {
     'google_workspace' || 'googleWorkspace' => ConnectorKind.googleWorkspace,
-    'taskboard' => ConnectorKind.taskboard,
+    'unknown' => ConnectorKind.unknown,
     'browser' => ConnectorKind.browser,
     'terminal' => ConnectorKind.terminal,
     'postgres' => ConnectorKind.postgres,
     'sqlite' => ConnectorKind.sqlite,
-    _ => ConnectorKind.taskboard,
+    _ => ConnectorKind.unknown,
   };
 }
 
@@ -158,17 +178,20 @@ class ConnectorProfile {
   final DateTime? checkedAt;
   final bool archived;
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'name': name,
-    'kind': kind.wireName,
-    'config': config,
-    'health': health.wireName,
-    'configured': configured,
-    'diagnostic': diagnostic,
-    'checked_at': checkedAt?.toIso8601String(),
-    'archived': archived,
-  };
+  Map<String, Object?> toJson() {
+    final json = <String, Object?>{
+      'id': id,
+      'name': name,
+      'kind': kind.wireName,
+      'config': config,
+      'health': health.wireName,
+      'configured': configured,
+      'diagnostic': diagnostic,
+      'checked_at': checkedAt?.toIso8601String(),
+      'archived': archived,
+    };
+    return json;
+  }
 
   factory ConnectorProfile.fromJson(Map<String, Object?> json) =>
       ConnectorProfile(
@@ -330,14 +353,17 @@ class OrganizationGroup {
   @override
   int get hashCode => Object.hash(id, label, position, size, tone, locked);
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'label': label,
-    'position': position.toJson(),
-    'size': size.toJson(),
-    'tone': tone.name,
-    'locked': locked,
-  };
+  Map<String, Object?> toJson() {
+    final json = <String, Object?>{
+      'id': id,
+      'label': label,
+      'position': position.toJson(),
+      'size': size.toJson(),
+      'tone': tone.name,
+      'locked': locked,
+    };
+    return json;
+  }
 
   factory OrganizationGroup.fromJson(Map<String, Object?> json) {
     final id = json['id'] as String? ?? '';
@@ -546,37 +572,47 @@ class OrganizationNode {
     return identical(groupId, _unset) ? _legacyGroup : null;
   }
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'kind': kind.wireName,
-    'label': label,
-    'position': position.toJson(),
-    'groupId': groupId,
-    'group_id': groupId,
-    'employeeId': employeeId,
-    'agent_id': employeeId,
-    'connectorProfileId': connectorProfileId,
-    'connector_profile_id': connectorProfileId,
-    'capability': capability?.name,
-    'connectorProfileLabel': connectorProfileLabel,
-    'connector_profile_label': connectorProfileLabel,
-    'integrationRef': integrationRef,
-    'profileRef': profileRef,
-    'configured': configured,
-    'approvalRequired': approvalRequired,
-    'roleId': roleId,
-    'role_id': roleId,
-    'taskboardId': taskboardId,
-    'taskboard_id': taskboardId,
-    'childWorkflowId': childWorkflowId,
-    'child_workflow_id': childWorkflowId,
-    'inputPort': inputPort,
-    'input_port': inputPort,
-    'outputPort': outputPort,
-    'output_port': outputPort,
-    'reworkLimit': reworkLimit,
-    'rework_limit': reworkLimit,
-  };
+  Map<String, Object?> toJson() {
+    final json = <String, Object?>{
+      'id': id,
+      'kind': kind.wireName,
+      'label': label,
+      'position': position.toJson(),
+      if (groupId != null) 'group_id': groupId,
+    };
+    switch (kind) {
+      case OrganizationNodeKind.staff:
+        if (employeeId != null) json['agent_id'] = employeeId;
+      case OrganizationNodeKind.capability:
+        if (capability != null) json['capability'] = capability!.wireName;
+        if (connectorProfileId != null) {
+          json['connector_profile_id'] = connectorProfileId;
+        }
+        if (connectorProfileLabel != null) {
+          json['connector_profile_label'] = connectorProfileLabel;
+        }
+        if (integrationRef != null) json['integration_ref'] = integrationRef;
+        if (profileRef != null) json['profile_ref'] = profileRef;
+        json['configured'] = configured;
+        json['approval_required'] = approvalRequired;
+      case OrganizationNodeKind.role:
+        if (roleId != null) json['role_id'] = roleId;
+      case OrganizationNodeKind.taskboard:
+        if (taskboardId != null) json['taskboard_id'] = taskboardId;
+      case OrganizationNodeKind.childWorkflow:
+        if (childWorkflowId != null) {
+          json['child_workflow_id'] = childWorkflowId;
+        }
+        if (inputPort != null) json['input_port'] = inputPort;
+        if (outputPort != null) json['output_port'] = outputPort;
+        if (reworkLimit != null) json['rework_limit'] = reworkLimit;
+      case OrganizationNodeKind.approval:
+        // Approval nodes are read-only legacy data. New graphs use taskboard
+        // state/feed events instead of authoring this node kind.
+        json['approval_required'] = approvalRequired;
+    }
+    return json;
+  }
 
   factory OrganizationNode.fromJson(Map<String, Object?> json) {
     final rawGroupId = json.containsKey('groupId')
@@ -584,9 +620,12 @@ class OrganizationNode {
         : json.containsKey('group')
         ? json['group'] as String?
         : json['group_id'] as String?;
+    final kind = OrganizationNodeKindWire.fromWire(json['kind']);
+    final isCapability = kind == OrganizationNodeKind.capability;
+    final isTaskboard = kind == OrganizationNodeKind.taskboard;
     return OrganizationNode(
       id: json['id']! as String,
-      kind: OrganizationNodeKindWire.fromWire(json['kind']),
+      kind: kind,
       label: json['label']! as String,
       position: OrganizationPoint.fromJson(
         json['position'] is Map
@@ -594,35 +633,58 @@ class OrganizationNode {
             : const <String, Object?>{},
       ),
       groupId: rawGroupId,
-      employeeId: json['employeeId'] as String? ?? json['agent_id'] as String?,
-      connectorProfileId:
-          json['connectorProfileId'] as String? ??
-          json['connector_profile_id'] as String?,
-      capability: json['capability'] == null
-          ? null
-          : OrganizationCapabilityKind.values.byName(
-              json['capability']! as String,
-            ),
-      connectorProfileLabel:
-          json['connectorProfileLabel'] as String? ??
-          json['connector_profile_label'] as String? ??
-          json['providerLabel'] as String?,
-      integrationRef: json['integrationRef'] as String?,
-      profileRef: json['profileRef'] as String?,
-      configured: json['configured'] as bool? ?? false,
-      approvalRequired: json['approvalRequired'] as bool? ?? false,
-      roleId: json['roleId'] as String? ?? json['role_id'] as String?,
-      taskboardId:
-          json['taskboardId'] as String? ?? json['taskboard_id'] as String?,
-      childWorkflowId:
-          json['childWorkflowId'] as String? ??
-          json['child_workflow_id'] as String?,
-      inputPort: json['inputPort'] as String? ?? json['input_port'] as String?,
-      outputPort:
-          json['outputPort'] as String? ?? json['output_port'] as String?,
-      reworkLimit:
-          (json['reworkLimit'] as num?)?.toInt() ??
-          (json['rework_limit'] as num?)?.toInt(),
+      employeeId: kind == OrganizationNodeKind.staff
+          ? json['employeeId'] as String? ?? json['agent_id'] as String?
+          : null,
+      connectorProfileId: isCapability
+          ? json['connectorProfileId'] as String? ??
+                json['connector_profile_id'] as String?
+          : null,
+      capability: isCapability
+          ? OrganizationCapabilityKindJson.fromWire(json['capability'])
+          : null,
+      connectorProfileLabel: isCapability
+          ? json['connectorProfileLabel'] as String? ??
+                json['connector_profile_label'] as String? ??
+                json['providerLabel'] as String?
+          : null,
+      integrationRef: isCapability
+          ? json['integrationRef'] as String? ??
+                json['integration_ref'] as String?
+          : null,
+      profileRef: isCapability
+          ? json['profileRef'] as String? ?? json['profile_ref'] as String?
+          : null,
+      configured: isCapability
+          ? json['configured'] as bool? ??
+                json['is_configured'] as bool? ??
+                false
+          : false,
+      approvalRequired: isCapability
+          ? json['approvalRequired'] as bool? ??
+                json['approval_required'] as bool? ??
+                false
+          : false,
+      roleId: kind == OrganizationNodeKind.role
+          ? json['roleId'] as String? ?? json['role_id'] as String?
+          : null,
+      taskboardId: isTaskboard
+          ? json['taskboardId'] as String? ?? json['taskboard_id'] as String?
+          : null,
+      childWorkflowId: kind == OrganizationNodeKind.childWorkflow
+          ? json['childWorkflowId'] as String? ??
+                json['child_workflow_id'] as String?
+          : null,
+      inputPort: kind == OrganizationNodeKind.childWorkflow
+          ? json['inputPort'] as String? ?? json['input_port'] as String?
+          : null,
+      outputPort: kind == OrganizationNodeKind.childWorkflow
+          ? json['outputPort'] as String? ?? json['output_port'] as String?
+          : null,
+      reworkLimit: kind == OrganizationNodeKind.childWorkflow
+          ? (json['reworkLimit'] as num?)?.toInt() ??
+                (json['rework_limit'] as num?)?.toInt()
+          : null,
     );
   }
 }
@@ -792,17 +854,27 @@ class OrganizationGraph {
   factory OrganizationGraph.fromJson(Map<String, Object?> json) {
     final rawGroups = json['groups'];
     final groups = rawGroups is List
-        ? _normalizeGroups(
-            rawGroups
-                .whereType<Map>()
-                .map(
-                  (group) => OrganizationGroup.fromJson(
-                    Map<String, Object?>.from(group),
-                  ),
-                )
-                .toList(),
-          )
-        : OrganizationGroup.builtIns;
+        ? rawGroups
+              .whereType<Map>()
+              .map(
+                (group) => OrganizationGroup.fromJson(
+                  Map<String, Object?>.from(group),
+                ),
+              )
+              .where((group) => group.id.trim().isNotEmpty)
+              .toList(growable: false)
+        : const <OrganizationGroup>[];
+    final parsedNodes = (json['nodes'] as List? ?? const [])
+        .whereType<Map>()
+        .map(
+          (node) => OrganizationNode.fromJson(Map<String, Object?>.from(node)),
+        )
+        // Human approval is a taskboard state/feed now, not an authorable
+        // Organization node. Ignore retired nodes from stale remote payloads
+        // so the editor cannot resurrect the removed approval surface.
+        .where((node) => node.kind != OrganizationNodeKind.approval)
+        .toList(growable: false);
+    final nodeIds = parsedNodes.map((node) => node.id).toSet();
     return OrganizationGraph(
       id: json['id']! as String,
       draftRevision:
@@ -813,19 +885,18 @@ class OrganizationGraph {
           (json['publishedRevision'] as num?)?.toInt() ??
           (json['published_revision'] as num?)?.toInt() ??
           0,
-      nodes: (json['nodes'] as List? ?? const [])
-          .whereType<Map>()
-          .map(
-            (node) =>
-                OrganizationNode.fromJson(Map<String, Object?>.from(node)),
-          )
-          .toList(),
+      nodes: parsedNodes,
       relations: (json['relations'] as List? ?? const [])
           .whereType<Map>()
           .map(
             (relation) => OrganizationRelation.fromJson(
               Map<String, Object?>.from(relation),
             ),
+          )
+          .where(
+            (relation) =>
+                nodeIds.contains(relation.sourceNodeId) &&
+                nodeIds.contains(relation.targetNodeId),
           )
           .toList(),
       groups: groups,
@@ -835,26 +906,6 @@ class OrganizationGraph {
             )
           : const OrganizationViewport(),
     );
-  }
-
-  static List<OrganizationGroup> _normalizeGroups(
-    List<OrganizationGroup>? source,
-  ) {
-    final result = <OrganizationGroup>[...OrganizationGroup.builtIns];
-    final seen = result.map((group) => group.id).toSet();
-    for (final group in source ?? const <OrganizationGroup>[]) {
-      final id = group.id.trim();
-      if (id.isEmpty || seen.contains(id)) continue;
-      result.add(
-        group.copyWith(
-          id: id,
-          label: group.label.trim().isEmpty ? id : group.label.trim(),
-          locked: false,
-        ),
-      );
-      seen.add(id);
-    }
-    return result;
   }
 }
 

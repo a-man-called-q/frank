@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 
 abstract final class FrankTypography {
@@ -40,120 +40,40 @@ abstract final class FrankUiTokens {
   static const motionSlow = Duration(milliseconds: 180);
 }
 
-ThemeData buildFrankTheme(Brightness brightness) {
-  final dark = brightness == Brightness.dark;
-  final scheme =
-      ColorScheme.fromSeed(
-        // The brand hue is deliberately deep; the lighter companion is reserved
-        // for focus, selection, and the occasional primary action.
-        seedColor: FrankColors.aubergine,
-        brightness: brightness,
-        surface: dark ? const Color(0xFF101113) : const Color(0xFFF7F7F4),
-      ).copyWith(
-        // Filled actions use the dark brand surface. The lighter companion is
-        // intentionally limited to focus/selection accents in individual
-        // components so purple never becomes the page's dominant color.
-        primary: FrankColors.aubergine,
-        onPrimary: Colors.white,
-        primaryContainer: FrankColors.aubergineSoft,
-        onPrimaryContainer: FrankColors.ink,
-        secondary: FrankColors.aubergineAccent,
-        onSecondary: Colors.white,
-      );
-  final immediateButtonStyle = ButtonStyle(
-    overlayColor: WidgetStateProperty.resolveWith((states) {
-      if (states.contains(WidgetState.pressed)) return Colors.transparent;
-      if (states.contains(WidgetState.focused)) {
-        return Colors.transparent;
-      }
-      if (states.contains(WidgetState.hovered)) {
-        return scheme.onSurface.withValues(alpha: 0.08);
-      }
-      return Colors.transparent;
-    }),
-    splashFactory: NoSplash.splashFactory,
-    animationDuration: Duration.zero,
-  );
-
-  return ThemeData(
-    brightness: brightness,
-    colorScheme: scheme,
-    useMaterial3: true,
-    // Frank is a desktop-first surface. Pointer clicks should feel immediate,
-    // without Material's expanding splash or pressed-state wash.
-    splashFactory: NoSplash.splashFactory,
-    splashColor: Colors.transparent,
-    highlightColor: Colors.transparent,
-    focusColor: Colors.transparent,
-    iconButtonTheme: IconButtonThemeData(style: immediateButtonStyle),
-    textButtonTheme: TextButtonThemeData(style: immediateButtonStyle),
-    filledButtonTheme: FilledButtonThemeData(style: immediateButtonStyle),
-    elevatedButtonTheme: ElevatedButtonThemeData(style: immediateButtonStyle),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: immediateButtonStyle),
-    menuButtonTheme: MenuButtonThemeData(style: immediateButtonStyle),
-    inputDecorationTheme: const InputDecorationTheme(
-      focusedBorder: UnderlineInputBorder(
-        borderSide: BorderSide(color: FrankColors.border),
-      ),
-    ),
-    fontFamily: FrankTypography.uiFontFamily,
-    fontFamilyFallback: FrankTypography.uiFontFallback,
-    tooltipTheme: TooltipThemeData(
-      decoration: BoxDecoration(
-        color: FrankColors.tooltipPanel,
-        borderRadius: BorderRadius.circular(9),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x66000000),
-            blurRadius: 18,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      textStyle: const TextStyle(
-        color: FrankColors.ink,
-        fontSize: 12,
-        height: 16 / 12,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      constraints: const BoxConstraints(maxWidth: 340),
-      // Keep the overlay clear of the trigger and prefer the free space above
-      // controls so it covers less of the sidebar content.
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      verticalOffset: 8,
-      preferBelow: false,
-      waitDuration: const Duration(milliseconds: 350),
-      exitDuration: const Duration(milliseconds: 100),
-    ),
-    scaffoldBackgroundColor: dark
-        ? const Color(0xFF101113)
-        : const Color(0xFFF7F7F4),
-    dividerColor: dark ? FrankColors.border : const Color(0xFFE0E0DA),
-    cardTheme: CardThemeData(
-          color: dark ? FrankColors.panel : Colors.white,
-      elevation: 0,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
-        side: BorderSide(
-          color: dark ? FrankColors.border : const Color(0xFFE0E0DA),
-        ),
-      ),
-    ),
-  );
-}
-
-/// The Forui surface configuration used by Frank's desktop shell.
+/// The single dark desktop surface configuration used by Frank.
 ///
-/// Keep this alongside the Material theme so the two tooltip implementations
-/// share the same timing and contrast. Sidebar translucency is supplied by the
-/// macOS window effect at the shell boundary; this global style is the solid
-/// fallback used by tests and non-macOS platforms.
-FThemeData buildFrankForuiTheme(Brightness brightness) {
-  final base = brightness == Brightness.dark
-      ? FTheme.neutral.dark.desktop
-      : FTheme.neutral.light.desktop;
-  return base.copyWith(
+/// Sidebar translucency is supplied by the macOS window effect at the shell
+/// boundary; this global style is the solid fallback used by tests and
+/// non-macOS platforms.
+FThemeData buildFrankTheme() {
+  final base = FTheme.neutral.dark.desktop;
+  final colors = base.colors.copyWith(
+    background: FrankColors.canvas,
+    foreground: FrankColors.ink,
+    primary: FrankColors.primaryAction,
+    primaryForeground: FrankColors.canvas,
+    secondary: FrankColors.panelRaised,
+    secondaryForeground: FrankColors.ink,
+    muted: FrankColors.panel,
+    mutedForeground: FrankColors.muted,
+    destructive: FrankColors.failure,
+    destructiveForeground: FrankColors.canvas,
+    error: FrankColors.failure,
+    errorForeground: FrankColors.canvas,
+    card: FrankColors.panel,
+    border: FrankColors.border,
+  );
+  final theme = FThemeData(
+    colors: colors,
+    touch: false,
+    debugLabel: 'Frank Dark Desktop',
+    breakpoints: base.breakpoints,
+    typography: base.typography,
+    icons: base.icons,
+    style: base.style,
+    hapticFeedback: base.hapticFeedback,
+  );
+  return theme.copyWith(
     sidebarStyle: FSidebarStyleDelta.delta(
       decoration: DecorationDelta.value(
         BoxDecoration(
@@ -213,10 +133,17 @@ abstract final class FrankColors {
   static const aubergineSelection = Color(0xFF6B3A58);
   static const accent = Color(0xFFC394B4);
   static const greenSoft = Color(0xFF1E2A20);
+  // Semantic action/text/boundary tokens. Keep these names stable so feature
+  // surfaces do not encode the current hue directly and so contrast checks
+  // can audit one palette in isolation.
   static const primaryAction = Color(0xFFA8C97E);
+  static const secondaryAction = panelRaised;
   static const textPrimary = Color(0xFFF2F1EB);
   static const textMuted = Color(0xFFA4A8A3);
+  static const secondaryTextOpaque = textMuted;
   static const panelBorder = Color(0xFF303338);
+  static const strongBorder = Color(0xFF4A4E55);
+  static const focusRing = accent;
   static const warningAmber = Color(0xFFE2A84B);
   static const warningAmberSoft = Color(0xFF3A2E1C);
   static const ink = textPrimary;

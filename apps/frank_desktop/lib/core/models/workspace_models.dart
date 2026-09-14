@@ -10,14 +10,7 @@ enum WorkspaceView { office, settings }
 /// segmented control chooses the broad workspace destination, while this
 /// value chooses the current Settings area without introducing a conversation
 /// context.
-enum SettingsSection {
-  models,
-  organization,
-  team,
-  ledger,
-  taskboard,
-  journal,
-}
+enum SettingsSection { models, organization, team, ledger, taskboard, journal }
 
 extension SettingsSectionMetadata on SettingsSection {
   String get label => switch (this) {

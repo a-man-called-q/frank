@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 
@@ -31,7 +31,18 @@ void main() {
       expect(tester.takeException(), isNull, reason: section);
 
       if (section == 'team') {
-        await tester.tap(find.byKey(const ValueKey('team-agent-card-ae-maya')));
+        final member = find.byKey(
+          const ValueKey('team-agent-row-ae-maya'),
+        );
+        await tester.scrollUntilVisible(
+          member,
+          120,
+          scrollable: find.descendant(
+            of: find.byKey(const ValueKey('team-roster-scroll')),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.tapAt(tester.getTopLeft(member) + const Offset(20, 20));
         await tester.pump(const Duration(milliseconds: 220));
         expect(tester.takeException(), isNull, reason: 'team profile');
         await tester.tap(find.byKey(const ValueKey('team-profile-back')));

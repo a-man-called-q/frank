@@ -1,6 +1,8 @@
 import 'dart:collection';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+
+import '../../app/icons.dart';
 
 /// The presentation status shown by the Team roster.
 ///
@@ -29,12 +31,12 @@ extension TeamAgentStatusMetadata on TeamAgentStatus {
   };
 
   IconData get icon => switch (this) {
-    TeamAgentStatus.available => Icons.check_circle_outline,
-    TeamAgentStatus.working => Icons.bolt_outlined,
-    TeamAgentStatus.idle => Icons.pause_circle_outline,
-    TeamAgentStatus.reviewing => Icons.rate_review_outlined,
-    TeamAgentStatus.blocked => Icons.error_outline,
-    TeamAgentStatus.offline => Icons.cloud_off_outlined,
+    TeamAgentStatus.available => FrankIcons.checkCircleOutline,
+    TeamAgentStatus.working => FrankIcons.boltOutlined,
+    TeamAgentStatus.idle => FrankIcons.pauseCircleOutline,
+    TeamAgentStatus.reviewing => FrankIcons.rateReviewOutlined,
+    TeamAgentStatus.blocked => FrankIcons.errorOutline,
+    TeamAgentStatus.offline => FrankIcons.cloudOffOutlined,
   };
 }
 
@@ -72,6 +74,8 @@ class TeamAgentProfile {
     required this.traits,
     required this.capabilities,
     required this.activity,
+    this.avatarPalette,
+    this.avatarSeed,
   });
 
   final String employeeId;
@@ -108,6 +112,8 @@ class TeamAgentProfile {
   final List<String> traits;
   final List<TeamCapability> capabilities;
   final List<TeamActivityEvent> activity;
+  final String? avatarPalette;
+  final int? avatarSeed;
 
   TeamAgentProfile copyWith({
     String? model,
@@ -151,6 +157,8 @@ class TeamAgentProfile {
       traits: traits,
       capabilities: capabilities,
       activity: activity,
+      avatarPalette: avatarPalette,
+      avatarSeed: avatarSeed,
     );
   }
 
@@ -179,7 +187,7 @@ class TeamRoleSummary {
     this.instructions = '',
     this.policy = const <String, Object?>{},
     this.budget = const <String, Object?>{},
-    this.avatarPalette = 'frank',
+    this.avatarPalette = 'default',
     this.avatarSeed = 1,
     this.revision = 0,
     this.archived = false,
@@ -442,7 +450,7 @@ class TeamRoleDraft {
       'measured_tokens': null,
       'cost_micros': null,
     },
-    this.avatarPalette = 'frank',
+    this.avatarPalette = 'default',
     this.avatarSeed = 1,
   });
 
@@ -488,24 +496,7 @@ class TeamAgentDraft {
   Map<String, Object?> toJson() => {
     'role_id': roleId,
     'display_name': displayName,
-    'template': 'generalist',
-    'model': null,
-    'model_override': modelOverride,
-    'pack_id': null,
-    'pack_level': null,
-    'instructions': '',
-    'policy': const <String, Object?>{
-      'filesystem': 'workspace-write',
-      'shell': 'ask',
-      'network': 'ask',
-      'approval': 'ask',
-    },
-    'budget': const <String, Object?>{
-      'time_seconds': null,
-      'turns': null,
-      'measured_tokens': null,
-      'cost_micros': null,
-    },
-    'avatar': const <String, Object?>{'palette': 'frank', 'seed': 1},
+    if (modelOverride != null && modelOverride!.trim().isNotEmpty)
+      'model_override': modelOverride,
   };
 }

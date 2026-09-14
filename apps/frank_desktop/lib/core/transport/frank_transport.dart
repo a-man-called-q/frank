@@ -7,6 +7,7 @@ import 'package:http/io_client.dart';
 
 import '../auth/auth_models.dart';
 import '../auth/auth_session_state.dart';
+import '../models/connection_models.dart';
 
 /// Stable API-version helpers shared by auth and feature transports.
 abstract final class FrankApiVersion {
@@ -92,8 +93,38 @@ class FrankTransport {
   final http.Client _client;
   final bool _ownsClient;
   bool _disposed = false;
+  FrankConnectionStatus _connectionStatus = const FrankConnectionStatus.initial();
+  final StreamController<FrankConnectionStatus> _connectionStatusChanges =
+      StreamController<FrankConnectionStatus>.broadcast(sync: true);
 
   static const _requestTimeout = Duration(seconds: 15);
+
+  FrankConnectionStatus get connectionStatus => _connectionStatus;
+
+  Stream<FrankConnectionStatus> get connectionStatusStream =>
+      _connectionStatusChanges.stream;
+
+  /// Updates the transport's observable lifecycle without creating another
+  /// socket. The gateway uses this after capabilities negotiation, while the
+  /// event stream uses it for reconnect/backoff transitions.
+  void setConnectionStatus(FrankConnectionStatus status) {
+    if (_disposed || status == _connectionStatus) return;
+    _connectionStatus = status;
+    if (!_connectionStatusChanges.isClosed) {
+      _connectionStatusChanges.add(status);
+    }
+  }
+
+  void markChecking() => setConnectionStatus(
+    _connectionStatus.copyWith(
+      phase: FrankConnectionPhase.checking,
+      detail: FrankConnectionPhase.checking.detail,
+    ),
+  );
+
+  void markCapabilities(FrankServerCapabilities capabilities) {
+    setConnectionStatus(capabilities.statusFor(FrankApiVersion.current));
+  }
 
   Future<Map<String, dynamic>> authorizedJson(
     String method,
@@ -138,27 +169,73 @@ class FrankTransport {
           ? <String, dynamic>{}
           : Map<String, dynamic>.from(jsonDecode(response.body) as Map);
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        final previous = _connectionStatus;
+        setConnectionStatus(
+          previous.copyWith(
+            phase: FrankConnectionPhase.connected,
+            detail: null,
+            lastConnectedAt: DateTime.now().toUtc(),
+          ),
+        );
         return decoded;
       }
-      throw _failureForResponse(response.statusCode, decoded, response.headers);
+      final failure = _failureForResponse(
+        response.statusCode,
+        decoded,
+        response.headers,
+      );
+      if (failure.kind == AuthFailureKind.protocolMismatch ||
+          response.statusCode == 426) {
+        setConnectionStatus(
+          _connectionStatus.copyWith(
+            phase: FrankConnectionPhase.incompatible,
+            detail: failure.message,
+          ),
+        );
+      }
+      throw failure;
     } on AuthFailure {
       rethrow;
     } on HandshakeException catch (error) {
+      setConnectionStatus(
+        _connectionStatus.copyWith(
+          phase: FrankConnectionPhase.offline,
+          detail: _friendlyNetworkError(error),
+        ),
+      );
       throw AuthFailure(
         kind: AuthFailureKind.tls,
         message: _friendlyNetworkError(error),
       );
     } on TlsException catch (error) {
+      setConnectionStatus(
+        _connectionStatus.copyWith(
+          phase: FrankConnectionPhase.offline,
+          detail: _friendlyNetworkError(error),
+        ),
+      );
       throw AuthFailure(
         kind: AuthFailureKind.tls,
         message: _friendlyNetworkError(error),
       );
     } on SocketException catch (error) {
+      setConnectionStatus(
+        _connectionStatus.copyWith(
+          phase: FrankConnectionPhase.offline,
+          detail: _friendlyNetworkError(error),
+        ),
+      );
       throw AuthFailure(
         kind: AuthFailureKind.network,
         message: _friendlyNetworkError(error),
       );
     } on TimeoutException {
+      setConnectionStatus(
+        _connectionStatus.copyWith(
+          phase: FrankConnectionPhase.offline,
+          detail: 'The Frank server did not respond.',
+        ),
+      );
       throw const AuthFailure(
         kind: AuthFailureKind.network,
         message:
@@ -201,6 +278,16 @@ class FrankTransport {
           headers: {'authorization': 'Bearer ${session.accessToken}'},
           customClient: socketClient,
         );
+        // A successful event-stream handshake is itself an online signal. It
+        // must not require a separate status socket or a follow-up request to
+        // make the shell leave reconnecting/offline.
+        setConnectionStatus(
+          _connectionStatus.copyWith(
+            phase: FrankConnectionPhase.connected,
+            detail: null,
+            lastConnectedAt: DateTime.now().toUtc(),
+          ),
+        );
         backoff = const Duration(milliseconds: 250);
         await for (final frame in socket) {
           if (frame is! String) continue;
@@ -233,12 +320,25 @@ class FrankTransport {
         }
       } on Object {
         // A reconnecting feature surface keeps its last projection visible
-        // while the daemon or network is restarting.
+        // while the daemon or network is restarting. Expose the backoff
+        // lifecycle so the shell can explain why mutations are paused.
+        setConnectionStatus(
+          _connectionStatus.copyWith(
+            phase: FrankConnectionPhase.offline,
+            detail: 'The Frank event stream is unavailable.',
+          ),
+        );
       } finally {
         await socket?.close();
         socketClient?.close(force: true);
       }
       if (_disposed || sessionState.activeSession == null) return;
+      setConnectionStatus(
+        _connectionStatus.copyWith(
+          phase: FrankConnectionPhase.reconnecting,
+          detail: FrankConnectionPhase.reconnecting.detail,
+        ),
+      );
       await Future<void>.delayed(backoff);
       backoff = Duration(
         milliseconds: (backoff.inMilliseconds * 2).clamp(250, 5000),
@@ -249,6 +349,7 @@ class FrankTransport {
   void dispose() {
     _disposed = true;
     if (_ownsClient) _client.close();
+    _connectionStatusChanges.close();
   }
 }
 

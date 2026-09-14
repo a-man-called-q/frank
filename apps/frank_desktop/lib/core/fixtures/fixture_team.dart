@@ -1,5 +1,4 @@
-import 'package:flutter/material.dart';
-
+import '../../app/icons.dart';
 import '../models/team_models.dart';
 import '../models/workspace_models.dart';
 
@@ -74,28 +73,28 @@ const _profiles = <TeamAgentProfile>[
     level: 'full',
     traits: ['Warm', 'Decisive', 'Client-minded'],
     capabilities: [
-      TeamCapability(label: 'Email', icon: Icons.mail_outline),
-      TeamCapability(label: 'Calendar', icon: Icons.calendar_today_outlined),
-      TeamCapability(label: 'Taskboard', icon: Icons.view_kanban_outlined),
+      TeamCapability(label: 'Email', icon: FrankIcons.mailOutline),
+      TeamCapability(label: 'Calendar', icon: FrankIcons.calendarTodayOutlined),
+      TeamCapability(label: 'Taskboard', icon: FrankIcons.viewKanbanOutlined),
     ],
     activity: [
       TeamActivityEvent(
         label: 'Brief ready for handoff',
         detail: 'Meridian Finance · Define finance workflow',
         timeLabel: '12 min ago',
-        icon: Icons.assignment_outlined,
+        icon: FrankIcons.assignmentOutlined,
       ),
       TeamActivityEvent(
         label: 'Checked in with client',
         detail: 'Email · Meridian & Co.',
         timeLabel: '34 min ago',
-        icon: Icons.mail_outline,
+        icon: FrankIcons.mailOutline,
       ),
       TeamActivityEvent(
         label: 'Became available',
         detail: 'Ready for the next brief',
         timeLabel: '1 hr ago',
-        icon: Icons.check_circle_outline,
+        icon: FrankIcons.checkCircleOutline,
       ),
     ],
   ),
@@ -118,28 +117,28 @@ const _profiles = <TeamAgentProfile>[
     level: 'full',
     traits: ['Analytical', 'Patient', 'Thorough'],
     capabilities: [
-      TeamCapability(label: 'Browser', icon: Icons.language),
-      TeamCapability(label: 'Drive', icon: Icons.folder_open_outlined),
-      TeamCapability(label: 'Taskboard', icon: Icons.view_kanban_outlined),
+      TeamCapability(label: 'Browser', icon: FrankIcons.language),
+      TeamCapability(label: 'Drive', icon: FrankIcons.folderOpenOutlined),
+      TeamCapability(label: 'Taskboard', icon: FrankIcons.viewKanbanOutlined),
     ],
     activity: [
       TeamActivityEvent(
         label: 'Started mapping intake flow',
         detail: 'Northstar Inventory · Discovery',
         timeLabel: '6 min ago',
-        icon: Icons.bolt_outlined,
+        icon: FrankIcons.boltOutlined,
       ),
       TeamActivityEvent(
         label: 'Added warehouse notes',
         detail: 'Drive · 4 artifacts updated',
         timeLabel: '21 min ago',
-        icon: Icons.note_add_outlined,
+        icon: FrankIcons.noteAddOutlined,
       ),
       TeamActivityEvent(
         label: 'Approval requested',
         detail: 'Waiting for the smallest useful scope',
         timeLabel: '48 min ago',
-        icon: Icons.rate_review_outlined,
+        icon: FrankIcons.rateReviewOutlined,
       ),
     ],
   ),
@@ -162,28 +161,31 @@ const _profiles = <TeamAgentProfile>[
     level: 'full',
     traits: ['Curious', 'Practical', 'Methodical'],
     capabilities: [
-      TeamCapability(label: 'Terminal', icon: Icons.terminal_outlined),
-      TeamCapability(label: 'Database inspect', icon: Icons.storage_outlined),
-      TeamCapability(label: 'Drive', icon: Icons.folder_open_outlined),
+      TeamCapability(label: 'Terminal', icon: FrankIcons.terminalOutlined),
+      TeamCapability(
+        label: 'Database inspect',
+        icon: FrankIcons.storageOutlined,
+      ),
+      TeamCapability(label: 'Drive', icon: FrankIcons.folderOpenOutlined),
     ],
     activity: [
       TeamActivityEvent(
         label: 'Drafted dashboard outline',
         detail: 'Northstar Inventory · Replenishment',
         timeLabel: '26 min ago',
-        icon: Icons.dashboard_outlined,
+        icon: FrankIcons.dashboardOutlined,
       ),
       TeamActivityEvent(
         label: 'Inspected inventory tables',
         detail: 'Database · Read-only session',
         timeLabel: '1 hr ago',
-        icon: Icons.storage_outlined,
+        icon: FrankIcons.storageOutlined,
       ),
       TeamActivityEvent(
         label: 'Paused between assignments',
         detail: 'No action required',
         timeLabel: '2 hrs ago',
-        icon: Icons.pause_circle_outline,
+        icon: FrankIcons.pauseCircleOutline,
       ),
     ],
   ),
@@ -206,28 +208,28 @@ const _profiles = <TeamAgentProfile>[
     level: 'full',
     traits: ['Precise', 'Cautious', 'Fair'],
     capabilities: [
-      TeamCapability(label: 'Taskboard', icon: Icons.view_kanban_outlined),
-      TeamCapability(label: 'Drive', icon: Icons.folder_open_outlined),
-      TeamCapability(label: 'Approval Review', icon: Icons.shield_outlined),
+      TeamCapability(label: 'Taskboard', icon: FrankIcons.viewKanbanOutlined),
+      TeamCapability(label: 'Drive', icon: FrankIcons.folderOpenOutlined),
+      TeamCapability(label: 'Approval Review', icon: FrankIcons.shieldOutlined),
     ],
     activity: [
       TeamActivityEvent(
         label: 'Reviewing approval controls',
         detail: 'Meridian Finance · Controls',
         timeLabel: '9 min ago',
-        icon: Icons.rate_review_outlined,
+        icon: FrankIcons.rateReviewOutlined,
       ),
       TeamActivityEvent(
         label: 'Flagged an evidence gap',
         detail: 'Drive · Needs one supporting artifact',
         timeLabel: '42 min ago',
-        icon: Icons.flag_outlined,
+        icon: FrankIcons.flagOutlined,
       ),
       TeamActivityEvent(
         label: 'Accepted handoff',
         detail: 'From Maya · Meridian Finance',
         timeLabel: '1 hr ago',
-        icon: Icons.call_received_outlined,
+        icon: FrankIcons.callReceivedOutlined,
       ),
     ],
   ),

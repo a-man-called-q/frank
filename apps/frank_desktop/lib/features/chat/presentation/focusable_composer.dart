@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
 
 import 'composer/frank_composer.dart';

@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:forui/forui.dart';
 
-import '../../../app/controls/frank_desktop_menu.dart';
 import '../../../app/icons.dart';
 import '../../../app/layout/office_surface_frame.dart';
 import '../../../app/office_ui.dart';
@@ -19,7 +19,7 @@ part 'taskboard_board.dart';
 part 'taskboard_list.dart';
 part 'taskboard_inspector.dart';
 
-typedef TaskboardProfileLookup = TeamAgentProfile? Function(String employeeId);
+typedef TaskboardAgentLookup = TeamAgentProfile? Function(String employeeId);
 
 String? _taskboardFriendlyError(String? error, {required String fallback}) {
   if (error == null) return null;
@@ -203,7 +203,7 @@ class _TaskboardSurfaceState extends State<TaskboardSurface> {
               },
               child: OfficeInspectorDrawerOverlay(
                 child: OfficeSurfaceFrame.canvas(
-                  backgroundColor: Colors.transparent,
+                  backgroundColor: const Color(0x00000000),
                   header: OfficePageHeader(
                     title: 'Taskboard',
                     description: 'Work in motion, across your office.',
@@ -211,46 +211,43 @@ class _TaskboardSurfaceState extends State<TaskboardSurface> {
                         ? const FrankSampleDataBadge()
                         : null,
                   ),
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: Semantics(
-                      container: true,
-                      label: 'Taskboard',
-                      child: Builder(
-                        builder: (context) => _TaskboardContent(
-                          workspace: widget.workspace,
-                          profileFor: _profileFor,
-                          state: state,
-                          visibleTasks: visibleTasks,
-                          compact:
-                              OfficeLayoutMetricsScope.maybeOf(
-                                context,
-                              )?.isCompact ??
-                              true,
-                          onProjectChanged: (projectId) => context
-                              .read<TaskboardBloc>()
-                              .add(TaskboardProjectFilterChanged(projectId)),
-                          onAttentionChanged: (enabled) => context
-                              .read<TaskboardBloc>()
-                              .add(TaskboardAttentionFilterChanged(enabled)),
-                          onViewChanged: (view) => context
-                              .read<TaskboardBloc>()
-                              .add(TaskboardViewChanged(view)),
-                          onRetry: () => context.read<TaskboardBloc>().add(
-                            const TaskboardRetryRequested(),
-                          ),
-                          onClearFilters: () {
-                            final bloc = context.read<TaskboardBloc>();
-                            bloc.add(const TaskboardProjectFilterChanged(null));
-                            bloc.add(
-                              const TaskboardAttentionFilterChanged(false),
-                            );
-                          },
-                          onSelectTask: (taskId) => context
-                              .read<TaskboardBloc>()
-                              .add(TaskboardTaskSelected(taskId)),
-                          focusNodeFor: _focusNodeFor,
+                  child: Semantics(
+                    container: true,
+                    label: 'Taskboard',
+                    child: Builder(
+                      builder: (context) => _TaskboardContent(
+                        workspace: widget.workspace,
+                        profileFor: _profileFor,
+                        state: state,
+                        visibleTasks: visibleTasks,
+                        compact:
+                            OfficeLayoutMetricsScope.maybeOf(
+                              context,
+                            )?.isCompact ??
+                            true,
+                        onProjectChanged: (projectId) => context
+                            .read<TaskboardBloc>()
+                            .add(TaskboardProjectFilterChanged(projectId)),
+                        onAttentionChanged: (enabled) => context
+                            .read<TaskboardBloc>()
+                            .add(TaskboardAttentionFilterChanged(enabled)),
+                        onViewChanged: (view) => context
+                            .read<TaskboardBloc>()
+                            .add(TaskboardViewChanged(view)),
+                        onRetry: () => context.read<TaskboardBloc>().add(
+                          const TaskboardRetryRequested(),
                         ),
+                        onClearFilters: () {
+                          final bloc = context.read<TaskboardBloc>();
+                          bloc.add(const TaskboardProjectFilterChanged(null));
+                          bloc.add(
+                            const TaskboardAttentionFilterChanged(false),
+                          );
+                        },
+                        onSelectTask: (taskId) => context
+                            .read<TaskboardBloc>()
+                            .add(TaskboardTaskSelected(taskId)),
+                        focusNodeFor: _focusNodeFor,
                       ),
                     ),
                   ),

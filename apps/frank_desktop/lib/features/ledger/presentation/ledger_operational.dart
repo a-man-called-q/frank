@@ -235,15 +235,11 @@ class _LedgerOperationalFilters extends StatelessWidget {
             ),
           ),
           if (data.filter.hasFilters)
-            TextButton(
+            FButton(
               key: const ValueKey('ledger-filter-reset'),
-              onPressed: () => onChanged(const LedgerFilter()),
-              style: TextButton.styleFrom(
-                minimumSize: const Size(0, FrankUiTokens.controlHeight),
-                padding: const EdgeInsets.symmetric(horizontal: 9),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                foregroundColor: FrankColors.muted,
-              ),
+              onPress: () => onChanged(const LedgerFilter()),
+              variant: FButtonVariant.ghost,
+              size: FButtonSizeVariant.sm,
               child: const Text('Reset'),
             ),
         ],
@@ -265,23 +261,14 @@ class _LedgerRangeButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return TextButton(
+    return FButton(
       key: ValueKey('ledger-range-${range.name}'),
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        minimumSize: const Size(0, FrankUiTokens.controlHeight),
-        padding: const EdgeInsets.symmetric(horizontal: 9),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        foregroundColor: selected ? FrankColors.ink : FrankColors.muted,
-        backgroundColor: selected
-            ? FrankColors.aubergineSoft
-            : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        ),
-        textStyle: const TextStyle(fontSize: 11),
+      onPress: onPressed,
+      variant: selected ? FButtonVariant.secondary : FButtonVariant.ghost,
+      size: FButtonSizeVariant.sm,
+      child: Flexible(
+        child: Text(range.label, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      child: Text(range.label),
     );
   }
 }
@@ -302,22 +289,30 @@ class _LedgerFilterMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FrankDesktopSelectField<String>(
-      value: selectedValue,
-      options: [
-        FrankDesktopSelectOption<String>(
+    return FSelect<String>.rich(
+      key: key,
+      control: FSelectControl<String>.lifted(
+        value: selectedValue,
+        onChange: (value) {
+          if (value != null) onSelected(value);
+        },
+      ),
+      format: (value) => value == _LedgerOperationalFilters._all
+          ? allLabel
+          : options[value] ?? value,
+      children: [
+        FSelectItem<String>.item(
           value: _LedgerOperationalFilters._all,
-          label: allLabel,
+          title: Text(allLabel),
         ),
         for (final option in options.entries)
-          FrankDesktopSelectOption<String>(
+          FSelectItem<String>.item(
             value: option.key,
-            label: option.value,
+            title: Text(option.value),
           ),
       ],
-      onChanged: onSelected,
       hint: allLabel,
-      semanticsLabel: allLabel,
+      label: Text(allLabel),
     );
   }
 }
@@ -387,7 +382,7 @@ class _LedgerOperationalMetrics extends StatelessWidget {
     final result = <Widget>[];
     for (var index = 0; index < cards.length; index++) {
       if (index > 0) {
-        result.add(const Divider(height: 1, color: FrankColors.border));
+        result.add(const FDivider());
       }
       result.add(cards[index]);
     }
@@ -593,7 +588,7 @@ class _LedgerOperationalGroups extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: FrankColors.border),
+          const FDivider(),
           if (data.groups.isEmpty)
             const Padding(
               padding: EdgeInsets.all(18),
@@ -605,8 +600,7 @@ class _LedgerOperationalGroups extends StatelessWidget {
           else
             for (var index = 0; index < data.groups.length; index++) ...[
               _LedgerOperationalGroupRow(group: data.groups[index]),
-              if (index < data.groups.length - 1)
-                const Divider(height: 1, color: FrankColors.border),
+              if (index < data.groups.length - 1) const FDivider(),
             ],
         ],
       ),
@@ -690,6 +684,7 @@ class _LedgerOperationalGroupRow extends StatelessWidget {
     );
   }
 }
+
 class _LedgerOperationalExclusions extends StatelessWidget {
   const _LedgerOperationalExclusions({required this.data});
 

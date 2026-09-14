@@ -2,7 +2,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_gpu/gpu.dart' as gpu;
 import 'package:flutter_scene/scene.dart';
 import 'package:vector_math/vector_math.dart' as vm;
@@ -252,6 +253,7 @@ class OfficeSceneInteractionSurface extends StatefulWidget {
 class _OfficeSceneInteractionSurfaceState
     extends State<OfficeSceneInteractionSurface> {
   bool _dragging = false;
+  int _dragButtons = 0;
   double _panZoomLastScale = 1.0;
 
   void _onPointerDown(PointerDownEvent event) {
@@ -259,15 +261,19 @@ class _OfficeSceneInteractionSurfaceState
     final supported =
         event.buttons & (kPrimaryMouseButton | kSecondaryMouseButton);
     if (supported == 0) return;
-    setState(() => _dragging = true);
+    setState(() {
+      _dragging = true;
+      _dragButtons = supported;
+    });
   }
 
   void _onPointerMove(PointerMoveEvent event) {
     if (event.kind != PointerDeviceKind.mouse || !_dragging) return;
     final size = context.size ?? Size.zero;
-    if ((event.buttons & kSecondaryMouseButton) != 0) {
+    final buttons = event.buttons == 0 ? _dragButtons : event.buttons;
+    if ((buttons & kSecondaryMouseButton) != 0) {
       widget.controller.rotateByPixels(event.delta, size);
-    } else if ((event.buttons & kPrimaryMouseButton) != 0) {
+    } else if ((buttons & kPrimaryMouseButton) != 0) {
       widget.controller.panByPixels(event.delta, size);
     }
   }
@@ -305,7 +311,10 @@ class _OfficeSceneInteractionSurfaceState
 
   void _stopDragging(PointerEvent event) {
     if (event.kind != PointerDeviceKind.mouse || !_dragging) return;
-    setState(() => _dragging = false);
+    setState(() {
+      _dragging = false;
+      _dragButtons = 0;
+    });
   }
 
   @override
@@ -407,7 +416,7 @@ class OfficeSceneStage extends StatefulWidget {
     this.activity = OfficeSceneActivity.static,
     this.preset = OfficeScenePreset.office,
     this.blurSigma = 0.0,
-    this.scrimColor = Colors.transparent,
+    this.scrimColor = const Color(0x00000000),
     this.semanticLabel = 'Stylized 3D office floor',
     this.foreground,
     this.controller,
@@ -456,7 +465,7 @@ class OfficeSceneFloor extends StatelessWidget {
     this.activity = OfficeSceneActivity.static,
     this.preset = OfficeScenePreset.office,
     this.blurSigma = 0.0,
-    this.scrimColor = Colors.transparent,
+    this.scrimColor = const Color(0x00000000),
     this.semanticLabel = 'Stylized 3D office floor',
     this.foreground,
     this.controller,
@@ -900,7 +909,16 @@ class _OfficeSceneError extends StatelessWidget {
                   style: TextStyle(color: FrankColors.muted, fontSize: 11),
                 ),
                 const SizedBox(height: 10),
-                FilledButton(onPressed: onRetry, child: const Text('Retry')),
+                SizedBox(
+                  width: double.infinity,
+                  child: FButton(
+                    onPress: onRetry,
+                    size: FButtonSizeVariant.sm,
+                    child: const Flexible(
+                      child: Text('Retry', overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

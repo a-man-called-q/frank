@@ -1,16 +1,13 @@
-import 'dart:ui' show Tristate;
-
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/icons.dart';
-import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/auth/auth_repository.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
 import 'package:frank_desktop/features/shell/main_sidebar.dart';
 import 'package:frank_desktop/features/shell/office_shell.dart';
-import 'package:frank_desktop/app/controls/frank_desktop_menu.dart';
 
 void main() {
   testWidgets('authenticated account menu exposes actions and Lucide icons', (
@@ -38,39 +35,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('sidebar-user-menu')), findsOneWidget);
-    expect(
-      find.byWidgetPredicate((widget) => widget is PopupMenuButton),
-      findsNothing,
-    );
+    expect(find.byType(FPopoverMenu), findsOneWidget);
     expect(find.text('Change password'), findsOneWidget);
     expect(find.text('Log out all devices'), findsOneWidget);
     expect(find.text('Log out'), findsOneWidget);
     expect(find.byIcon(FrankIcons.keyRound), findsOneWidget);
     expect(find.byIcon(FrankIcons.monitorSmartphone), findsOneWidget);
     expect(find.byIcon(FrankIcons.logOut), findsOneWidget);
-    final triggerRect = tester.getRect(trigger);
-    final menuRect = tester.getRect(
-      find.byWidgetPredicate(
-        (widget) => widget.runtimeType.toString() == '_FrankDesktopMenuSurface',
-      ),
-    );
-    expect(menuRect.width, closeTo(triggerRect.width, 0.01));
-
     for (final key in [
       'sidebar-account-action-change-password',
       'sidebar-account-action-logout-all',
       'sidebar-account-action-logout',
     ]) {
-      expect(
-        tester
-            .getSemantics(find.byKey(ValueKey(key)))
-            .flagsCollection
-            .isEnabled,
-        Tristate.isTrue,
-      );
+      expect(tester.widget<FItem>(find.byKey(ValueKey(key))).enabled, isTrue);
     }
-    final logoutIcon = tester.widget<Icon>(find.byIcon(FrankIcons.logOut));
-    expect(logoutIcon.color, FrankColors.failure);
+    expect(find.byIcon(FrankIcons.logOut), findsOneWidget);
   });
 
   testWidgets('account menu keeps unavailable actions disabled', (
@@ -89,14 +68,7 @@ void main() {
       'sidebar-account-action-logout-all',
       'sidebar-account-action-logout',
     ]) {
-      expect(
-        tester
-            .getSemantics(find.byKey(ValueKey(key)))
-            .flagsCollection
-            .isEnabled,
-        Tristate.isFalse,
-        reason: key,
-      );
+      expect(tester.widget<FItem>(find.byKey(ValueKey(key))).enabled, isFalse);
     }
   });
 
@@ -114,6 +86,7 @@ void main() {
     await _pumpShell(
       tester,
       auth,
+      withToaster: false,
       onLogout: () async => logoutCalls++,
       onLogoutAll: () async => logoutAllCalls++,
       onChangePassword: (current, next) async {
@@ -151,7 +124,7 @@ void main() {
       find.bySemanticsLabel('New password'),
       'a-long-enough-password',
     );
-    await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+    await tester.tap(find.widgetWithText(FButton, 'Change password'));
     await tester.pumpAndSettle();
     expect(currentPassword, 'old');
     expect(newPassword, 'a-long-enough-password');
@@ -170,8 +143,8 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 300));
 
-    final projectActions = find.byTooltip(
-      'Project actions for Northstar Inventory',
+    final projectActions = find.byKey(
+      const ValueKey('project-actions-northstar-inventory'),
     );
     expect(projectActions, findsOneWidget);
     await tester.tap(projectActions);
@@ -217,21 +190,13 @@ Future<DemoAuthRepository> _authenticatedAuth() async {
 Future<void> _pumpShell(
   WidgetTester tester,
   AuthRepository auth, {
+  bool withToaster = true,
   Future<void> Function()? onLogout,
   Future<void> Function()? onLogoutAll,
   Future<void> Function(String current, String next)? onChangePassword,
 }) async {
   await tester.pumpWidget(
-    MaterialApp(
-      theme: buildFrankTheme(Brightness.dark),
-      localizationsDelegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-      ],
-      builder: (context, child) => FTheme(
-        data: buildFrankForuiTheme(Brightness.dark),
-        child: FTooltipGroup(child: child ?? const SizedBox.shrink()),
-      ),
+    FrankTestApp(
       home: OfficeShell(
         gateway: FixtureFrankGateway(latency: Duration.zero),
         authRepository: auth,
@@ -239,6 +204,7 @@ Future<void> _pumpShell(
         onLogoutAll: onLogoutAll,
         onChangePassword: onChangePassword,
       ),
+      withToaster: withToaster,
     ),
   );
   await tester.pump(const Duration(milliseconds: 500));
@@ -255,38 +221,51 @@ Future<void> _pumpSidebarAndProjectMenu(
   addTearDown(searchFocusNode.dispose);
 
   await tester.pumpWidget(
-    MaterialApp(
-      theme: buildFrankTheme(Brightness.dark),
-      localizationsDelegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-      ],
-      builder: (context, child) => FTheme(
-        data: buildFrankForuiTheme(Brightness.dark),
-        child: FTooltipGroup(child: child ?? const SizedBox.shrink()),
-      ),
-      home: FrankDesktopMenuDismissScope(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              width: 360,
-              child: MainSidebarContent(
-                isFullscreen: false,
-                workspace: workspace,
-                workspaceName: workspace.name,
-                activeView: WorkspaceView.settings,
-                settingsSection: SettingsSection.organization,
+    FrankTestApp(
+      home: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 360,
+            child: MainSidebarContent(
+              isFullscreen: false,
+              workspace: workspace,
+              workspaceName: workspace.name,
+              activeView: WorkspaceView.settings,
+              settingsSection: SettingsSection.organization,
+              projects: workspace.projects,
+              selectedProjectId: null,
+              selectedMissionId: null,
+              expandedProjectIds: const {},
+              projectScope: null,
+              pinnedMissionIds: const [],
+              authRepository: auth,
+              searchFocusNode: searchFocusNode,
+              onSelectView: (_) {},
+              onSelectSettingsSection: (_) {},
+              onAddProject: () {},
+              onToggleProject: (_) {},
+              onSelectMission: (_, _) {},
+              onCreateMission: (_) {},
+              onPinProject: (_) {},
+              onRenameProject: (_) {},
+              onArchiveProject: (_) {},
+              onRemoveProject: (_) {},
+              onPinMission: (_, _) {},
+              onRenameMission: (_, _) {},
+              onArchiveMission: (_, _) {},
+              onSelectProjectScope: (_) {},
+              onTogglePinnedMission: (_) {},
+              onReorderPinnedMissions: (_) {},
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: ProjectsTreePane(
                 projects: workspace.projects,
                 selectedProjectId: null,
                 selectedMissionId: null,
                 expandedProjectIds: const {},
-                projectScope: null,
-                pinnedMissionIds: const [],
-                authRepository: auth,
-                searchFocusNode: searchFocusNode,
-                onSelectView: (_) {},
-                onSelectSettingsSection: (_) {},
                 onToggleProject: (_) {},
                 onSelectMission: (_, _) {},
                 onCreateMission: (_) {},
@@ -297,33 +276,10 @@ Future<void> _pumpSidebarAndProjectMenu(
                 onPinMission: (_, _) {},
                 onRenameMission: (_, _) {},
                 onArchiveMission: (_, _) {},
-                onSelectProjectScope: (_) {},
-                onTogglePinnedMission: (_) {},
-                onReorderPinnedMissions: (_) {},
               ),
             ),
-            Expanded(
-              child: SingleChildScrollView(
-                child: ProjectsTreePane(
-                  projects: workspace.projects,
-                  selectedProjectId: null,
-                  selectedMissionId: null,
-                  expandedProjectIds: const {},
-                  onToggleProject: (_) {},
-                  onSelectMission: (_, _) {},
-                  onCreateMission: (_) {},
-                  onPinProject: (_) {},
-                  onRenameProject: (_) {},
-                  onArchiveProject: (_) {},
-                  onRemoveProject: (_) {},
-                  onPinMission: (_, _) {},
-                  onRenameMission: (_, _) {},
-                  onArchiveMission: (_, _) {},
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     ),
   );

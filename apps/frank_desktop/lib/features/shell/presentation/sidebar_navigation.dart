@@ -57,8 +57,8 @@ class _SidebarHeader extends StatelessWidget {
                       ),
                     ),
                     if (connectedServer case final server?)
-                      Tooltip(
-                        message: server,
+                      FTooltip(
+                        tipBuilder: (_, _) => Text(server),
                         child: Semantics(
                           container: true,
                           label: 'Server identity',
@@ -67,7 +67,7 @@ class _SidebarHeader extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Icon(
-                                Icons.lock_outline,
+                                FrankIcons.lockOutline,
                                 size: 11,
                                 color: FrankColors.green,
                               ),
@@ -246,66 +246,61 @@ class _ToggleSegmentState extends State<_ToggleSegment> {
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
-        child: Tooltip(
-          message: widget.view == WorkspaceView.office
-              ? 'Open Office to work with projects and missions'
-              : 'Open Settings to configure the workspace',
+        child: FTooltip(
+          tipBuilder: (_, _) => Text(
+            widget.view == WorkspaceView.office
+                ? 'Open Office to work with projects and missions'
+                : 'Open Settings to configure the workspace',
+          ),
           child: Semantics(
             button: true,
             toggled: widget.selected,
             label: '$label view',
             excludeSemantics: true,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _activate,
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                hoverColor: Colors.transparent,
-                borderRadius: BorderRadius.circular(
-                  FrankUiTokens.controlRadius,
-                ),
-                child: AnimatedContainer(
-                  duration: widget.disableAnimations
-                      ? Duration.zero
-                      : FrankUiTokens.motionFast,
-                  margin: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: _hovered && !widget.selected
-                        ? FrankColors.ink.withValues(alpha: 0.04)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(
-                      FrankUiTokens.controlRadius - 1,
-                    ),
+            child: FTappable.static(
+              onPress: _activate,
+              semanticsLabel: '$label view',
+              selected: widget.selected,
+              child: AnimatedContainer(
+                duration: widget.disableAnimations
+                    ? Duration.zero
+                    : FrankUiTokens.motionFast,
+                margin: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: _hovered && !widget.selected
+                      ? FrankColors.ink.withValues(alpha: 0.04)
+                      : null,
+                  borderRadius: BorderRadius.circular(
+                    FrankUiTokens.controlRadius - 1,
                   ),
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            icon,
-                            size: 15,
+                ),
+                child: Center(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          icon,
+                          size: 15,
+                          color: widget.selected
+                              ? FrankColors.ink
+                              : FrankColors.muted,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          label,
+                          style: TextStyle(
                             color: widget.selected
                                 ? FrankColors.ink
                                 : FrankColors.muted,
+                            fontSize: 11.5,
+                            fontWeight: widget.selected
+                                ? FontWeight.w500
+                                : FontWeight.w400,
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            label,
-                            style: TextStyle(
-                              color: widget.selected
-                                  ? FrankColors.ink
-                                  : FrankColors.muted,
-                              fontSize: 11.5,
-                              fontWeight: widget.selected
-                                  ? FontWeight.w500
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

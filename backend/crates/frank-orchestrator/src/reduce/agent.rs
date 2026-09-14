@@ -14,11 +14,7 @@ impl Orchestrator {
     ) -> Result<(Snapshot, Event, CommandResult)> {
         match command {
             Command::CreateAgent(spec) => {
-                let role_id = spec.role_id.ok_or_else(|| {
-                    OrchestratorError::Validation(
-                        "a role is required when creating a new agent".into(),
-                    )
-                })?;
+                let role_id = spec.role_id;
                 let role = Some(
                     snapshot
                         .roles
@@ -28,11 +24,7 @@ impl Orchestrator {
                         .ok_or(OrchestratorError::NotFound)?,
                 );
                 if !valid_agent_text(&spec.display_name, 128)
-                    || spec.instructions.len() > MAX_MESSAGE_BODY_BYTES
-                    || !valid_optional_agent_text(spec.model.as_deref(), 256)
                     || !valid_optional_agent_text(spec.model_override.as_deref(), 256)
-                    || !valid_optional_agent_text(spec.pack_id.as_deref(), 128)
-                    || !valid_optional_agent_text(spec.pack_level.as_deref(), 128)
                 {
                     return Err(OrchestratorError::Validation(
                         "agent identity or instructions are invalid".into(),
@@ -41,8 +33,7 @@ impl Orchestrator {
                 let effective_model = spec
                     .model_override
                     .as_deref()
-                    .or_else(|| role.as_ref().and_then(|role| role.model.as_deref()))
-                    .or(spec.model.as_deref());
+                    .or_else(|| role.as_ref().and_then(|role| role.model.as_deref()));
                 self.validate_openrouter_model(effective_model).await?;
                 if snapshot.agents.iter().any(|agent| {
                     !agent.archived && agent.display_name.eq_ignore_ascii_case(&spec.display_name)
@@ -58,15 +49,17 @@ impl Orchestrator {
                     role_id: Some(role_id),
                     role_revision,
                     display_name: spec.display_name,
-                    template: role.as_ref().map_or(spec.template, |role| role.template),
-                    model: spec.model_override.clone().or_else(|| {
-                        role.as_ref()
-                            .map_or(spec.model.clone(), |role| role.model.clone())
-                    }),
-                    effective_model: spec.model_override.clone().or_else(|| {
-                        role.as_ref()
-                            .map_or(spec.model.clone(), |role| role.model.clone())
-                    }),
+                    template: role
+                        .as_ref()
+                        .map_or(AgentTemplate::Generalist, |role| role.template),
+                    model: spec
+                        .model_override
+                        .clone()
+                        .or_else(|| role.as_ref().and_then(|role| role.model.clone())),
+                    effective_model: spec
+                        .model_override
+                        .clone()
+                        .or_else(|| role.as_ref().and_then(|role| role.model.clone())),
                     model_source: if spec.model_override.is_some() {
                         ModelSource::Agent
                     } else {
@@ -75,24 +68,26 @@ impl Orchestrator {
                     model_override: spec.model_override.clone(),
                     pending_model_override: None,
                     pending_model_change: false,
-                    pack_id: role
-                        .as_ref()
-                        .map_or(spec.pack_id.clone(), |role| role.pack_id.clone()),
-                    pack_level: role
-                        .as_ref()
-                        .map_or(spec.pack_level.clone(), |role| role.pack_level.clone()),
+                    pack_id: role.as_ref().and_then(|role| role.pack_id.clone()),
+                    pack_level: role.as_ref().and_then(|role| role.pack_level.clone()),
                     instructions: role
                         .as_ref()
-                        .map_or(spec.instructions.clone(), |role| role.instructions.clone()),
+                        .map_or_else(String::new, |role| role.instructions.clone()),
                     policy: role
                         .as_ref()
-                        .map_or(spec.policy.clone(), |role| role.policy.clone()),
+                        .map_or_else(AgentPolicy::default, |role| role.policy.clone()),
                     budget: role
                         .as_ref()
-                        .map_or(spec.budget.clone(), |role| role.budget.clone()),
-                    avatar: role
-                        .as_ref()
-                        .map_or(spec.avatar.clone(), |role| role.avatar.clone()),
+                        .map_or_else(Budget::unlimited, |role| role.budget.clone()),
+                    avatar: role.as_ref().map_or_else(
+                        || {
+                            spec.avatar.clone().unwrap_or(AvatarSpec {
+                                palette: "default".into(),
+                                seed: 0,
+                            })
+                        },
+                        |role| spec.avatar.clone().unwrap_or_else(|| role.avatar.clone()),
+                    ),
                     status: AgentStatus::Offline,
                     provider_session_id: None,
                     last_claimed_at: None,
@@ -106,14 +101,8 @@ impl Orchestrator {
                 ))
             }
             Command::UpdateAgent { agent_id, patch } => {
-                let existing_agent = snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| agent.id == agent_id)
-                    .cloned()
-                    .ok_or(OrchestratorError::NotFound)?;
-                if let Some(Some(model)) = patch.model.as_ref() {
-                    self.validate_openrouter_model(Some(model)).await?;
+                if !snapshot.agents.iter().any(|agent| agent.id == agent_id) {
+                    return Err(OrchestratorError::NotFound);
                 }
                 if !patch.clear_model_override
                     && let Some(Some(model)) = patch.model_override.as_ref()
@@ -121,16 +110,6 @@ impl Orchestrator {
                     self.validate_openrouter_model(Some(model)).await?;
                 }
                 let requested_role = patch.role_id;
-                let existing_role_id = existing_agent.role_id;
-                if requested_role.is_none()
-                    && existing_role_id.is_some()
-                    && patch_changes_role_owned_fields(&patch)
-                {
-                    return Err(OrchestratorError::Validation(
-                        "edit the agent's role template instead of overriding role-owned settings"
-                            .into(),
-                    ));
-                }
                 let role = match requested_role {
                     Some(Some(role_id)) => Some(
                         snapshot
@@ -201,11 +180,7 @@ impl Orchestrator {
                     agent.clone()
                 };
                 if !valid_agent_text(&updated.display_name, 128)
-                    || updated.instructions.len() > MAX_MESSAGE_BODY_BYTES
-                    || !valid_optional_agent_text(updated.model.as_deref(), 256)
                     || !valid_optional_agent_text(updated.model_override.as_deref(), 256)
-                    || !valid_optional_agent_text(updated.pack_id.as_deref(), 128)
-                    || !valid_optional_agent_text(updated.pack_level.as_deref(), 128)
                     || snapshot.agents.iter().any(|candidate| {
                         candidate.id != agent_id
                             && !candidate.archived
@@ -284,15 +259,4 @@ impl Orchestrator {
             _ => super::misrouted(),
         }
     }
-}
-
-fn patch_changes_role_owned_fields(patch: &AgentPatch) -> bool {
-    patch.model.is_some()
-        || patch.clear_model_override
-        || patch.pack_id.is_some()
-        || patch.pack_level.is_some()
-        || patch.instructions.is_some()
-        || patch.policy.is_some()
-        || patch.budget.is_some()
-        || patch.avatar.is_some()
 }

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
@@ -54,10 +54,10 @@ void main() {
       tester.getRect(find.byType(MainSidebarContent)).width,
       closeTo(SidebarLayout.minWidth, 0.1),
     );
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
     await partial.up();
     await tester.pump();
-    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show the workspace sidebar'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 150));
     expect(tester.getSize(slot).width, greaterThan(0));
     expect(tester.getSize(slot).width, lessThan(240));
@@ -75,7 +75,7 @@ void main() {
     await gesture.moveBy(Offset.zero);
     await tester.pump();
     // The collapse threshold is evaluated only on pointer release.
-    expect(find.byTooltip('Hide the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Hide the workspace sidebar'), findsOneWidget);
     expect(
       tester.getSize(find.byKey(const ValueKey('sidebar-slot'))).width,
       186,
@@ -83,10 +83,10 @@ void main() {
     await gesture.up();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 320));
-    expect(find.byTooltip('Show the workspace sidebar'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show the workspace sidebar'), findsOneWidget);
     expect(tester.getSize(find.byKey(const ValueKey('sidebar-slot'))).width, 0);
 
-    await tester.tap(find.byTooltip('Show the workspace sidebar'));
+    await tester.tap(find.bySemanticsLabel('Show the workspace sidebar'));
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 150));

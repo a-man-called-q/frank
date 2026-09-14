@@ -8,16 +8,26 @@ class _SetupPanel extends StatefulWidget {
     required this.catalog,
     required this.catalogError,
     required this.catalogLoading,
+    this.providerConfigured,
+    this.providerError,
     required this.onSaveAgentModel,
     required this.onSaveRoleModel,
+    this.onEditRole,
+    this.canMutate = true,
+    this.mutationDisabledReason,
   });
 
   final TeamAgentProfile profile;
   final OpenRouterCatalog? catalog;
   final Object? catalogError;
   final bool catalogLoading;
+  final bool? providerConfigured;
+  final Object? providerError;
   final TeamModelChange? onSaveAgentModel;
   final TeamRoleModelChange? onSaveRoleModel;
+  final VoidCallback? onEditRole;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   State<_SetupPanel> createState() => _SetupPanelState();
@@ -28,7 +38,6 @@ class _SetupPanelState extends State<_SetupPanel> {
   String? _agentModel;
   String? _roleModel;
   bool _savingAgent = false;
-  bool _savingRole = false;
   String? _error;
 
   TeamAgentProfile get profile => widget.profile;
@@ -43,7 +52,7 @@ class _SetupPanelState extends State<_SetupPanel> {
   void didUpdateWidget(covariant _SetupPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.profile.employeeId != widget.profile.employeeId ||
-        (!_savingAgent && !_savingRole)) {
+        !_savingAgent) {
       _syncFromProfile();
     }
   }
@@ -52,7 +61,7 @@ class _SetupPanelState extends State<_SetupPanel> {
     _source = profile.modelOverride == null
         ? _ModelSourceChoice.role
         : _ModelSourceChoice.agent;
-    _agentModel = profile.modelOverride ?? profile.model;
+    _agentModel = profile.modelOverride;
     _roleModel =
         profile.roleDefaultModel ??
         (profile.modelSource == 'role' ? profile.model : null);
@@ -61,37 +70,112 @@ class _SetupPanelState extends State<_SetupPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final editable = widget.onSaveAgentModel != null;
-    final roleEditable =
-        widget.onSaveRoleModel != null && profile.roleId != null;
+    final editable = widget.canMutate && widget.onSaveAgentModel != null;
+    final modelUnavailable =
+        profile.model.trim().isEmpty ||
+        profile.model.trim().toLowerCase() == 'unconfigured';
+    // A stale or unavailable catalog must not erase a valid model already
+    // persisted on the agent/role. Configuration is incomplete only when the
+    // effective worker model is actually empty.
+    final configurationIncomplete = modelUnavailable;
+    final sourceLabel = switch (profile.modelSource.trim().toLowerCase()) {
+      'agent' || 'member' => 'Agent override',
+      'role' => 'Role default',
+      'system' => 'System default',
+      'unavailable' || '' => 'Unavailable',
+      _ => 'Not reported',
+    };
+    final effectiveModel = modelUnavailable ? 'Not reported' : profile.model;
+    final providerLabel = widget.providerError != null
+        ? 'Error'
+        : widget.providerConfigured == false
+        ? 'Not configured'
+        : widget.catalogError != null
+        ? 'Error'
+        : widget.catalogLoading
+        ? 'Checking'
+        : 'Connected';
+    final catalogLabel = widget.catalogError != null
+        ? 'Error'
+        : widget.catalogLoading
+        ? 'Loading'
+        : widget.catalog?.stale == true
+        ? 'Stale'
+        : 'Ready';
+    final promptPack = profile.promptPack.trim().isEmpty
+        ? 'Not reported'
+        : profile.promptPack;
+    final level = profile.level.trim().isEmpty ? 'Not reported' : profile.level;
     return _PanelCard(
       key: const ValueKey('team-profile-setup'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _PanelHeading(
+          _PanelHeading(
             eyebrow: 'RUNTIME SETUP',
-            title: 'Configured for the work at hand.',
-            detail:
-                'OpenRouter is the only runtime. Effective changes are applied at an idle boundary.',
+            title: configurationIncomplete
+                ? 'Configuration incomplete.'
+                : 'Runtime configuration.',
+            detail: configurationIncomplete
+                ? 'The daemon has not reported a complete model/catalog configuration yet.'
+                : 'Effective changes are applied at an idle boundary.',
           ),
           const SizedBox(height: 24),
           _SetupRow(
-            icon: Icons.cloud_outlined,
+            icon: FrankIcons.cloudOutlined,
             label: 'Runtime',
             value: 'OpenRouter',
           ),
           _SetupRow(
-            icon: Icons.memory_outlined,
+            icon: FrankIcons.memoryOutlined,
             label: 'Effective model',
-            value: profile.model.isEmpty ? 'Unconfigured' : profile.model,
+            value: effectiveModel,
           ),
           _SetupRow(
-            icon: Icons.tune_outlined,
+            icon: FrankIcons.tuneOutlined,
             label: 'Model source',
-            value: profile.modelSource == 'agent'
-                ? 'Agent override'
-                : 'Role default',
+            value: sourceLabel,
+          ),
+          _SetupRow(
+            icon: FrankIcons.personOutline,
+            label: 'Agent override',
+            value: profile.modelOverride ?? 'None',
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _SetupRow(
+                  icon: FrankIcons.accountTreeOutlined,
+                  label: 'Role default',
+                  value: profile.roleDefaultModel ?? 'Not set',
+                ),
+              ),
+              if (widget.onEditRole != null)
+                FButton(
+                  key: const ValueKey('team-edit-role-from-setup'),
+                  onPress: widget.canMutate ? widget.onEditRole : null,
+                  semanticsTooltip: widget.canMutate
+                      ? 'Edit role'
+                      : widget.mutationDisabledReason ??
+                            'Reconnect before editing the role',
+                  variant: FButtonVariant.outline,
+                  size: FButtonSizeVariant.sm,
+                  child: const Text('Edit role'),
+                ),
+            ],
+          ),
+          _SetupRow(
+            icon: FrankIcons.cloudOutlined,
+            label: 'Provider',
+            value: providerLabel,
+          ),
+          _SetupRow(
+            icon: FrankIcons.listAltOutlined,
+            label: 'Catalog',
+            value: widget.catalog?.refreshedAt == null
+                ? catalogLabel
+                : '$catalogLabel · ${_formatCatalogDate(widget.catalog!.refreshedAt!)}',
           ),
           if (profile.pendingModelChange) ...[
             const SizedBox(height: 10),
@@ -105,7 +189,7 @@ class _SetupPanelState extends State<_SetupPanel> {
               error: true,
             )
           else if (widget.catalogLoading)
-            const LinearProgressIndicator()
+            const FProgress()
           else if (widget.catalog?.models.isEmpty ?? true)
             const _TeamCatalogState(
               message: 'No tool-capable OpenRouter models are available.',
@@ -124,28 +208,31 @@ class _SetupPanelState extends State<_SetupPanel> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                ChoiceChip(
+                FButton(
                   key: const ValueKey('team-use-role-default'),
-                  label: const Text('Use role default'),
-                  selected: _source == _ModelSourceChoice.role,
-                  onSelected: editable
-                      ? (_) => setState(() => _source = _ModelSourceChoice.role)
+                  child: const Text('Use role default'),
+                  variant: _source == _ModelSourceChoice.role
+                      ? FButtonVariant.secondary
+                      : FButtonVariant.ghost,
+                  onPress: editable
+                      ? () => setState(() => _source = _ModelSourceChoice.role)
                       : null,
                 ),
-                ChoiceChip(
+                FButton(
                   key: const ValueKey('team-use-agent-override'),
-                  label: const Text('Override for this agent'),
-                  selected: _source == _ModelSourceChoice.agent,
-                  onSelected: editable
-                      ? (_) =>
-                            setState(() => _source = _ModelSourceChoice.agent)
+                  child: const Text('Override for this agent'),
+                  variant: _source == _ModelSourceChoice.agent
+                      ? FButtonVariant.secondary
+                      : FButtonVariant.ghost,
+                  onPress: editable
+                      ? () => setState(() => _source = _ModelSourceChoice.agent)
                       : null,
                 ),
               ],
             ),
             const SizedBox(height: 12),
             if (_source == _ModelSourceChoice.agent)
-              _SearchableModelMenu(
+              FrankOpenRouterModelPicker(
                 key: const ValueKey('team-agent-model-picker'),
                 label: 'Agent override model',
                 value: _agentModel,
@@ -155,53 +242,41 @@ class _SetupPanelState extends State<_SetupPanel> {
               )
             else
               _SetupRow(
-                icon: Icons.account_tree_outlined,
+                icon: FrankIcons.accountTreeOutlined,
                 label: 'Role default in use',
-                value: _roleModel ?? 'Unconfigured',
+                value: _roleModel ?? 'Not reported',
+              ),
+            if (_source == _ModelSourceChoice.agent &&
+                _agentModel != null &&
+                !widget.catalog!.models.any(
+                  (model) => model.canonicalSlug == _agentModel,
+                ))
+              const _TeamCatalogState(
+                message: 'Saved agent override is missing from this catalog.',
+              ),
+            if (_source == _ModelSourceChoice.role &&
+                _roleModel != null &&
+                !widget.catalog!.models.any(
+                  (model) => model.canonicalSlug == _roleModel,
+                ))
+              const _TeamCatalogState(
+                message: 'Saved role default is missing from this catalog.',
               ),
             const SizedBox(height: 10),
             if (editable)
-              FilledButton.icon(
+              FButton(
                 key: const ValueKey('team-save-agent-model'),
-                onPressed: _savingAgent ? null : _saveAgentModel,
-                icon: const Icon(Icons.save, size: FrankUiTokens.iconSize),
-                label: Text(
+                onPress: _savingAgent ? null : _saveAgentModel,
+                prefix: const Icon(
+                  FrankIcons.save,
+                  size: FrankUiTokens.iconSize,
+                ),
+                child: Text(
                   _source == _ModelSourceChoice.role
                       ? 'Use role default'
                       : 'Save agent override',
                 ),
               ),
-            if (roleEditable) ...[
-              const SizedBox(height: 20),
-              const Text(
-                'Role default model',
-                style: TextStyle(
-                  color: FrankColors.ink,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Changing this affects every member without an agent override.',
-                style: TextStyle(color: FrankColors.warningAmber, fontSize: 11),
-              ),
-              const SizedBox(height: 10),
-              _SearchableModelMenu(
-                key: const ValueKey('team-role-model-picker'),
-                label: 'Role default canonical model slug',
-                value: _roleModel,
-                models: widget.catalog!.models,
-                enabled: !_savingRole,
-                onChanged: (value) => setState(() => _roleModel = value),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton(
-                key: const ValueKey('team-save-role-model'),
-                onPressed: _savingRole ? null : _saveRoleModel,
-                child: const Text('Save role default'),
-              ),
-            ],
           ],
           if (_error case final error?) ...[
             const SizedBox(height: 10),
@@ -213,20 +288,20 @@ class _SetupPanelState extends State<_SetupPanel> {
           ],
           const SizedBox(height: 16),
           _SetupRow(
-            icon: Icons.auto_awesome_outlined,
+            icon: FrankIcons.autoAwesomeOutlined,
             label: 'Prompt pack',
-            value: profile.promptPack,
+            value: promptPack,
           ),
           _SetupRow(
-            icon: Icons.tune_outlined,
+            icon: FrankIcons.tuneOutlined,
             label: 'Level',
-            value: profile.level,
+            value: level,
           ),
           _SetupRow(
-            icon: Icons.history_toggle_off_outlined,
+            icon: FrankIcons.historyToggleOffOutlined,
             label: 'Role revision',
             value: profile.roleRevision == 0
-                ? 'Legacy member'
+                ? 'Not reported'
                 : 'Revision ${profile.roleRevision}',
           ),
         ],
@@ -257,67 +332,12 @@ class _SetupPanelState extends State<_SetupPanel> {
       if (mounted) setState(() => _savingAgent = false);
     }
   }
-
-  Future<void> _saveRoleModel() async {
-    final callback = widget.onSaveRoleModel;
-    final roleId = profile.roleId;
-    if (callback == null || roleId == null) return;
-    if (_roleModel == null || _roleModel!.trim().isEmpty) {
-      setState(() => _error = 'Choose a role default model before saving.');
-      return;
-    }
-    setState(() {
-      _savingRole = true;
-      _error = null;
-    });
-    try {
-      await callback(roleId, _roleModel);
-    } catch (error) {
-      if (mounted) setState(() => _error = _teamError(error));
-    } finally {
-      if (mounted) setState(() => _savingRole = false);
-    }
-  }
 }
 
-class _SearchableModelMenu extends StatelessWidget {
-  const _SearchableModelMenu({
-    required this.label,
-    required this.value,
-    required this.models,
-    required this.enabled,
-    required this.onChanged,
-    super.key,
-  });
-
-  final String label;
-  final String? value;
-  final List<OpenRouterModel> models;
-  final bool enabled;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final slugs = {for (final model in models) model.canonicalSlug};
-    return FrankDesktopSelectField<String?>(
-      key: ValueKey('$label-menu-${value ?? ''}'),
-      fieldKey: ValueKey('$label-menu-trigger-${value ?? ''}'),
-      value: slugs.contains(value) ? value : null,
-      label: label,
-      hint: 'Choose a model',
-      enabled: enabled,
-      searchable: true,
-      searchHint: 'Search models',
-      options: [
-        for (final model in models)
-          FrankDesktopSelectOption<String?>(
-            value: model.canonicalSlug,
-            label: '${model.name} · ${model.canonicalSlug}',
-          ),
-      ],
-      onChanged: onChanged,
-    );
-  }
+String _formatCatalogDate(DateTime value) {
+  final local = value.toLocal();
+  String two(int number) => number.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
 }
 
 class _PendingIdleBadge extends StatelessWidget {
@@ -328,7 +348,7 @@ class _PendingIdleBadge extends StatelessWidget {
     mainAxisSize: MainAxisSize.min,
     children: [
       Icon(
-        Icons.schedule,
+        FrankIcons.schedule,
         size: FrankUiTokens.iconSize,
         color: FrankColors.warningAmber,
       ),
@@ -351,7 +371,7 @@ class _TeamCatalogState extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     children: [
       Icon(
-        error ? Icons.error_outline : Icons.list_alt_outlined,
+        error ? FrankIcons.errorOutline : FrankIcons.listAltOutlined,
         size: FrankUiTokens.iconSize,
         color: error ? FrankColors.failure : FrankColors.warningAmber,
       ),
@@ -365,69 +385,6 @@ class _TeamCatalogState extends StatelessWidget {
 
 String _teamError(Object error) =>
     frankFriendlyError(error, fallback: 'The team update could not be saved.');
-
-class _CapabilitiesPanel extends StatelessWidget {
-  const _CapabilitiesPanel({required this.profile});
-
-  final TeamAgentProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      key: const ValueKey('team-profile-capabilities'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const _PanelHeading(
-          eyebrow: 'LOADOUT',
-          title: 'Tools with a reason to be here.',
-          detail: 'Access is shown as a presentation fixture for this mockup.',
-        ),
-        const SizedBox(height: 18),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            for (final capability in profile.capabilities)
-              _CapabilityCard(capability: capability, accent: profile.accent),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _ActivityPanel extends StatelessWidget {
-  const _ActivityPanel({required this.profile});
-
-  final TeamAgentProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelCard(
-      key: const ValueKey('team-profile-activity'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _PanelHeading(
-            eyebrow: 'RECENT ACTIVITY',
-            title: 'A short trail of useful things.',
-            detail:
-                'Events are deterministic until the live gateway is connected.',
-          ),
-          const SizedBox(height: 20),
-          for (var index = 0; index < profile.activity.length; index++) ...[
-            _ActivityRow(
-              event: profile.activity[index],
-              accent: profile.accent,
-            ),
-            if (index < profile.activity.length - 1)
-              const Divider(height: 24, color: FrankColors.border),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 class _PanelHeading extends StatelessWidget {
   const _PanelHeading({
@@ -675,103 +632,6 @@ class _SetupRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _CapabilityCard extends StatelessWidget {
-  const _CapabilityCard({required this.capability, required this.accent});
-
-  final TeamCapability capability;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 220,
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: FrankColors.panel,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: FrankColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.11),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(capability.icon, size: 17, color: accent),
-          ),
-          const SizedBox(width: 11),
-          Expanded(
-            child: Text(
-              capability.label,
-              style: const TextStyle(
-                color: FrankColors.ink,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.event, required this.accent});
-
-  final TeamActivityEvent event;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: accent.withValues(alpha: 0.11),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(event.icon, size: 16, color: accent),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                event.label,
-                style: const TextStyle(
-                  color: FrankColors.ink,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                event.detail,
-                style: const TextStyle(
-                  color: FrankColors.muted,
-                  fontSize: 11,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          event.timeLabel,
-          style: const TextStyle(color: FrankColors.muted, fontSize: 10),
-        ),
-      ],
     );
   }
 }

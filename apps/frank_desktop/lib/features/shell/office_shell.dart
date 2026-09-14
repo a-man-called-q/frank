@@ -1,7 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../app/layout/office_surface_frame.dart';
@@ -10,26 +11,27 @@ import '../../app/theme.dart';
 import '../../core/auth/auth_repository.dart';
 import '../../core/gateway/frank_gateway.dart';
 import '../../core/models/ledger_models.dart';
-import '../../core/models/openrouter_models.dart';
 import '../../core/models/team_models.dart';
 import '../../core/models/workspace_models.dart';
 import '../../core/models/workflow_models.dart';
 import '../chat/account_chat.dart';
 import '../chat/bloc/chat_bloc.dart';
 import '../floor/office_scene_floor.dart';
+import '../../app/icons.dart';
 import '../ledger/presentation/ledger_surface.dart';
 import '../journal/journal_surface.dart';
 import '../organization/bloc/organization_bloc.dart';
 import '../organization/presentation/organization_surface.dart';
 import '../openrouter/openrouter_surface.dart';
+import '../openrouter/bloc/openrouter_bloc.dart';
 import '../projects/bloc/projects_bloc.dart';
 import '../projects/presentation/project_dialogs.dart';
 import '../team/presentation/team_surface.dart';
 import '../taskboard/bloc/taskboard_bloc.dart';
 import '../taskboard/presentation/taskboard_surface.dart';
 import 'bloc/shell_bloc.dart';
+import 'bloc/connection_bloc.dart';
 import 'main_sidebar.dart';
-import '../../app/controls/frank_desktop_menu.dart';
 import 'presentation/shell_context_bar.dart';
 import 'shortcut_registry.dart';
 import 'sidebar_effect.dart';
@@ -97,10 +99,19 @@ class OfficeShell extends StatelessWidget {
               create: (_) =>
                   ShellBloc(gateway: gateway)..add(const ShellStarted()),
             ),
-            BlocProvider(create: (_) => ProjectsBloc()),
+            BlocProvider(
+              create: (_) =>
+                  ConnectionBloc(gateway: gateway)
+                    ..add(const FrankConnectionStarted()),
+            ),
+            BlocProvider(create: (_) => ProjectsBloc(gateway: gateway)),
             BlocProvider(create: (_) => ChatBloc(gateway: gateway)),
             BlocProvider(create: (_) => OrganizationBloc(gateway: gateway)),
             BlocProvider(create: (_) => TaskboardBloc(gateway: gateway)),
+            BlocProvider(
+              create: (_) => OpenRouterBloc(gateway: gateway)
+                ..add(const OpenRouterStarted()),
+            ),
           ],
           child: _OfficeCoordinator(
             authRepository: authRepository,
@@ -126,7 +137,6 @@ class OfficeSessionCache {
   final FrankGateway gateway;
   Future<List<TeamAgentProfile>>? _teamProfiles;
   Future<LedgerDashboardData>? _ledgerDashboard;
-  Future<OpenRouterCatalog>? _openRouterCatalog;
 
   Future<List<TeamAgentProfile>> loadTeamProfiles({bool refresh = false}) {
     if (!refresh && _teamProfiles != null) return _teamProfiles!;
@@ -157,10 +167,4 @@ class OfficeSessionCache {
   Future<LedgerDashboardData> loadLedgerDashboard() =>
       _ledgerDashboard ??= gateway.loadLedgerDashboard();
 
-  Future<OpenRouterCatalog> loadOpenRouterCatalog({bool refresh = false}) {
-    if (refresh) {
-      return _openRouterCatalog = gateway.loadOpenRouterModels(refresh: true);
-    }
-    return _openRouterCatalog ??= gateway.loadOpenRouterModels();
-  }
 }

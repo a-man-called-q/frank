@@ -1,6 +1,5 @@
-import 'dart:io';
-
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
 
 import 'app/frank_app.dart';
@@ -37,7 +36,7 @@ AuthRepository _createAuthRepository(FrankClientConfiguration configuration) {
 }
 
 Future<SidebarEffectBuilder?> _initializeMacOSWindowEffects() async {
-  if (!Platform.isMacOS) return null;
+  if (defaultTargetPlatform != TargetPlatform.macOS) return null;
 
   try {
     await WindowManipulator.initialize();

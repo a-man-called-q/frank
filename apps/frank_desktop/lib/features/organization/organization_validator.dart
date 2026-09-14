@@ -382,7 +382,9 @@ extension OrganizationNodeKindLabel on OrganizationNodeKind {
   String get label => switch (this) {
     OrganizationNodeKind.staff => 'staff',
     OrganizationNodeKind.capability => 'capability',
-    OrganizationNodeKind.approval => 'approval desk',
+    // Legacy review nodes remain readable for old snapshots but cannot be
+    // authored or published in the runtime-policy graph.
+    OrganizationNodeKind.approval => 'retired control',
     OrganizationNodeKind.role => 'role',
     OrganizationNodeKind.taskboard => 'taskboard',
     OrganizationNodeKind.childWorkflow => 'child workflow',

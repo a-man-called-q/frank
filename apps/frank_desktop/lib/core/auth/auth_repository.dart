@@ -1,16 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
 import 'auth_models.dart';
 import 'auth_session_state.dart';
+import 'auth_session_store.dart';
 import '../transport/frank_transport.dart';
 
 export '../transport/frank_transport.dart'
     show FrankApiVersion, FrankClientConfiguration;
 export 'auth_session_state.dart';
+export 'auth_session_store.dart';
 
 abstract interface class AuthRepository {
   String get serverUrl;
@@ -176,8 +176,10 @@ class HttpAuthRepository implements AuthRepository {
   HttpAuthRepository(
     this.configuration, {
     FlutterSecureStorage? storage,
+    AuthSessionStore? sessionStore,
     http.Client? client,
-  }) : _storage = storage ?? const FlutterSecureStorage() {
+  }) : _sessionStore =
+         sessionStore ?? FlutterSecureAuthSessionStore(storage: storage) {
     _transport = FrankTransport(
       configuration,
       sessionState: _sessionState,
@@ -186,7 +188,7 @@ class HttpAuthRepository implements AuthRepository {
   }
 
   final FrankClientConfiguration configuration;
-  final FlutterSecureStorage _storage;
+  final AuthSessionStore _sessionStore;
   final AuthSessionState _sessionState = AuthSessionState();
   late final FrankTransport _transport;
   String? _storageWarning;
@@ -244,24 +246,30 @@ class HttpAuthRepository implements AuthRepository {
       }
     }
 
-    String? encoded;
+    AuthSession? stored;
     try {
-      encoded = await _storage.read(key: _storageKey);
+      // status() is the authority for server identity. LoginGate calls it
+      // first, but restore() remains correct when invoked directly by a
+      // lifecycle monitor or an integration test.
+      if (_serverId == null) {
+        try {
+          await status();
+        } on Object {
+          // A previously persisted session can still be inspected below;
+          // server validation remains authoritative once a token is found.
+        }
+      }
+      stored = await _sessionStore.read(configuration.serverUrl, _serverId);
       // Sessions written by the first client build were keyed only by URL.
       // Read that slot once so an upgrade can move the token to the server-ID
       // scoped key without making users log in unnecessarily.
-      if ((encoded == null || encoded.isEmpty) && _serverId != null) {
-        encoded = await _storage.read(key: _legacyStorageKey);
-      }
+      stored ??= await _sessionStore.read(configuration.serverUrl, null);
     } on Object {
       _markStorageUnavailable();
       return null;
     }
-    if (encoded == null || encoded.isEmpty) return null;
+    if (stored == null) return null;
     try {
-      final stored = AuthSession.fromJson(
-        Map<String, dynamic>.from(jsonDecode(encoded) as Map),
-      );
       if (stored.isExpired) {
         await _clearStoredSession();
         return null;
@@ -378,19 +386,29 @@ class HttpAuthRepository implements AuthRepository {
 
   Future<void> _persistSession(AuthSession session) async {
     try {
-      await _storage.write(
-        key: _storageKey,
-        value: jsonEncode(session.toJson()),
+      _serverId = session.serverId;
+      await _sessionStore.write(configuration.serverUrl, session.serverId, session);
+      final readBack = await _sessionStore.read(
+        configuration.serverUrl,
+        session.serverId,
       );
+      if (readBack?.accessToken != session.accessToken) {
+        _markStorageUnavailable();
+        return;
+      }
+      // The URL-only slot was used by the first desktop build. Once the
+      // server-scoped write is verified, remove that legacy copy so logout
+      // and future restores cannot resurrect an old server identity.
+      await _sessionStore.delete(configuration.serverUrl, null);
     } on Object {
       _markStorageUnavailable();
     }
   }
 
   Future<void> _clearStoredSession() async {
-    for (final key in {_storageKey, _legacyStorageKey}) {
+    for (final serverId in {_serverId, null}) {
       try {
-        await _storage.delete(key: key);
+        await _sessionStore.delete(configuration.serverUrl, serverId);
       } on Object {
         _markStorageUnavailable();
       }
@@ -402,12 +420,6 @@ class HttpAuthRepository implements AuthRepository {
         'Secure storage is unavailable; this login will last only until the app closes.';
   }
 
-  String get _storageKey =>
-      'frank.session.${_storageSlot(configuration.serverUrl)}.${_storageSlot(_serverId ?? 'unknown')}';
-
-  String get _legacyStorageKey =>
-      'frank.session.${_storageSlot(configuration.serverUrl)}';
-
   @override
   void dispose() {
     _session = null;
@@ -415,9 +427,3 @@ class HttpAuthRepository implements AuthRepository {
     _transport.dispose();
   }
 }
-
-String _storageSlot(String value) => base64Url
-    .encode(utf8.encode(value))
-    .replaceAll('=', '')
-    .replaceAll('/', '_')
-    .replaceAll('+', '-');

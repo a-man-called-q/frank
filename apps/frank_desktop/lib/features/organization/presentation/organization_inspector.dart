@@ -10,6 +10,8 @@ class _OrganizationInspector extends StatelessWidget {
     required this.onClose,
     required this.onDelete,
     required this.onDuplicate,
+    this.canMutate = true,
+    this.mutationDisabledReason,
   });
 
   final OfficeWorkspace workspace;
@@ -20,6 +22,8 @@ class _OrganizationInspector extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onDelete;
   final VoidCallback onDuplicate;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +37,45 @@ class _OrganizationInspector extends StatelessWidget {
             .firstOrNull;
         final group = graph.groupById(state.selectedGroupId);
         if (node == null && relation == null && group == null) {
-          return const SizedBox.shrink();
+          // Keep a stale/missing selection explicit. Returning a zero-sized
+          // child here still makes the overlay paint an empty inspector slab,
+          // which looks like a broken editor after a remote refresh.
+          return ColoredBox(
+            color: FrankColors.panel,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: _OrganizationPanel(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Selection unavailable',
+                        style: TextStyle(
+                          color: FrankColors.ink,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'The selected organization element is no longer in the current server snapshot.',
+                        style: TextStyle(color: FrankColors.muted, height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      FButton(
+                        onPress: onClose,
+                        size: FButtonSizeVariant.sm,
+                        child: const Text('Close inspector'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
         }
         return Semantics(
           container: true,
@@ -78,19 +120,16 @@ class _OrganizationInspector extends StatelessWidget {
                           ),
                         ),
                       ),
-                      IconButton(
-                        tooltip: docked
+                      FButton.icon(
+                        onPress: onClose,
+                        semanticsLabel: docked
                             ? 'Close inspector'
                             : 'Back to organization',
-                        onPressed: onClose,
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size.square(
-                            FrankUiTokens.controlHeight,
-                          ),
-                          padding: EdgeInsets.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        icon: Icon(
+                        semanticsTooltip: docked
+                            ? 'Close inspector'
+                            : 'Back to organization',
+                        size: FButtonSizeVariant.sm,
+                        child: Icon(
                           docked ? FrankIcons.close : FrankIcons.back,
                           size: 17,
                         ),
@@ -98,7 +137,7 @@ class _OrganizationInspector extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Divider(height: 1),
+                const FDivider(),
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(18),
@@ -113,13 +152,14 @@ class _OrganizationInspector extends StatelessWidget {
                                 : lookupIndex.employeeById[node.employeeId],
                             profile: node.employeeId == null
                                 ? null
-                                : lookupIndex.profileByEmployeeId[node.employeeId],
+                                : lookupIndex.profileByEmployeeId[node
+                                      .employeeId],
                             connectorProfiles: connectorProfiles,
                           )
                         : _RelationInspector(relation: relation!, graph: graph),
                   ),
                 ),
-                const Divider(height: 1),
+                const FDivider(),
                 Padding(
                   padding: const EdgeInsets.all(12),
                   child: Wrap(
@@ -129,25 +169,40 @@ class _OrganizationInspector extends StatelessWidget {
                     children: [
                       if (node != null &&
                           node.kind != OrganizationNodeKind.staff)
-                        TextButton.icon(
-                          onPressed: onDuplicate,
-                          style: _compactTextButtonStyle(),
-                          icon: const Icon(FrankIcons.plus, size: 15),
-                          label: const Text('Duplicate'),
+                        FButton(
+                          onPress: canMutate ? onDuplicate : null,
+                          semanticsTooltip: canMutate
+                              ? 'Duplicate organization element'
+                              : mutationDisabledReason ??
+                                    'Reconnect before changing the organization',
+                          variant: FButtonVariant.ghost,
+                          size: FButtonSizeVariant.sm,
+                          prefix: const Icon(FrankIcons.plus, size: 15),
+                          child: const Text('Duplicate'),
                         ),
                       if (group != null && !group.isBuiltIn)
-                        TextButton.icon(
-                          onPressed: onDelete,
-                          style: _compactTextButtonStyle(),
-                          icon: const Icon(FrankIcons.archive, size: 15),
-                          label: const Text('Delete'),
+                        FButton(
+                          onPress: canMutate ? onDelete : null,
+                          semanticsTooltip: canMutate
+                              ? 'Delete group'
+                              : mutationDisabledReason ??
+                                    'Reconnect before changing the organization',
+                          variant: FButtonVariant.destructive,
+                          size: FButtonSizeVariant.sm,
+                          prefix: const Icon(FrankIcons.archive, size: 15),
+                          child: const Text('Delete'),
                         ),
                       if (group == null)
-                        TextButton.icon(
-                          onPressed: onDelete,
-                          style: _compactTextButtonStyle(),
-                          icon: const Icon(FrankIcons.archive, size: 15),
-                          label: const Text('Delete'),
+                        FButton(
+                          onPress: canMutate ? onDelete : null,
+                          semanticsTooltip: canMutate
+                              ? 'Delete organization element'
+                              : mutationDisabledReason ??
+                                    'Reconnect before changing the organization',
+                          variant: FButtonVariant.destructive,
+                          size: FButtonSizeVariant.sm,
+                          prefix: const Icon(FrankIcons.archive, size: 15),
+                          child: const Text('Delete'),
                         ),
                     ],
                   ),
@@ -161,27 +216,70 @@ class _OrganizationInspector extends StatelessWidget {
   }
 }
 
-InputDecoration _organizationInputDecoration({String? hintText}) =>
-    InputDecoration(
-      hintText: hintText,
-      isDense: true,
-      filled: true,
-      fillColor: FrankColors.panelRaised,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        borderSide: const BorderSide(color: FrankColors.border),
+class _OrganizationTextField extends StatefulWidget {
+  const _OrganizationTextField({
+    required this.initialValue,
+    required this.onSubmit,
+    required this.semanticsLabel,
+    this.enabled = true,
+    this.minLines,
+    this.maxLines = 1,
+    super.key,
+  });
+
+  final String initialValue;
+  final ValueChanged<String> onSubmit;
+  final String semanticsLabel;
+  final bool enabled;
+  final int? minLines;
+  final int? maxLines;
+
+  @override
+  State<_OrganizationTextField> createState() => _OrganizationTextFieldState();
+}
+
+class _OrganizationTextFieldState extends State<_OrganizationTextField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue,
+  );
+
+  @override
+  void didUpdateWidget(covariant _OrganizationTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialValue != oldWidget.initialValue &&
+        widget.initialValue != _controller.text) {
+      _controller.text = widget.initialValue;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    textField: true,
+    label: widget.semanticsLabel,
+    child: ExcludeSemantics(
+      // ForUI 0.25 uses MergeSemantics inside FTextField. Organization
+      // inspector fields are mounted/unmounted as the selected graph element
+      // changes, and keeping that merged node in the surrounding flow tree
+      // trips Flutter's stale-node assertion. The editable control remains
+      // focusable and interactive while this stable parent provides the field
+      // semantics.
+      child: FTextField(
+        key: widget.key,
+        control: FTextFieldControl.managed(controller: _controller),
+        enabled: widget.enabled,
+        minLines: widget.minLines,
+        maxLines: widget.maxLines,
+        onSubmit: widget.onSubmit,
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        borderSide: const BorderSide(color: FrankColors.border),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        borderSide: const BorderSide(color: FrankColors.aubergineAccent),
-      ),
-      hintStyle: const TextStyle(color: FrankColors.muted, fontSize: 11),
-    );
+    ),
+  );
+}
 
 class _GroupInspector extends StatelessWidget {
   const _GroupInspector({required this.group});
@@ -194,12 +292,12 @@ class _GroupInspector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _InspectorLabel('Name'),
-        TextFormField(
+        _OrganizationTextField(
           key: ValueKey('group-label-${group.id}'),
           initialValue: group.label,
+          semanticsLabel: 'Group name',
           enabled: !group.isBuiltIn,
-          decoration: _organizationInputDecoration(),
-          onFieldSubmitted: (value) {
+          onSubmit: (value) {
             final label = value.trim();
             if (label.isEmpty) return;
             context.read<OrganizationBloc>().add(
@@ -243,7 +341,9 @@ class _ReferenceValue extends StatelessWidget {
     decoration: BoxDecoration(
       color: FrankColors.panelRaised,
       borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-      border: const Border.fromBorderSide(BorderSide(color: FrankColors.border)),
+      border: const Border.fromBorderSide(
+        BorderSide(color: FrankColors.border),
+      ),
     ),
     child: Text(
       value == null || value!.isEmpty ? 'Reference not selected' : value!,
@@ -277,11 +377,11 @@ class _NodeInspector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _InspectorLabel('Name'),
-        TextFormField(
+        _OrganizationTextField(
           key: ValueKey('node-label-${node.id}'),
           initialValue: node.label,
-          decoration: _organizationInputDecoration(),
-          onFieldSubmitted: (value) => context.read<OrganizationBloc>().add(
+          semanticsLabel: 'Node name',
+          onSubmit: (value) => context.read<OrganizationBloc>().add(
             OrganizationNodeUpdated(node.copyWith(label: value.trim())),
           ),
         ),
@@ -293,14 +393,14 @@ class _NodeInspector extends StatelessWidget {
             style: const TextStyle(color: FrankColors.ink),
           ),
           const SizedBox(height: 16),
-          _InspectorLabel('Provider / model'),
+          _InspectorLabel('Effective model'),
           Text(
             profile?.modelSummary ?? 'Unconfigured',
             style: const TextStyle(color: FrankColors.ink),
           ),
         ],
         if (capability != null) ...[
-          _InspectorLabel('Provider / profile'),
+          _InspectorLabel('Connection profile'),
           _ConnectorProfileSelector(node: node, profiles: connectorProfiles),
           const SizedBox(height: 18),
           _InspectorLabel('Available permissions'),
@@ -309,24 +409,7 @@ class _NodeInspector extends StatelessWidget {
             runSpacing: 6,
             children: [
               for (final permission in capability.permissions)
-                Chip(
-                  label: Text(
-                    permission,
-                    style: const TextStyle(
-                      color: FrankColors.muted,
-                      fontSize: 10,
-                    ),
-                  ),
-                  backgroundColor: FrankColors.panelRaised,
-                  side: const BorderSide(color: FrankColors.border),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(
-                      FrankUiTokens.controlRadius,
-                    ),
-                  ),
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                ),
+                FBadge(child: Text(permission)),
             ],
           ),
           if (node.approvalRequired) ...[
@@ -397,10 +480,13 @@ class _NodeInspector extends StatelessWidget {
                 'Pauses the flow until a person reviews and approves the handoff.',
           ),
         const SizedBox(height: 22),
-        const _Notice(
+        _Notice(
           icon: FrankIcons.circleAlert,
-          text:
-              'Only a profile reference is stored. Secrets, tokens, passwords, and connection strings never enter this graph.',
+          text: capability != null
+              ? 'Only a connector profile reference is stored. Secrets, tokens, passwords, and connection strings never enter this graph.'
+              : node.kind == OrganizationNodeKind.taskboard
+              ? 'This is an internal routing board. It has no provider or credential profile.'
+              : 'Runtime references are stored without secrets, tokens, passwords, or connection strings.',
         ),
       ],
     );
@@ -416,26 +502,9 @@ class _ConnectorProfileSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (profiles.isEmpty) {
-      return TextFormField(
-        key: ValueKey('node-provider-${node.id}'),
-        initialValue: node.connectorProfileLabel,
-        decoration: _organizationInputDecoration(
-          hintText: 'Choose a connection profile',
-        ),
-        onFieldSubmitted: (value) {
-          final profileLabel = value.trim();
-          final hasProfile =
-              profileLabel.isNotEmpty &&
-              profileLabel.toLowerCase() != 'profile not selected';
-          context.read<OrganizationBloc>().add(
-            OrganizationNodeUpdated(
-              node.copyWith(
-                connectorProfileLabel: hasProfile ? profileLabel : null,
-                configured: hasProfile,
-              ),
-            ),
-          );
-        },
+      return const _Notice(
+        icon: FrankIcons.cloudOffOutlined,
+        text: 'No compatible connection profiles are available.',
       );
     }
     final compatible = profiles
@@ -445,45 +514,44 @@ class _ConnectorProfileSelector extends StatelessWidget {
         compatible.any((profile) => profile.id == node.connectorProfileId)
         ? node.connectorProfileId
         : null;
-    return DropdownButtonFormField<String>(
-      key: ValueKey('node-provider-${node.id}'),
-      isExpanded: true,
-      initialValue: selected,
-      decoration: _organizationInputDecoration(
-        hintText: compatible.isEmpty
-            ? 'No compatible profile'
-            : 'Choose a profile',
+    return FSelect<String?>.rich(
+      key: ValueKey('node-connection-profile-${node.id}'),
+      control: FSelectControl<String?>.lifted(
+        value: selected,
+        onChange: (profileId) {
+          final profile = compatible
+              .where((candidate) => candidate.id == profileId)
+              .firstOrNull;
+          context.read<OrganizationBloc>().add(
+            OrganizationNodeUpdated(
+              node.copyWith(
+                connectorProfileId: profileId,
+                connectorProfileLabel: profile?.name,
+                profileRef: profile?.id,
+                configured:
+                    profile != null &&
+                    profile.health != ConnectorHealth.unhealthy,
+              ),
+            ),
+          );
+        },
       ),
-      items: [
-        const DropdownMenuItem<String>(
+      format: (value) => value == null
+          ? 'Not selected'
+          : compatible.firstWhere((profile) => profile.id == value).name,
+      enabled: compatible.isNotEmpty,
+      hint: compatible.isEmpty ? 'No compatible profile' : 'Choose a profile',
+      children: [
+        FSelectItem<String?>.item(
           value: null,
-          child: Text('Not selected'),
+          title: const Text('Not selected'),
         ),
         for (final profile in compatible)
-          DropdownMenuItem<String>(
+          FSelectItem<String?>.item(
             value: profile.id,
-            child: Text(profile.name),
+            title: Text(profile.name),
           ),
       ],
-      onChanged: compatible.isEmpty
-          ? null
-          : (profileId) {
-              final profile = compatible
-                  .where((candidate) => candidate.id == profileId)
-                  .firstOrNull;
-              context.read<OrganizationBloc>().add(
-                OrganizationNodeUpdated(
-                  node.copyWith(
-                    connectorProfileId: profileId,
-                    connectorProfileLabel: profile?.name,
-                    profileRef: profile?.id,
-                    configured:
-                        profile != null &&
-                        profile.health != ConnectorHealth.unhealthy,
-                  ),
-                ),
-              );
-            },
     );
   }
 }
@@ -495,7 +563,6 @@ bool _profileSupports(
   OrganizationCapabilityKind.email ||
   OrganizationCapabilityKind.calendar ||
   OrganizationCapabilityKind.drive => kind == ConnectorKind.googleWorkspace,
-  OrganizationCapabilityKind.taskboard => kind == ConnectorKind.taskboard,
   OrganizationCapabilityKind.browser => kind == ConnectorKind.browser,
   OrganizationCapabilityKind.terminal => kind == ConnectorKind.terminal,
   OrganizationCapabilityKind.database =>
@@ -534,57 +601,62 @@ class _RelationInspector extends StatelessWidget {
         const SizedBox(height: 22),
         if (relation.kind == OrganizationRelationKind.handoff) ...[
           _InspectorLabel('Input / artifact received'),
-          TextFormField(
+          _OrganizationTextField(
+            semanticsLabel: 'Input / artifact received',
             initialValue: relation.contract.inputSummary,
             minLines: 2,
             maxLines: 3,
-            decoration: _organizationInputDecoration(),
-            onFieldSubmitted: (value) => _updateContract(
+            onSubmit: (value) => _updateContract(
               context,
               relation.contract.copyWith(inputSummary: value),
             ),
           ),
           const SizedBox(height: 18),
           _InspectorLabel('Expected output'),
-          TextFormField(
+          _OrganizationTextField(
+            semanticsLabel: 'Expected output',
             initialValue: relation.contract.expectedOutput,
             minLines: 2,
             maxLines: 3,
-            decoration: _organizationInputDecoration(),
-            onFieldSubmitted: (value) => _updateContract(
+            onSubmit: (value) => _updateContract(
               context,
               relation.contract.copyWith(expectedOutput: value),
             ),
           ),
           const SizedBox(height: 18),
           _InspectorLabel('Context policy'),
-          FrankDesktopSelectField<OrganizationContextPolicy>(
-            value: relation.contract.contextPolicy,
-            options: [
+          FSelect<OrganizationContextPolicy>.rich(
+            control: FSelectControl<OrganizationContextPolicy>.lifted(
+              value: relation.contract.contextPolicy,
+              onChange: (policy) {
+                if (policy != null) {
+                  _updateContract(
+                    context,
+                    relation.contract.copyWith(contextPolicy: policy),
+                  );
+                }
+              },
+            ),
+            format: (policy) => policy.label,
+            label: const Text('Context policy'),
+            children: [
               for (final policy in OrganizationContextPolicy.values)
-                FrankDesktopSelectOption<OrganizationContextPolicy>(
+                FSelectItem<OrganizationContextPolicy>.item(
                   value: policy,
-                  label: policy.label,
+                  title: Text(policy.label),
                 ),
             ],
-            onChanged: (policy) => _updateContract(
-              context,
-              relation.contract.copyWith(contextPolicy: policy),
-            ),
-            semanticsLabel: 'Context policy',
           ),
         ],
         if (relation.kind == OrganizationRelationKind.toolAccess) ...[
           _InspectorLabel('Permissions'),
           for (final permission in target.capability?.permissions ?? const [])
-            CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
+            FCheckbox(
               value: relation.permissions.contains(permission),
-              title: Text(permission),
-              onChanged: (checked) {
+              label: Text(permission),
+              onChange: (checked) {
                 final permissions = [...relation.permissions];
-                if (checked ?? false) {
+                if (checked) {
                   if (!permissions.contains(permission)) {
                     permissions.add(permission);
                   }

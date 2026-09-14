@@ -1,19 +1,34 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../app/controls/frank_desktop_menu.dart';
 import '../../app/layout/office_surface_frame.dart';
 import '../../app/office_ui.dart';
+import '../../app/icons.dart';
 import '../../app/theme.dart';
 import '../../core/gateway/frank_gateway.dart';
 import '../../core/models/openrouter_models.dart';
+import 'bloc/openrouter_bloc.dart';
+import 'openrouter_model_picker.dart';
 
 /// Owner-facing OpenRouter configuration. The widget only receives metadata
 /// from [OpenRouterGateway]; the API key is entered directly into the gateway call
 /// and is never represented in a widget model or snapshot.
 class OpenRouterSurface extends StatefulWidget {
-  const OpenRouterSurface({required this.gateway, super.key});
+  const OpenRouterSurface({
+    required this.gateway,
+    this.catalogLoader,
+    this.bloc,
+    this.canMutate = true,
+    this.mutationDisabledReason,
+    super.key,
+  });
 
   final OpenRouterGateway gateway;
+  final Future<OpenRouterCatalog> Function({bool refresh})? catalogLoader;
+  final OpenRouterBloc? bloc;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   State<OpenRouterSurface> createState() => _OpenRouterSurfaceState();
@@ -29,12 +44,19 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
   String? _actionError;
   String? _supervisorModel;
   OpenRouterConnection? _latestConnection;
+  String _catalogFilter = 'all';
 
   @override
   void initState() {
     super.initState();
     _supervisorModel = widget.gateway.cachedSupervisorModel;
-    _load();
+    if (widget.bloc == null) {
+      _load();
+    } else {
+      // The session root also starts the bloc. This idempotent event keeps
+      // standalone settings mounts correct without creating a second cache.
+      widget.bloc!.add(const OpenRouterStarted());
+    }
   }
 
   @override
@@ -42,7 +64,11 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.gateway, widget.gateway)) {
       _supervisorModel = widget.gateway.cachedSupervisorModel;
+      if (widget.bloc == null) _load();
+    } else if (oldWidget.bloc != widget.bloc && widget.bloc == null) {
       _load();
+    } else if (oldWidget.bloc != widget.bloc && widget.bloc != null) {
+      widget.bloc!.add(const OpenRouterStarted());
     }
   }
 
@@ -56,11 +82,26 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
   void _load() {
     _latestConnection = null;
     _connection = widget.gateway.loadOpenRouterConnection();
-    _catalog = widget.gateway.loadOpenRouterModels();
+    _catalog = _loadCatalog();
   }
+
+  Future<OpenRouterCatalog> _loadCatalog({bool refresh = false}) =>
+      widget.catalogLoader?.call(refresh: refresh) ??
+      widget.gateway.loadOpenRouterModels(refresh: refresh);
 
   @override
   Widget build(BuildContext context) {
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      return BlocBuilder<OpenRouterBloc, OpenRouterState>(
+        bloc: bloc,
+        builder: (context, state) => _buildFromState(context, state),
+      );
+    }
+    return _buildLegacy(context);
+  }
+
+  Widget _buildLegacy(BuildContext context) {
     return OfficeSurfaceFrame.page(
       fullWidth: true,
       scrollKey: const ValueKey('settings-models-scroll'),
@@ -73,14 +114,21 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  OutlinedButton.icon(
+                  FButton(
                     key: const ValueKey('provider-refresh-models'),
-                    onPressed: _busy ? null : _refreshCatalog,
-                    icon: const Icon(
-                      Icons.refresh,
+                    onPress: _busy || !widget.canMutate
+                        ? null
+                        : _refreshCatalog,
+                    semanticsTooltip: widget.canMutate
+                        ? 'Refresh model catalog'
+                        : widget.mutationDisabledReason ??
+                              'Reconnect before refreshing the catalog',
+                    variant: FButtonVariant.outline,
+                    prefix: const Icon(
+                      FrankIcons.refresh,
                       size: FrankUiTokens.iconSize,
                     ),
-                    label: const Text('Refresh catalog'),
+                    child: const Text('Refresh catalog'),
                   ),
                 ],
               )
@@ -108,6 +156,8 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
                   keyController: _keyController,
                   busy: _busy,
                   actionError: _actionError,
+                  canMutate: widget.canMutate,
+                  mutationDisabledReason: widget.mutationDisabledReason,
                   onToggleKey: () => setState(() {
                     _showKeyInput = !_showKeyInput;
                     _actionError = null;
@@ -134,9 +184,104 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
                 supervisorSaveBusy: _busy,
                 snapshotRevision: widget.gateway.snapshotRevision,
                 openRouterConfigured: _latestConnection?.configured == true,
+                canMutate: widget.canMutate,
+                mutationDisabledReason: widget.mutationDisabledReason,
+                filter: _catalogFilter,
+                onFilterChanged: (value) =>
+                    setState(() => _catalogFilter = value),
                 onSearchChanged: () => setState(() {}),
                 onSupervisorChanged: _saveSupervisorModel,
               ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFromState(BuildContext context, OpenRouterState state) {
+    final connection = state.connection;
+    final connectionLoading =
+        state.connectionPhase == OpenRouterConnectionPhase.loading;
+    final catalogLoading =
+        state.catalogPhase == OpenRouterCatalogPhase.loading ||
+        state.catalogPhase == OpenRouterCatalogPhase.idle;
+    final catalogError = state.catalogPhase == OpenRouterCatalogPhase.error
+        ? state.actionError
+        : null;
+    return OfficeSurfaceFrame.page(
+      fullWidth: true,
+      scrollKey: const ValueKey('settings-models-scroll'),
+      header: OfficePageHeader(
+        title: 'Models & OpenRouter',
+        description:
+            'Connect Frank to OpenRouter, choose tool-capable models, and set the supervisor model.',
+        actions: connection?.configured == true
+            ? FButton(
+                key: const ValueKey('provider-refresh-models'),
+                onPress: state.actionInFlight || !widget.canMutate
+                    ? null
+                    : () => widget.bloc!.add(
+                        const OpenRouterCatalogRefreshRequested(),
+                      ),
+                semanticsTooltip: widget.canMutate
+                    ? 'Refresh model catalog'
+                    : widget.mutationDisabledReason ??
+                          'Reconnect before refreshing the catalog',
+                variant: FButtonVariant.outline,
+                prefix: const Icon(
+                  FrankIcons.refresh,
+                  size: FrankUiTokens.iconSize,
+                ),
+                child: const Text('Refresh catalog'),
+              )
+            : null,
+      ),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _ConnectionCard(
+              connection: connection,
+              loading: connectionLoading,
+              showKeyInput: _showKeyInput,
+              keyController: _keyController,
+              busy: state.actionInFlight,
+              actionError: state.catalogPhase == OpenRouterCatalogPhase.error
+                  ? null
+                  : state.actionError == null
+                  ? null
+                  : _friendlyError(state.actionError!),
+              canMutate: widget.canMutate,
+              mutationDisabledReason: widget.mutationDisabledReason,
+              onToggleKey: () => setState(() {
+                _showKeyInput = !_showKeyInput;
+              }),
+              onSave: _saveCredential,
+              onTest: _testConnection,
+              onRemove: _removeCredential,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _CatalogCard(
+              catalog: state.catalog,
+              error: catalogError,
+              loading: catalogLoading,
+              searchController: _modelSearchController,
+              supervisorModel: state.supervisorModel,
+              supervisorSaveBusy: state.actionInFlight,
+              snapshotRevision: widget.gateway.snapshotRevision,
+              openRouterConfigured: connection?.configured == true,
+              canMutate: widget.canMutate,
+              mutationDisabledReason: widget.mutationDisabledReason,
+              filter: _catalogFilter,
+              onFilterChanged: (value) =>
+                  setState(() => _catalogFilter = value),
+              onSearchChanged: () => setState(() {}),
+              onSupervisorChanged: _saveSupervisorModel,
             ),
           ),
         ),
@@ -148,6 +293,15 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
     final key = _keyController.text.trim();
     if (key.isEmpty) {
       setState(() => _actionError = 'Enter an OpenRouter API key first.');
+      return;
+    }
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      bloc.add(OpenRouterCredentialSaveRequested(key));
+      setState(() {
+        _showKeyInput = false;
+        _keyController.clear();
+      });
       return;
     }
     await _run(() async {
@@ -163,6 +317,11 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
   }
 
   Future<void> _testConnection() async {
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      bloc.add(const OpenRouterConnectionTestRequested());
+      return;
+    }
     await _run(() async {
       final connection = await widget.gateway.testOpenRouterConnection();
       if (!mounted) return;
@@ -171,6 +330,15 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
   }
 
   Future<void> _removeCredential() async {
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      bloc.add(const OpenRouterCredentialRemoveRequested());
+      setState(() {
+        _showKeyInput = false;
+        _keyController.clear();
+      });
+      return;
+    }
     await _run(() async {
       final connection = await widget.gateway.removeOpenRouterCredential();
       if (!mounted) return;
@@ -185,12 +353,20 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
 
   Future<void> _refreshCatalog() async {
     if (!mounted) return;
-    setState(
-      () => _catalog = widget.gateway.loadOpenRouterModels(refresh: true),
-    );
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      bloc.add(const OpenRouterCatalogRefreshRequested());
+      return;
+    }
+    setState(() => _catalog = _loadCatalog(refresh: true));
   }
 
   Future<void> _saveSupervisorModel(String? model) async {
+    final bloc = widget.bloc;
+    if (bloc != null) {
+      bloc.add(OpenRouterSupervisorModelChanged(model));
+      return;
+    }
     final previous = _supervisorModel;
     setState(() {
       _supervisorModel = model;
@@ -239,6 +415,8 @@ class _ConnectionCard extends StatelessWidget {
     required this.onSave,
     required this.onTest,
     required this.onRemove,
+    required this.canMutate,
+    this.mutationDisabledReason,
   });
 
   final OpenRouterConnection? connection;
@@ -251,6 +429,8 @@ class _ConnectionCard extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onTest;
   final VoidCallback onRemove;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) {
@@ -278,25 +458,45 @@ class _ConnectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.cloud_outlined,
-                color: FrankColors.aubergineAccent,
-              ),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text(
-                  'OpenRouter',
-                  style: TextStyle(
-                    color: FrankColors.ink,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final heading = Row(
+                children: [
+                  const Icon(
+                    FrankIcons.cloudOutlined,
+                    color: FrankColors.aubergineAccent,
                   ),
-                ),
-              ),
-              FrankStatusBadge(label: label, tone: tone),
-            ],
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'OpenRouter',
+                      style: TextStyle(
+                        color: FrankColors.ink,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+              if (constraints.maxWidth < 340) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    heading,
+                    const SizedBox(height: 8),
+                    FrankStatusBadge(label: label, tone: tone),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: heading),
+                  const SizedBox(width: 8),
+                  FrankStatusBadge(label: label, tone: tone),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 10),
           Text(
@@ -323,24 +523,25 @@ class _ConnectionCard extends StatelessWidget {
           ],
           if (showKeyInput && !environmentManaged) ...[
             const SizedBox(height: 16),
-            TextField(
+            FTextField(
               key: const ValueKey('provider-api-key-field'),
-              controller: keyController,
+              control: FTextFieldControl.managed(controller: keyController),
               obscureText: true,
-              enabled: !busy,
+              enabled: !busy && canMutate,
               autofillHints: const [AutofillHints.password],
-              decoration: const InputDecoration(
-                labelText: 'OpenRouter API key',
-                hintText: 'sk-or-v1-…',
-                border: OutlineInputBorder(),
-              ),
+              label: const Text('OpenRouter API key'),
+              hint: 'sk-or-v1-…',
             ),
             const SizedBox(height: 10),
             FrankPrimaryAction(
               key: const ValueKey('provider-save-credential'),
-              label: 'Save credential',
-              onPressed: busy ? null : onSave,
-              icon: Icons.save,
+              label: busy ? 'Saving…' : 'Save credential',
+              onPressed: busy || !canMutate ? null : onSave,
+              icon: FrankIcons.save,
+              semanticsTooltip: canMutate
+                  ? 'Save OpenRouter credential'
+                  : mutationDisabledReason ??
+                        'Reconnect before changing OpenRouter credentials',
             ),
           ],
           if (actionError case final error?) ...[
@@ -358,28 +559,47 @@ class _ConnectionCard extends StatelessWidget {
             children: [
               if (!environmentManaged)
                 if (connection?.configured == true)
-                  OutlinedButton(
+                  FButton(
                     key: const ValueKey('provider-replace-credential'),
-                    onPressed: busy ? null : onToggleKey,
+                    onPress: busy || !canMutate ? null : onToggleKey,
+                    semanticsTooltip: canMutate
+                        ? 'Replace OpenRouter credential'
+                        : mutationDisabledReason ??
+                              'Reconnect before changing OpenRouter credentials',
+                    variant: FButtonVariant.outline,
                     child: Text(showKeyInput ? 'Cancel' : 'Replace'),
                   )
                 else if (!loading)
                   FrankPrimaryAction(
                     key: const ValueKey('provider-add-api-key'),
                     label: showKeyInput ? 'Cancel' : 'Add API key',
-                    icon: Icons.key_outlined,
-                    onPressed: busy ? null : onToggleKey,
+                    icon: FrankIcons.keyOutlined,
+                    onPressed: busy || !canMutate ? null : onToggleKey,
+                    semanticsTooltip: canMutate
+                        ? 'Add OpenRouter API key'
+                        : mutationDisabledReason ??
+                              'Reconnect before adding an OpenRouter API key',
                   ),
               if (connection?.configured == true)
-                OutlinedButton(
+                FButton(
                   key: const ValueKey('provider-test-connection'),
-                  onPressed: busy ? null : onTest,
+                  onPress: busy || !canMutate ? null : onTest,
+                  semanticsTooltip: canMutate
+                      ? 'Test OpenRouter connection'
+                      : mutationDisabledReason ??
+                            'Reconnect before testing OpenRouter',
+                  variant: FButtonVariant.outline,
                   child: const Text('Test connection'),
                 ),
               if (canRemove)
-                TextButton(
+                FButton(
                   key: const ValueKey('provider-remove-credential'),
-                  onPressed: busy ? null : onRemove,
+                  onPress: busy || !canMutate ? null : onRemove,
+                  semanticsTooltip: canMutate
+                      ? 'Remove OpenRouter credential'
+                      : mutationDisabledReason ??
+                            'Reconnect before changing OpenRouter credentials',
+                  variant: FButtonVariant.ghost,
                   child: const Text('Remove'),
                 ),
             ],
@@ -400,6 +620,10 @@ class _CatalogCard extends StatelessWidget {
     required this.supervisorSaveBusy,
     required this.snapshotRevision,
     required this.openRouterConfigured,
+    required this.canMutate,
+    this.mutationDisabledReason,
+    required this.filter,
+    required this.onFilterChanged,
     required this.onSearchChanged,
     required this.onSupervisorChanged,
   });
@@ -412,6 +636,10 @@ class _CatalogCard extends StatelessWidget {
   final bool supervisorSaveBusy;
   final int snapshotRevision;
   final bool openRouterConfigured;
+  final bool canMutate;
+  final String? mutationDisabledReason;
+  final String filter;
+  final ValueChanged<String> onFilterChanged;
   final VoidCallback onSearchChanged;
   final ValueChanged<String?> onSupervisorChanged;
 
@@ -420,6 +648,18 @@ class _CatalogCard extends StatelessWidget {
     final models = catalog?.models ?? const <OpenRouterModel>[];
     final query = searchController.text.trim().toLowerCase();
     final filtered = models
+        .where((model) {
+          switch (filter) {
+            case 'free':
+              return model.isFree;
+            case 'paid':
+              return model.isPaid;
+            case 'tools':
+              return model.supportsTools;
+            default:
+              return true;
+          }
+        })
         .where(
           (model) =>
               query.isEmpty ||
@@ -477,36 +717,26 @@ class _CatalogCard extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               if (loading)
-                const LinearProgressIndicator()
+                const FProgress()
               else if (error != null)
                 _CatalogState(
-                  icon: Icons.cloud_off_outlined,
+                  icon: FrankIcons.cloudOffOutlined,
                   message:
                       'Model catalog unavailable. Configure OpenRouter and try again.',
                   error: true,
                 )
               else if (models.isEmpty)
                 _CatalogState(
-                  icon: Icons.list_alt_outlined,
+                  icon: FrankIcons.listAltOutlined,
                   message: 'No tool-capable OpenRouter models are available.',
                 )
               else
-                FrankDesktopSelectField<String?>(
+                FrankOpenRouterModelPicker(
                   key: const ValueKey('provider-supervisor-picker'),
-                  fieldKey: const ValueKey(
-                    'provider-supervisor-picker-trigger',
-                  ),
-                  value: supervisorValue,
                   label: 'Supervisor canonical model slug',
-                  hint: 'Choose a model',
-                  options: [
-                    for (final model in models)
-                      FrankDesktopSelectOption<String?>(
-                        value: model.canonicalSlug,
-                        label: '${model.name} · ${model.canonicalSlug}',
-                      ),
-                  ],
-                  enabled: !supervisorSaveBusy,
+                  value: supervisorValue ?? supervisorModel,
+                  models: models,
+                  enabled: !supervisorSaveBusy && canMutate,
                   onChanged: onSupervisorChanged,
                 ),
               if (catalog?.stale == true) ...[
@@ -569,29 +799,40 @@ class _CatalogCard extends StatelessWidget {
                 style: TextStyle(color: FrankColors.muted, height: 1.4),
               ),
               const SizedBox(height: 14),
-              TextField(
+              FTextField(
                 key: const ValueKey('provider-model-search'),
-                controller: searchController,
-                onChanged: (_) => onSearchChanged(),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  labelText: 'Search models',
-                  border: OutlineInputBorder(),
+                control: FTextFieldControl.managed(
+                  controller: searchController,
+                  onChange: (_) => onSearchChanged(),
                 ),
+                label: const Text('Search models'),
+                hint: 'Search models',
+              ),
+              const SizedBox(height: 14),
+              FrankSegmentedControl<String>(
+                key: const ValueKey('provider-model-filter'),
+                value: filter,
+                items: const [
+                  ('all', 'All', null),
+                  ('free', 'Free', null),
+                  ('paid', 'Paid', null),
+                  ('tools', 'Tools', FrankIcons.extensionOutlined),
+                ],
+                onChanged: onFilterChanged,
               ),
               const SizedBox(height: 14),
               if (loading)
-                const LinearProgressIndicator()
+                const FProgress()
               else if (error != null)
                 _CatalogState(
-                  icon: Icons.cloud_off_outlined,
+                  icon: FrankIcons.cloudOffOutlined,
                   message:
                       'Catalog cannot be displayed until the provider is reachable.',
                   error: true,
                 )
               else if (models.isEmpty)
                 _CatalogState(
-                  icon: Icons.list_alt_outlined,
+                  icon: FrankIcons.listAltOutlined,
                   message: 'The catalog is empty.',
                 )
               else if (filtered.isEmpty)
@@ -648,6 +889,15 @@ class _ModelTile extends StatelessWidget {
                   label: 'Tools',
                   tone: FrankStatusTone.success,
                 ),
+              const SizedBox(width: 6),
+              _MetadataBadge(
+                label: model.priceTier,
+                tone: model.isFree
+                    ? FrankStatusTone.success
+                    : model.isPaid
+                    ? FrankStatusTone.neutral
+                    : FrankStatusTone.attention,
+              ),
               if (model.deprecated) ...[
                 const SizedBox(width: 6),
                 const _MetadataBadge(
@@ -658,7 +908,7 @@ class _ModelTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          SelectableText(
+          Text(
             model.canonicalSlug,
             style: const TextStyle(
               color: FrankColors.aubergineAccent,
@@ -724,7 +974,7 @@ class _LockedOpenRouterPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         const Icon(
-          Icons.lock_outline,
+          FrankIcons.lockOutline,
           size: FrankUiTokens.iconSize,
           color: FrankColors.muted,
         ),
@@ -756,7 +1006,7 @@ class _LockedOpenRouterPreview extends StatelessWidget {
         const FrankStatusBadge(
           label: 'Locked',
           tone: FrankStatusTone.neutral,
-          icon: Icons.lock_outline,
+          icon: FrankIcons.lockOutline,
           compact: true,
         ),
       ],

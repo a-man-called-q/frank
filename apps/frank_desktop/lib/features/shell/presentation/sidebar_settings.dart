@@ -21,22 +21,9 @@ class _SidebarFooter extends StatefulWidget {
 }
 
 class _SidebarFooterState extends State<_SidebarFooter> {
-  late final FrankDesktopMenuController _accountController;
-
-  @override
-  void initState() {
-    super.initState();
-    _accountController = FrankDesktopMenuController();
-  }
-
-  void _toggleAccount() {
-    _accountController.toggle();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final height = widget.dense ? 32.0 : 38.0;
-    if (widget.authRepository == null) return _legacyFooter(height);
+    if (widget.authRepository == null) return _legacyFooter();
     final username =
         widget.authRepository?.currentSession?.owner.username ?? 'Owner';
     final storageWarning = widget.authRepository?.storageWarning;
@@ -46,8 +33,8 @@ class _SidebarFooterState extends State<_SidebarFooter> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (storageWarning case final warning?) ...[
-            Tooltip(
-              message: warning,
+            FTooltip(
+              tipBuilder: (_, _) => Text(warning),
               child: Semantics(
                 container: true,
                 label: 'Secure storage notice',
@@ -55,7 +42,7 @@ class _SidebarFooterState extends State<_SidebarFooter> {
                 child: Row(
                   children: [
                     const Icon(
-                      Icons.lock_outline,
+                      FrankIcons.lockOutline,
                       size: 12,
                       color: FrankColors.warningAmber,
                     ),
@@ -73,70 +60,35 @@ class _SidebarFooterState extends State<_SidebarFooter> {
             ),
             const SizedBox(height: 6),
           ],
-          FrankDesktopMenu(
+          FPopoverMenu(
             key: const ValueKey('sidebar-user-menu'),
-            controller: _accountController,
-            kind: FrankDesktopMenuKind.account,
-            matchTriggerWidth: true,
-            groups: _accountMenu(),
+            groupId: 'sidebar-account-menu',
+            menuBuilder: (context, controller, _) =>
+                _accountMenu(controller),
             semanticsLabel: 'Account settings',
-            child: Tooltip(
-              message: 'Account settings',
-              child: Semantics(
-                key: const ValueKey('sidebar-user-button'),
-                container: true,
-                button: true,
-                label: 'Account $username',
-                hint: 'Open account settings',
-                child: OutlinedButton(
-                  onPressed: _toggleAccount,
-                  style: OutlinedButton.styleFrom(
-                    alignment: Alignment.centerLeft,
-                    minimumSize: Size.zero,
-                    fixedSize: Size.fromHeight(height),
-                    padding: EdgeInsets.symmetric(
-                      horizontal: widget.dense ? 8 : 10,
-                    ),
-                    backgroundColor: FrankColors.panelRaised.withValues(
-                      alpha: .28,
-                    ),
-                    foregroundColor: FrankColors.ink,
-                    side: BorderSide(
-                      color: FrankColors.border.withValues(alpha: .8),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+            builder: (_, controller, _) => Semantics(
+              key: const ValueKey('sidebar-user-button'),
+              container: true,
+              explicitChildNodes: true,
+              button: true,
+              label: 'Account owner',
+              hint: 'Open account settings',
+              onTap: controller.toggle,
+              child: ExcludeSemantics(
+                child: FButton(
+                  onPress: controller.toggle,
+                  size: FButtonSizeVariant.sm,
+                  mainAxisSize: MainAxisSize.max,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  prefix: FAvatar.raw(
+                    size: widget.dense ? 20 : 22,
+                    child: Text(username.characters.first.toUpperCase()),
                   ),
-                  child: Row(
-                    children: [
-                      ExcludeSemantics(
-                        child: CircleAvatar(
-                          radius: widget.dense ? 10 : 11,
-                          backgroundColor: FrankColors.aubergine.withValues(
-                            alpha: .26,
-                          ),
-                          child: Text(
-                            username.characters.first.toUpperCase(),
-                            style: TextStyle(
-                              color: FrankColors.ink,
-                              fontSize: widget.dense ? 11 : 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                      SizedBox(width: widget.dense ? 7 : 8),
-                      Flexible(
-                        child: Text(
-                          username,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(FrankIcons.more, size: 15),
-                    ],
+                  suffix: const Icon(FrankIcons.more, size: 15),
+                  child: Text(
+                    username,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
                   ),
                 ),
               ),
@@ -147,98 +99,78 @@ class _SidebarFooterState extends State<_SidebarFooter> {
     );
   }
 
-  List<FrankMenuGroup> _accountMenu() {
+  List<FItemGroupMixin> _accountMenu(FPopoverController controller) {
     VoidCallback invoke(_AccountAction action) => () {
+      unawaited(controller.hide());
       unawaited(_handleAction(context, action));
     };
 
     return [
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('sidebar-account-action-change-password'),
-          label: 'Change password',
-          icon: FrankIcons.keyRound,
-          enabled: widget.onChangePassword != null,
-          onPressed: widget.onChangePassword == null
-              ? null
-              : invoke(_AccountAction.changePassword),
-        ),
-        FrankMenuItem(
-          key: const ValueKey('sidebar-account-action-logout-all'),
-          label: 'Log out all devices',
-          icon: FrankIcons.monitorSmartphone,
-          enabled: widget.onLogoutAll != null,
-          onPressed: widget.onLogoutAll == null
-              ? null
-              : invoke(_AccountAction.logoutAll),
-        ),
-      ]),
-      FrankMenuGroup([
-        FrankMenuItem(
-          key: const ValueKey('sidebar-account-action-logout'),
-          label: 'Log out',
-          icon: FrankIcons.logOut,
-          destructive: true,
-          enabled: widget.onLogout != null,
-          onPressed: widget.onLogout == null
-              ? null
-              : invoke(_AccountAction.logout),
-        ),
-      ]),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('sidebar-account-action-change-password'),
+            title: const Text('Change password'),
+            prefix: const Icon(FrankIcons.keyRound),
+            enabled: widget.onChangePassword != null,
+            semanticsLabel: 'Change password',
+            onPress: widget.onChangePassword == null
+                ? null
+                : invoke(_AccountAction.changePassword),
+          ),
+          FItem(
+            key: const ValueKey('sidebar-account-action-logout-all'),
+            title: const Text('Log out all devices'),
+            prefix: const Icon(FrankIcons.monitorSmartphone),
+            enabled: widget.onLogoutAll != null,
+            semanticsLabel: 'Log out all devices',
+            onPress: widget.onLogoutAll == null
+                ? null
+                : invoke(_AccountAction.logoutAll),
+          ),
+        ],
+      ),
+      FItemGroup(
+        children: [
+          FItem(
+            key: const ValueKey('sidebar-account-action-logout'),
+            title: const Text('Log out'),
+            prefix: const Icon(FrankIcons.logOut),
+            variant: FItemVariant.destructive,
+            enabled: widget.onLogout != null,
+            semanticsLabel: 'Log out',
+            onPress: widget.onLogout == null
+                ? null
+                : invoke(_AccountAction.logout),
+          ),
+        ],
+      ),
     ];
   }
 
-  Widget _legacyFooter(double height) => Padding(
+  Widget _legacyFooter() => Padding(
     padding: EdgeInsets.all(widget.dense ? 8 : 12),
-    child: Tooltip(
-      message: 'User profile is not available yet',
-      child: Semantics(
-        key: const ValueKey('sidebar-user-button'),
-        container: true,
-        button: true,
-        enabled: false,
-        label: 'User',
-        hint: 'User profile is not available yet',
-        child: OutlinedButton(
-          onPressed: null,
-          style: OutlinedButton.styleFrom(
-            alignment: Alignment.centerLeft,
-            minimumSize: Size.zero,
-            fixedSize: Size.fromHeight(height),
-            padding: EdgeInsets.symmetric(horizontal: widget.dense ? 8 : 10),
-            backgroundColor: FrankColors.panelRaised.withValues(alpha: .28),
-            disabledForegroundColor: FrankColors.muted,
-            side: BorderSide(color: FrankColors.border.withValues(alpha: .8)),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          child: Row(
-            children: [
-              ExcludeSemantics(
-                child: CircleAvatar(
-                  radius: widget.dense ? 10 : 11,
-                  backgroundColor: FrankColors.aubergine.withValues(alpha: .26),
-                  child: Text(
-                    'U',
-                    style: TextStyle(
-                      color: FrankColors.ink,
-                      fontSize: widget.dense ? 11 : 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: widget.dense ? 7 : 8),
-              const Flexible(
-                child: Text(
-                  'User',
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-          ),
+    child: Semantics(
+      key: const ValueKey('sidebar-user-button'),
+      container: true,
+      button: true,
+      enabled: false,
+      label: 'User',
+      hint: 'User profile is not available yet',
+      child: FButton(
+        onPress: null,
+        variant: FButtonVariant.outline,
+        size: FButtonSizeVariant.sm,
+        mainAxisSize: MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.start,
+        prefix: FAvatar.raw(
+          size: widget.dense ? 20 : 22,
+          child: const Text('U'),
+        ),
+        child: const Text(
+          'User',
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 12),
         ),
       ),
     ),
@@ -256,7 +188,7 @@ class _SidebarFooterState extends State<_SidebarFooter> {
       case _AccountAction.changePassword:
         final callback = widget.onChangePassword;
         if (callback == null || !context.mounted) return;
-        final values = await showDialog<(String, String)>(
+        final values = await showFrankDialog<(String, String)>(
           context: context,
           builder: (_) => const _ChangePasswordDialog(),
         );
@@ -265,9 +197,7 @@ class _SidebarFooterState extends State<_SidebarFooter> {
           await callback(values.$1, values.$2);
         } on Object catch (error) {
           if (!context.mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(error.toString())));
+          showFrankToast(context, error.toString());
         }
     }
   }
@@ -293,47 +223,78 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Change password'),
-    content: Form(
-      key: _formKey,
+  Widget build(BuildContext context) => FDialog(
+    builder: (context, style) => Padding(
+      padding: const EdgeInsets.all(20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextFormField(
-            controller: _current,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Current password'),
-            validator: (value) => value == null || value.isEmpty
-                ? 'Enter your current password'
-                : null,
+          Text('Change password', style: style.titleTextStyle),
+          const SizedBox(height: 16),
+          Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  container: true,
+                  label: 'Current password',
+                  child: ExcludeSemantics(
+                    child: FTextFormField(
+                      key: const ValueKey('change-password-current'),
+                      control: FTextFieldControl.managed(controller: _current),
+                      obscureText: true,
+                      label: const Text('Current password'),
+                      validator: (value) => value == null || value.isEmpty
+                          ? 'Enter your current password'
+                          : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Semantics(
+                  container: true,
+                  label: 'New password',
+                  child: ExcludeSemantics(
+                    child: FTextFormField(
+                      key: const ValueKey('change-password-new'),
+                      control: FTextFieldControl.managed(controller: _next),
+                      obscureText: true,
+                      label: const Text('New password'),
+                      validator: (value) => value == null || value.runes.length < 15
+                          ? 'Use at least 15 characters'
+                          : value.runes.length > 128
+                          ? 'Use at most 128 characters'
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          TextFormField(
-            controller: _next,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'New password'),
-            validator: (value) => value == null || value.runes.length < 15
-                ? 'Use at least 15 characters'
-                : value.runes.length > 128
-                ? 'Use at most 128 characters'
-                : null,
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              FButton(
+                onPress: () => Navigator.of(context).pop(),
+                variant: FButtonVariant.ghost,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              FButton(
+                onPress: () {
+                  if (_formKey.currentState?.validate() ?? false) {
+                    Navigator.of(context).pop((_current.text, _next.text));
+                  }
+                },
+                child: const Text('Change password'),
+              ),
+            ],
           ),
         ],
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: () {
-          if (_formKey.currentState?.validate() ?? false) {
-            Navigator.of(context).pop((_current.text, _next.text));
-          }
-        },
-        child: const Text('Change password'),
-      ),
-    ],
   );
 }

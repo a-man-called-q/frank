@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/gateway/frank_gateway.dart';
 import '../../../core/models/workspace_models.dart';
+import '../../../core/models/organization_models.dart';
 import '../sidebar_layout.dart';
 import 'shell_preferences.dart';
 
@@ -35,6 +36,7 @@ class ShellState {
     this.preferencesStatus = ShellPreferencesStatus.loading,
     this.projectScope,
     this.pinnedMissionIds = const [],
+    this.organizationViewMode = OrganizationViewMode.canvas,
     this.error,
   });
 
@@ -46,6 +48,7 @@ class ShellState {
   final ShellPreferencesStatus preferencesStatus;
   final String? projectScope;
   final List<String> pinnedMissionIds;
+  final OrganizationViewMode organizationViewMode;
   final String? error;
 
   /// Compatibility getter for callers that still use the old terminology.
@@ -75,6 +78,7 @@ class ShellState {
     ShellPreferencesStatus? preferencesStatus,
     Object? projectScope = _unset,
     List<String>? pinnedMissionIds,
+    OrganizationViewMode? organizationViewMode,
     String? error,
     bool clearError = false,
   }) {
@@ -91,6 +95,7 @@ class ShellState {
           ? this.projectScope
           : projectScope as String?,
       pinnedMissionIds: pinnedMissionIds ?? this.pinnedMissionIds,
+      organizationViewMode: organizationViewMode ?? this.organizationViewMode,
       error: clearError ? null : error ?? this.error,
     );
   }
@@ -144,6 +149,12 @@ final class ShellPinnedMissionOrderChanged extends ShellEvent {
   final List<String> missionIds;
 }
 
+final class ShellOrganizationViewModeChanged extends ShellEvent {
+  const ShellOrganizationViewModeChanged(this.mode);
+
+  final OrganizationViewMode mode;
+}
+
 class ShellBloc extends Bloc<ShellEvent, ShellState> {
   ShellBloc({required WorkspaceGateway gateway, ShellPreferences? preferences})
     : _gateway = gateway,
@@ -157,6 +168,7 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
     on<ShellSidebarResizeEnded>(_resizeSidebar);
     on<ShellProjectScopeChanged>(_changeProjectScope);
     on<ShellPinnedMissionOrderChanged>(_changePinnedMissionOrder);
+    on<ShellOrganizationViewModeChanged>(_changeOrganizationViewMode);
   }
 
   final WorkspaceGateway _gateway;
@@ -193,6 +205,7 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
           preferencesStatus: preferencesStatus,
           projectScope: scope,
           pinnedMissionIds: preferences.pinnedMissionIds,
+          organizationViewMode: preferences.organizationViewMode,
           clearError: true,
         ),
       );
@@ -219,6 +232,7 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
           sidebarWidth: SidebarLayout.normalizeWidth(preferences.sidebarWidth),
           projectScope: preferences.projectScope,
           pinnedMissionIds: List.unmodifiable(preferences.pinnedMissionIds),
+          organizationViewMode: preferences.organizationViewMode,
         ),
         ShellPreferencesStatus.ready,
       );
@@ -280,6 +294,14 @@ class ShellBloc extends Bloc<ShellEvent, ShellState> {
     final ids = List<String>.unmodifiable(event.missionIds);
     emit(state.copyWith(pinnedMissionIds: ids));
     unawaited(_persist(() => _preferences.setPinnedMissionIds(ids)));
+  }
+
+  void _changeOrganizationViewMode(
+    ShellOrganizationViewModeChanged event,
+    Emitter<ShellState> emit,
+  ) {
+    emit(state.copyWith(organizationViewMode: event.mode));
+    unawaited(_persist(() => _preferences.setOrganizationViewMode(event.mode)));
   }
 
   Future<void> _persist(Future<void> Function() operation) async {

@@ -136,12 +136,10 @@ final class ChatMessageStopRequested extends ChatEvent {
 }
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
-  ChatBloc({
-    required ChatGateway gateway,
-    MessageIdFactory? messageIdFactory,
-  })  : _gateway = gateway,
-        _messageIdFactory = messageIdFactory ?? _defaultMessageId,
-        super(const ChatState()) {
+  ChatBloc({required ChatGateway gateway, MessageIdFactory? messageIdFactory})
+    : _gateway = gateway,
+      _messageIdFactory = messageIdFactory ?? _defaultMessageId,
+      super(const ChatState()) {
     on<ChatInitialized>(_initialize);
     on<ChatContextChanged>(_changeContext);
     on<ChatMessageSubmitted>(_submitMessage);
@@ -168,7 +166,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         messages[MissionConversationContext(
           projectId: project.id,
           missionId: mission.id,
-        )] = List<OfficeMessage>.unmodifiable(mission.messages);
+        )] = List<OfficeMessage>.unmodifiable(
+          mission.messages,
+        );
       }
     }
     emit(
@@ -205,7 +205,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     Emitter<ChatState> emit,
   ) async {
     final text = event.text.trim();
-    if (text.isEmpty || state.generating || state.activeContext != event.context) {
+    if (text.isEmpty ||
+        state.generating ||
+        state.activeContext != event.context) {
       return;
     }
 
@@ -221,11 +223,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ...state.messagesByContext,
       event.context: List<OfficeMessage>.unmodifiable([
         ...currentMessages,
-        OfficeMessage(
-          id: messageId,
-          role: ChatRole.user,
-          text: text,
-        ),
+        OfficeMessage(id: messageId, role: ChatRole.user, text: text),
         OfficeMessage(
           id: replyId,
           role: ChatRole.assistant,
@@ -286,10 +284,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         );
   }
 
-  void _receiveChunk(
-    ChatReplyChunkArrived event,
-    Emitter<ChatState> emit,
-  ) {
+  void _receiveChunk(ChatReplyChunkArrived event, Emitter<ChatState> emit) {
     if (!_isCurrent(event.token, event.context, event.replyId)) return;
     final messages = state.messagesFor(event.context);
     if (messages.isEmpty || messages.last.id != event.replyId) return;
@@ -298,7 +293,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       text: current.text + event.chunk,
       status: OfficeMessageStatus.streaming,
     );
-    emit(_replaceLastMessage(event.context, updated).copyWith(status: ChatStatus.streaming));
+    emit(
+      _replaceLastMessage(
+        event.context,
+        updated,
+      ).copyWith(status: ChatStatus.streaming),
+    );
   }
 
   Future<void> _completeReply(
@@ -374,7 +374,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final subscription = _replySubscription;
     _replySubscription = null;
     await subscription?.cancel();
-    if (!markStopped || state.pendingReplyId == null || state.pendingContext == null) {
+    if (!markStopped ||
+        state.pendingReplyId == null ||
+        state.pendingContext == null) {
       return;
     }
     final context = state.pendingContext!;

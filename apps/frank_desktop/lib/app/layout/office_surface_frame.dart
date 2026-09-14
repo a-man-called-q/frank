@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 
 import '../theme.dart';
@@ -92,7 +92,7 @@ class OfficeLayoutMetricsScope extends InheritedWidget {
 class OfficeSurfaceFrame extends StatelessWidget {
   const OfficeSurfaceFrame.canvas({
     required this.child,
-    this.backgroundColor = Colors.transparent,
+    this.backgroundColor = const Color(0x00000000),
     this.header,
     this.overlay,
     super.key,
@@ -111,7 +111,7 @@ class OfficeSurfaceFrame extends StatelessWidget {
     super.key,
   }) : mode = OfficeSurfaceMode.page,
        child = null,
-       backgroundColor = Colors.transparent,
+       backgroundColor = const Color(0x00000000),
        overlay = null;
 
   final OfficeSurfaceMode mode;
@@ -376,16 +376,13 @@ class _OfficeInspectorDrawerOverlayState
       key: widget.inspectorKey,
       child: inspector,
     );
-    final content = Material(
-      type: MaterialType.transparency,
-      child: desktop
-          ? inspectorChild
-          : Focus(
-              debugLabel: 'office-inspector',
-              autofocus: true,
-              child: inspectorChild,
-            ),
-    );
+    final content = desktop
+        ? inspectorChild
+        : Focus(
+            debugLabel: 'office-inspector',
+            autofocus: true,
+            child: inspectorChild,
+          );
     final panel = DecoratedBox(
       decoration: const BoxDecoration(
         border: Border(left: BorderSide(color: FrankColors.border)),
@@ -432,6 +429,9 @@ class _OfficeInspectorDrawerOverlayState
         final desktop =
             availableWidth >= OfficeInspectorDrawerOverlay.desktopBreakpoint;
         final hidden = widget.inspector != null && !desktop;
+        if (widget.inspector == null) {
+          return _mainPane(hidden: false);
+        }
         return OverlayPortal.overlayChildLayoutBuilder(
           controller: _overlayController,
           overlayLocation: OverlayChildLocation.rootOverlay,
@@ -563,7 +563,7 @@ class _OfficePageFrameState extends State<_OfficePageFrame> {
               behavior: ScrollConfiguration.of(
                 context,
               ).copyWith(scrollbars: false),
-              child: Scrollbar(
+              child: RawScrollbar(
                 controller: scrollController,
                 child: CustomScrollView(
                   key: widget.scrollKey,

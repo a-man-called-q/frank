@@ -1,13 +1,15 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:forui/forui.dart';
 
-import '../../../app/controls/frank_desktop_menu.dart';
+import '../../../app/icons.dart';
 import '../../../app/layout/office_surface_frame.dart';
 import '../../../app/office_ui.dart';
 import '../../../app/theme.dart';
 import '../../../core/models/openrouter_models.dart';
 import '../../../core/models/team_models.dart';
 import '../../../core/models/workspace_models.dart';
+import '../../openrouter/openrouter_model_picker.dart';
 
 part 'team_roster.dart';
 part 'team_profile.dart';
@@ -46,6 +48,8 @@ class TeamSurface extends StatefulWidget {
     this.catalog,
     this.catalogError,
     this.catalogLoading = false,
+    this.providerConfigured,
+    this.providerError,
     this.onSaveAgentModel,
     this.onSaveRoleModel,
     this.roles = const [],
@@ -55,6 +59,8 @@ class TeamSurface extends StatefulWidget {
     this.onArchiveRole,
     this.onUpdateAgent,
     this.onArchiveAgent,
+    this.canMutate = true,
+    this.mutationDisabledReason,
     super.key,
   });
 
@@ -64,6 +70,8 @@ class TeamSurface extends StatefulWidget {
   final OpenRouterCatalog? catalog;
   final Object? catalogError;
   final bool catalogLoading;
+  final bool? providerConfigured;
+  final Object? providerError;
   final TeamModelChange? onSaveAgentModel;
   final TeamRoleModelChange? onSaveRoleModel;
   final List<TeamRoleSummary> roles;
@@ -73,6 +81,8 @@ class TeamSurface extends StatefulWidget {
   final TeamRoleArchive? onArchiveRole;
   final TeamAgentUpdate? onUpdateAgent;
   final TeamAgentArchive? onArchiveAgent;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   State<TeamSurface> createState() => _TeamSurfaceState();
@@ -135,34 +145,28 @@ class _TeamSurfaceState extends State<TeamSurface> {
   @override
   Widget build(BuildContext context) {
     final selected = _selectedProfile;
-    final profileOpen = selected != null;
-    final header = profileOpen
-        ? _ProfileHeader(
-            profile: selected,
-            onBack: _closeProfile,
-            onArchive: widget.onArchiveAgent == null
-                ? null
-                : () => _archiveSelected(context, selected),
+    final header = _TeamHeader(
+      agentCount: _profiles.length,
+      isFixture: widget.isFixture,
+      roles: widget.roles,
+      models: widget.catalog?.models ?? const [],
+      selectedTab: _selectedRosterTab,
+      onTabSelected: (tab) => setState(() => _selectedRosterTab = tab),
+      onCreateRole: widget.onCreateRole,
+      onCreateAgent: widget.onCreateAgent,
+      canMutate: widget.canMutate,
+      mutationDisabledReason: widget.mutationDisabledReason,
+      workingCount: _profiles
+          .where(
+            (profile) =>
+                profile.status == TeamAgentStatus.working ||
+                profile.status == TeamAgentStatus.reviewing,
           )
-        : _TeamHeader(
-            agentCount: _profiles.length,
-            isFixture: widget.isFixture,
-            roles: widget.roles,
-            selectedTab: _selectedRosterTab,
-            onTabSelected: (tab) => setState(() => _selectedRosterTab = tab),
-            onCreateRole: widget.onCreateRole,
-            onCreateAgent: widget.onCreateAgent,
-            workingCount: _profiles
-                .where(
-                  (profile) =>
-                      profile.status == TeamAgentStatus.working ||
-                      profile.status == TeamAgentStatus.reviewing,
-                )
-                .length,
-            availableCount: _profiles
-                .where((profile) => profile.status == TeamAgentStatus.available)
-                .length,
-          );
+          .length,
+      availableCount: _profiles
+          .where((profile) => profile.status == TeamAgentStatus.available)
+          .length,
+    );
     final rosterContent = _selectedRosterTab == TeamRosterTab.members
         ? _TeamRoster(
             profiles: _profiles,
@@ -172,20 +176,32 @@ class _TeamSurfaceState extends State<TeamSurface> {
         : _TeamRoles(
             roles: widget.roles,
             profiles: _profiles,
+            models: widget.catalog?.models ?? const [],
             onUpdateRole: widget.onUpdateRole,
             onArchiveRole: widget.onArchiveRole,
+            canMutate: widget.canMutate,
+            mutationDisabledReason: widget.mutationDisabledReason,
           );
     final content = SliverSemantics(
       container: true,
       explicitChildNodes: true,
-      label: !profileOpen
-          ? (_selectedRosterTab == TeamRosterTab.members
-                ? 'Team roster'
-                : 'Team roles')
-          : 'Character profile for ${selected.name}',
-      sliver: !profileOpen
-          ? rosterContent
-          : SliverToBoxAdapter(
+      label: _selectedRosterTab == TeamRosterTab.members
+          ? 'Team roster'
+          : 'Team roles',
+      sliver: rosterContent,
+    );
+    final inspector = selected == null
+        ? null
+        : Semantics(
+            container: true,
+            explicitChildNodes: true,
+            label: 'Member details for ${selected.name}',
+            child: SizedBox(
+              // The overlay constrains this to its actual drawer width on
+              // desktop while keeping a finite max width when the compact
+              // overlay covers the feature. This prevents tab/button rows
+              // from laying out against the full page width.
+              width: 480,
               child: _TeamProfile(
                 profile: selected,
                 roles: widget.roles,
@@ -194,12 +210,32 @@ class _TeamSurfaceState extends State<TeamSurface> {
                 catalog: widget.catalog,
                 catalogError: widget.catalogError,
                 catalogLoading: widget.catalogLoading,
+                providerConfigured: widget.providerConfigured,
+                providerError: widget.providerError,
                 onSaveAgentModel: widget.onSaveAgentModel,
                 onSaveRoleModel: widget.onSaveRoleModel,
                 onUpdateAgent: widget.onUpdateAgent,
+                canMutate: widget.canMutate,
+                mutationDisabledReason: widget.mutationDisabledReason,
+                onEditRole: () {
+                  setState(() => _selectedRosterTab = TeamRosterTab.roles);
+                  _closeProfile();
+                },
+                onClose: _closeProfile,
+                onArchive: widget.onArchiveAgent == null
+                    ? null
+                    : () => _archiveSelected(context, selected),
                 onTabSelected: (tab) => setState(() => _selectedTab = tab),
               ),
             ),
+          );
+    final frame = OfficeSurfaceFrame.page(
+      key: const ValueKey('team-roster-frame'),
+      fullWidth: true,
+      scrollKey: const ValueKey('team-roster-scroll'),
+      scrollController: _rosterScrollController,
+      header: header,
+      slivers: [content],
     );
     return Focus(
       focusNode: _surfaceFocusNode,
@@ -213,17 +249,13 @@ class _TeamSurfaceState extends State<TeamSurface> {
         }
         return KeyEventResult.ignored;
       },
-      child: OfficeSurfaceFrame.page(
-        key: ValueKey(profileOpen ? 'team-profile-frame' : 'team-roster-frame'),
-        fullWidth: true,
-        scrollKey: ValueKey(
-          profileOpen ? 'team-profile-scroll' : 'team-roster-scroll',
-        ),
-        scrollController: profileOpen
-            ? _profileScrollController
-            : _rosterScrollController,
-        header: header,
-        slivers: [content],
+      child: OfficeInspectorDrawerOverlay(
+        child: frame,
+        inspector: inspector,
+        inspectorKey: const ValueKey('team-member-drawer'),
+        inspectorLabel: selected == null
+            ? 'Team member details'
+            : 'Member details for ${selected.name}',
       ),
     );
   }
@@ -266,21 +298,36 @@ class _TeamSurfaceState extends State<TeamSurface> {
     BuildContext context,
     TeamAgentProfile profile,
   ) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showFrankDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Archive ${profile.name}?'),
-        content: const Text(
-          'Archiving keeps the agent and task history available without allowing new assignments.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Archive ${profile.name}?',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Archive member'),
+          const SizedBox(height: 10),
+          const Text(
+            'Archiving keeps the agent and task history available without allowing new assignments.',
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              FButton(
+                onPress: () => Navigator.pop(dialogContext, false),
+                variant: FButtonVariant.ghost,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              FButton(
+                onPress: () => Navigator.pop(dialogContext, true),
+                variant: FButtonVariant.destructive,
+                child: const Text('Archive member'),
+              ),
+            ],
           ),
         ],
       ),
@@ -291,9 +338,7 @@ class _TeamSurfaceState extends State<TeamSurface> {
       if (mounted) _closeProfile();
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Member could not be archived: $error')),
-        );
+        showFrankToast(context, 'Member could not be archived: $error');
       }
     }
   }

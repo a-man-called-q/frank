@@ -89,8 +89,26 @@ class OpenRouterModel {
   final List<String> supportedParameters;
   final DateTime? deprecatedAt;
 
-  bool get supportsTools => supportedParameters.contains('tools');
+  bool get supportsTools => supportedParameters.any(
+    (parameter) => parameter.trim().toLowerCase() == 'tools',
+  );
   bool get deprecated => deprecatedAt != null;
+
+  bool get isFree =>
+      canonicalSlug.endsWith(':free') ||
+      (_price(inputPricePerToken) == 0 && _price(outputPricePerToken) == 0);
+
+  bool get isPaid {
+    final input = _priceOrNull(inputPricePerToken);
+    final output = _priceOrNull(outputPricePerToken);
+    return input != null && output != null && (input > 0 || output > 0);
+  }
+
+  String get priceTier => isFree
+      ? 'Free'
+      : isPaid
+      ? 'Paid'
+      : 'Unknown';
 
   String get priceLabel {
     final input = inputPricePerToken ?? '—';
@@ -154,4 +172,11 @@ DateTime? _parseTimestamp(Object? value) {
     return DateTime.fromMillisecondsSinceEpoch(millis, isUtc: true);
   }
   return DateTime.tryParse(raw)?.toUtc();
+}
+
+double _price(String? value) => _priceOrNull(value) ?? double.nan;
+
+double? _priceOrNull(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  return double.tryParse(value.trim());
 }

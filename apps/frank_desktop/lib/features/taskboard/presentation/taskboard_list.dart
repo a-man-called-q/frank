@@ -13,7 +13,7 @@ class _TaskboardList extends StatelessWidget {
 
   final List<TaskboardTask> tasks;
   final bool workspaceHasTasks;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final ValueChanged<String> onSelectTask;
   final FocusNode Function(String taskId) focusNodeFor;
   final bool hasActiveFilters;
@@ -64,7 +64,7 @@ class _MissionListSection extends StatelessWidget {
   });
 
   final List<TaskboardTask> tasks;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final ValueChanged<String> onSelectTask;
   final FocusNode Function(String taskId) focusNodeFor;
 
@@ -145,34 +145,97 @@ class _TaskListRow extends StatelessWidget {
     final activity = task.latestActivity;
     final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
     final stackedLayout = textScaleFactor > 1.25;
-    return TextButton(
+    return FCard(
       key: ValueKey('taskboard-list-task-${task.id}'),
-      focusNode: focusNode,
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        alignment: Alignment.centerLeft,
-        minimumSize: const Size(double.infinity, FrankUiTokens.controlHeight),
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
-        foregroundColor: FrankColors.ink,
-        backgroundColor: FrankColors.panel,
-        side: const BorderSide(color: FrankColors.border),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
-        ),
-        overlayColor: FrankColors.aubergineAccent.withValues(alpha: .09),
-      ),
-      child: stackedLayout
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
+      child: FTappable.static(
+        focusNode: focusNode,
+        onPress: onPressed,
+        semanticsLabel: task.title,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+          child: stackedLayout
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 64,
+                          child: Text(
+                            task.id,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: FrankColors.muted,
+                              fontFamily: FrankTypography.monoFontFamily,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                        _LaneDot(lane: task.lane),
+                        const SizedBox(width: 7),
+                        SizedBox(
+                          width: 130,
+                          child: Text(
+                            task.lane.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: _laneColor(task.lane),
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        _InitialsAvatar(
+                          initials: profile?.initials ?? task.agentInitials,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            activity?.timeLabel ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.end,
+                            style: const TextStyle(
+                              color: FrankColors.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      task.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: FrankColors.ink,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (activity != null)
+                      Text(
+                        activity.message,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: task.needsAttention
+                              ? FrankColors.warningAmber
+                              : FrankColors.muted,
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                )
+              : Row(
                   children: [
                     SizedBox(
-                      width: 64,
+                      width: 53,
                       child: Text(
                         task.id,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: FrankColors.muted,
                           fontFamily: FrankTypography.monoFontFamily,
@@ -183,10 +246,9 @@ class _TaskListRow extends StatelessWidget {
                     _LaneDot(lane: task.lane),
                     const SizedBox(width: 7),
                     SizedBox(
-                      width: 130,
+                      width: 78,
                       child: Text(
                         task.lane.label,
-                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: _laneColor(task.lane),
@@ -194,118 +256,50 @@ class _TaskListRow extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 7),
+                    Expanded(
+                      child: Text(
+                        task.title,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: FrankColors.ink,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (activity != null) ...[
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          activity.message,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: task.needsAttention
+                                ? FrankColors.warningAmber
+                                : FrankColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
                     _InitialsAvatar(
                       initials: profile?.initials ?? task.agentInitials,
                     ),
                     const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        activity?.timeLabel ?? '',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(
-                          color: FrankColors.muted,
-                          fontSize: 11,
-                        ),
+                    Text(
+                      activity?.timeLabel ?? '',
+                      style: const TextStyle(
+                        color: FrankColors.muted,
+                        fontSize: 11,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  task.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: FrankColors.ink,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (activity != null)
-                  Text(
-                    activity.message,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: task.needsAttention
-                          ? FrankColors.warningAmber
-                          : FrankColors.muted,
-                      fontSize: 11,
-                    ),
-                  ),
-              ],
-            )
-          : Row(
-              children: [
-                SizedBox(
-                  width: 53,
-                  child: Text(
-                    task.id,
-                    style: const TextStyle(
-                      color: FrankColors.muted,
-                      fontFamily: FrankTypography.monoFontFamily,
-                      fontSize: 10,
-                    ),
-                  ),
-                ),
-                _LaneDot(lane: task.lane),
-                const SizedBox(width: 7),
-                SizedBox(
-                  width: 78,
-                  child: Text(
-                    task.lane.label,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _laneColor(task.lane),
-                      fontSize: 11,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 7),
-                Expanded(
-                  child: Text(
-                    task.title,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: FrankColors.ink,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (activity != null) ...[
-                  const SizedBox(width: 10),
-                  Flexible(
-                    child: Text(
-                      activity.message,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: task.needsAttention
-                            ? FrankColors.warningAmber
-                            : FrankColors.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                _InitialsAvatar(
-                  initials: profile?.initials ?? task.agentInitials,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  activity?.timeLabel ?? '',
-                  style: const TextStyle(
-                    color: FrankColors.muted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
+        ),
+      ),
     );
   }
 }
@@ -334,11 +328,12 @@ class _TaskboardEmpty extends StatelessWidget {
       title: 'No tasks match these filters',
       message: 'Clear filters to see all tasks in this workspace.',
       icon: FrankIcons.filter,
-      action: OutlinedButton.icon(
+      action: FButton(
         key: const ValueKey('taskboard-clear-filters'),
-        onPressed: hasActiveFilters ? onClearFilters : null,
-        icon: const Icon(FrankIcons.close, size: FrankUiTokens.iconSize),
-        label: const Text('Clear filters'),
+        onPress: hasActiveFilters ? onClearFilters : null,
+        variant: FButtonVariant.outline,
+        prefix: const Icon(FrankIcons.close, size: FrankUiTokens.iconSize),
+        child: const Text('Clear filters'),
       ),
     );
   }

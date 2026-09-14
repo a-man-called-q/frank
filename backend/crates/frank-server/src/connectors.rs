@@ -609,9 +609,7 @@ async fn test_connection(
     };
 
     let (configured, health, diagnostic) = match profile.kind {
-        ConnectorKind::Taskboard | ConnectorKind::Terminal => {
-            (true, ConnectorHealth::Healthy, None)
-        }
+        ConnectorKind::Terminal => (true, ConnectorHealth::Healthy, None),
         ConnectorKind::Browser => {
             let result = profile
                 .config
@@ -772,23 +770,13 @@ async fn save(
             .find(|profile| profile.id == profile_id && !profile.archived),
         Err(_) => None,
     };
-    let Some(profile) = profile else {
+    let Some(_profile) = profile else {
         return api_error_response(
             StatusCode::NOT_FOUND,
             ApiError::new(ErrorCode::NotFound, "connector profile not found"),
         )
         .into_response();
     };
-    if profile.kind == ConnectorKind::Taskboard {
-        return api_error_response(
-            StatusCode::BAD_REQUEST,
-            ApiError::new(
-                ErrorCode::Validation,
-                "Taskboard is internal and does not accept external credentials",
-            ),
-        )
-        .into_response();
-    }
     let secret = payload.secret.trim();
     if secret.is_empty() || secret.len() > MAX_SECRET_BYTES {
         return api_error_response(

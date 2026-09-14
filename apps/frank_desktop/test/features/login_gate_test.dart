@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
@@ -24,7 +25,7 @@ void main() {
     expect(find.byKey(const ValueKey('login-username-field')), findsOneWidget);
     expect(find.byKey(const ValueKey('login-password-field')), findsOneWidget);
     expect(find.byKey(const ValueKey('login-submit-button')), findsOneWidget);
-    expect(find.byType(Card), findsNothing);
+    expect(find.byType(FCard), findsNothing);
     expect(
       find.byKey(const ValueKey('preloaded-office-shell')),
       findsOneWidget,
@@ -41,6 +42,9 @@ void main() {
     );
 
     await tester.tap(find.byKey(const ValueKey('login-submit-button')));
+    await tester.pump(const Duration(milliseconds: 100));
+    // ForUI renders validation feedback in a follow-up frame after the form
+    // state changes, so allow that frame before asserting the messages.
     await tester.pump();
 
     expect(find.text('Enter your username'), findsOneWidget);

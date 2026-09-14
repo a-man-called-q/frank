@@ -31,48 +31,35 @@ class _SearchField extends StatelessWidget {
       child: Semantics(
         textField: true,
         label: 'Search workspace',
-        child: TextField(
-          controller: controller,
+        value: controller.text,
+        child: ExcludeSemantics(
+          child: FTextField(
+          key: const ValueKey('work-inbox-search-field'),
+          control: FTextFieldControl.managed(
+            controller: controller,
+            onChange: (value) => onChanged(value.text),
+          ),
           focusNode: focusNode,
-          onChanged: onChanged,
-          style: const TextStyle(color: FrankColors.ink, fontSize: 12),
-          decoration: InputDecoration(
-            isDense: true,
-            filled: true,
-            fillColor: FrankColors.panelRaised,
-            prefixIcon: const Icon(FrankIcons.search, size: 16),
-            prefixIconConstraints: const BoxConstraints.tightFor(width: 34),
-            suffixIcon: controller.text.isEmpty
+          hint: 'Search workspace',
+          prefixBuilder: (context, style, variants) =>
+              FTextField.prefixIconBuilder(
+                context,
+                style,
+                variants,
+                const Icon(FrankIcons.search, size: 16),
+              ),
+          suffixBuilder: (context, style, _) => FButton.icon(
+            key: const ValueKey('work-inbox-search-clear'),
+            style: style.clearButtonStyle,
+            semanticsLabel: 'Clear the workspace search',
+            onPress: controller.text.isEmpty
                 ? null
-                : Semantics(
-                    button: true,
-                    label: 'Clear the workspace search',
-                    child: IconButton(
-                      onPressed: onClear,
-                      tooltip: 'Clear the workspace search',
-                      icon: const Icon(FrankIcons.close, size: 15),
-                      color: FrankColors.muted,
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-            hintText: 'Search workspace',
-            hintStyle: const TextStyle(color: FrankColors.muted, fontSize: 12),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 10,
-              vertical: 9,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: FrankColors.border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: FrankColors.border),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: FrankColors.border),
-            ),
+                : () {
+                    controller.clear();
+                    onClear();
+                  },
+            child: const Icon(FrankIcons.close, size: 16),
+          ),
           ),
         ),
       ),

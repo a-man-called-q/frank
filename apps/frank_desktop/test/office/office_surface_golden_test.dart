@@ -1,6 +1,6 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
@@ -60,7 +60,7 @@ void main() {
   ) async {
     await _pumpTaskboardShell(tester, const ui.Size(1600, 1000));
     await tester.tap(find.byKey(const ValueKey('taskboard-view-list')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
       find.byKey(const ValueKey('office-surface-golden-root')),
       matchesGoldenFile('goldens/taskboard-list.png'),
@@ -72,7 +72,7 @@ void main() {
   ) async {
     await _pumpTaskboardShell(tester, const ui.Size(1600, 1000));
     await tester.tap(find.byKey(const ValueKey('taskboard-task-NS-03')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
       find.byKey(const ValueKey('office-surface-golden-root')),
       matchesGoldenFile('goldens/taskboard-detail.png'),
@@ -95,7 +95,7 @@ void main() {
   ) async {
     await _pumpTaskboardShell(tester, const ui.Size(680, 800));
     await tester.tap(find.byKey(const ValueKey('taskboard-list-task-NS-03')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
       find.byKey(const ValueKey('office-surface-golden-root')),
       matchesGoldenFile('goldens/taskboard-detail-compact.png'),
@@ -107,7 +107,7 @@ void main() {
     final task = find.byKey(const ValueKey('taskboard-list-task-NS-03'));
     await tester.ensureVisible(task);
     await tester.tap(task);
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     await expectLater(
       find.byKey(const ValueKey('office-surface-golden-root')),
       matchesGoldenFile('goldens/taskboard-detail-compact-text-scale-200.png'),

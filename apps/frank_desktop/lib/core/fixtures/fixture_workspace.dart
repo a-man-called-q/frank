@@ -1,8 +1,10 @@
 import 'fixture_organization.dart';
 import '../gateway/frank_gateway.dart';
 import '../models/organization_models.dart';
+import '../models/connection_models.dart';
 import '../models/ledger_models.dart';
 import '../models/openrouter_models.dart';
+import '../models/project_models.dart';
 import '../models/taskboard_models.dart';
 import '../models/team_models.dart';
 import '../models/workspace_models.dart';
@@ -46,11 +48,22 @@ class FixtureFrankGateway implements FrankGateway {
   );
   int _snapshotRevision = 1;
   String? _supervisorModel;
+  final Map<String, ProjectOperation> _projectOperations = {};
 
   static const _providerCatalog = OpenRouterCatalog(
     refreshedAt: null,
     stale: false,
     models: [
+      OpenRouterModel(
+        id: 'qwen/qwen-2.5-72b-instruct:free',
+        name: 'Qwen 2.5 72B Instruct (Free)',
+        canonicalSlug: 'qwen/qwen-2.5-72b-instruct:free',
+        contextLength: 32768,
+        inputPricePerToken: '0',
+        outputPricePerToken: '0',
+        supportedParameters: ['tools'],
+        deprecatedAt: null,
+      ),
       OpenRouterModel(
         id: 'openai/gpt-4o-mini',
         name: 'GPT-4o mini',
@@ -88,7 +101,118 @@ class FixtureFrankGateway implements FrankGateway {
   bool get isFixture => true;
 
   @override
+  FrankConnectionStatus get connectionStatus =>
+      const FrankConnectionStatus(
+        phase: FrankConnectionPhase.connected,
+        appProtocolVersion: 2,
+        detail: 'Demo data',
+      );
+
+  @override
+  Stream<FrankConnectionStatus> watchConnectionStatus() =>
+      const Stream<FrankConnectionStatus>.empty();
+
+  @override
+  Future<FrankServerCapabilities?> preflightCapabilities({
+    bool refresh = false,
+  }) async => null;
+
+  @override
   Stream<void> watchTaskboard() => const Stream<void>.empty();
+
+  @override
+  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([
+    String? path,
+  ]) async => const <ProjectDirectoryEntry>[];
+
+  @override
+  Future<void> registerProject(ProjectRegistrationDraft draft) async {
+    final workspace = _workspaceCache ?? await loadWorkspace();
+    final name = draft.name.trim();
+    final project = OfficeProject(
+      id: 'fixture-project-${workspace.projects.length + 1}',
+      name: name.isEmpty ? 'Registered project' : name,
+      client: name.isEmpty ? 'Registered project' : name,
+      status: ProjectStatus.planning,
+      progress: 0,
+      team: const [],
+      summary: 'Registered on the Frank demo gateway.',
+      messages: const [],
+      missions: const [],
+    );
+    _workspaceCache = OfficeWorkspace(
+      name: workspace.name,
+      projects: [...workspace.projects, project],
+      employees: workspace.employees,
+      accountExecutive: workspace.accountExecutive,
+    );
+  }
+
+  @override
+  Future<ProjectCloneReceipt> cloneProject(ProjectCloneDraft draft) async {
+    final operationId = 'fixture-operation-${_projectOperations.length + 1}';
+    _projectOperations[operationId] = ProjectOperation(
+      id: operationId,
+      status: ProjectOperationStatus.succeeded,
+      phase: 'complete',
+    );
+    await registerProject(
+      ProjectRegistrationDraft(
+        name: draft.destination.split(RegExp(r'[/\\]')).last,
+        path: draft.destination,
+      ),
+    );
+    return ProjectCloneReceipt(
+      operationId: operationId,
+      destination: draft.destination,
+    );
+  }
+
+  @override
+  Future<ProjectOperation> loadProjectOperation(String operationId) async {
+    return _projectOperations[operationId] ??
+        ProjectOperation(
+          id: operationId,
+          status: ProjectOperationStatus.succeeded,
+          phase: 'complete',
+        );
+  }
+
+  @override
+  Future<void> createMission(String projectId, String objective) async {
+    final workspace = _workspaceCache ?? await loadWorkspace();
+    final project = workspace.projects.where((value) => value.id == projectId).firstOrNull;
+    if (project == null) throw StateError('Project not found.');
+    final mission = OfficeMission(
+      id: 'fixture-mission-${project.missions.length + 1}',
+      title: objective.trim(),
+      status: MissionStatus.planned,
+      messages: const [],
+    );
+    final updated = OfficeProject(
+      id: project.id,
+      name: project.name,
+      client: project.client,
+      status: project.status,
+      progress: project.progress,
+      team: project.team,
+      summary: project.summary,
+      messages: project.messages,
+      missions: [...project.missions, mission],
+    );
+    _workspaceCache = OfficeWorkspace(
+      name: workspace.name,
+      projects: [
+        for (final value in workspace.projects)
+          value.id == project.id ? updated : value,
+      ],
+      employees: workspace.employees,
+      accountExecutive: workspace.accountExecutive,
+    );
+  }
+
+  @override
+  Stream<void> watchWorkspaceChanges() => const Stream<void>.empty();
 
   static const _ae = OfficeEmployee(
     id: 'ae-maya',

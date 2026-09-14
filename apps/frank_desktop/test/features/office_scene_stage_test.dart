@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/features/floor/office_scene_floor.dart';
 
@@ -23,7 +25,7 @@ void main() {
     }
 
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: OfficeSceneStage(
           key: const ValueKey('office-scene-stage'),
           activity: OfficeSceneActivity.paused,
@@ -31,7 +33,7 @@ void main() {
           scrimColor: const Color(0x47101113),
           foreground: const ColoredBox(
             key: ValueKey('office-scene-foreground'),
-            color: Colors.transparent,
+            color: Color(0x00000000),
             child: Center(child: Text('Foreground remains usable')),
           ),
           initializeResources: failToInitialize,
@@ -58,7 +60,7 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
 
     await tester.tap(find.text('Retry'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
     expect(attempts, 2);
     expect(find.text('Foreground remains usable'), findsOneWidget);
@@ -70,7 +72,7 @@ void main() {
   ) async {
     final resources = Completer<void>();
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: OfficeSceneStage(
           blurSigma: 12.0,
           foreground: const SizedBox.expand(),
@@ -97,7 +99,7 @@ void main() {
       final controller = OfficeSceneController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(
-        MaterialApp(
+        FrankTestApp(
           home: OfficeSceneStage(
             key: const ValueKey('login-scene-stage'),
             preset: OfficeScenePreset.empty,
@@ -108,8 +110,8 @@ void main() {
               throw StateError('GPU must not be initialized');
             },
             foreground: Center(
-              child: TextButton(
-                onPressed: () => taps++,
+              child: FButton(
+                onPress: () => taps++,
                 child: const Text('Continue'),
               ),
             ),
@@ -125,6 +127,7 @@ void main() {
       expect(attempts, 0);
       expect(controller.isReady, isFalse);
       await tester.tap(find.text('Continue'));
+      await tester.pump(const Duration(milliseconds: 150));
       expect(taps, 1);
       expect(tester.takeException(), isNull);
       expect(
@@ -151,7 +154,7 @@ void main() {
     }
 
     await tester.pumpWidget(
-      MaterialApp(
+      FrankTestApp(
         home: OfficeSceneStage(
           controller: controller,
           initializeResources: failToInitialize,
@@ -166,7 +169,7 @@ void main() {
     expect(attempts, 1);
 
     await tester.tap(find.text('Retry'));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
     await tester.pump();
     expect(controller.isReady, isFalse);
     expect(controller.canReset, isFalse);

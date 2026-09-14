@@ -1,6 +1,31 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
 
+import 'icons.dart';
 import 'theme.dart';
+
+/// Shared dialog bridge used by feature surfaces. Keeping the route creation
+/// here ensures every modal uses ForUI's focus restoration and native motion.
+Future<T?> showFrankDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool barrierDismissible = true,
+}) => showFDialog<T>(
+  context: context,
+  barrierDismissible: barrierDismissible,
+  builder: (context, _, _) {
+    final child = builder(context);
+    return child is FDialog ? child : FDialog(builder: (context, _) => child);
+  },
+);
+
+void showFrankToast(BuildContext context, String message) {
+  showFToast(
+    context: context,
+    variant: FToastVariant.destructive,
+    title: Text(message),
+  );
+}
 
 /// Shared status tones used by the Office surfaces. The label remains part of
 /// the control so status is never communicated by color alone.
@@ -61,6 +86,69 @@ String frankFriendlyError(
   // Short gateway messages such as "Catalog unavailable" are already
   // human-readable; preserve them while keeping stack-shaped values hidden.
   return cleaned.length > 180 ? fallback : cleaned;
+}
+
+/// Persistent, keyboard-readable feedback for an action that is still in the
+/// current viewport. Dialogs and editors use this instead of placing an error
+/// at the end of a long scrolling form where it looks like Save did nothing.
+class FrankActionFeedback extends StatelessWidget {
+  const FrankActionFeedback({
+    required this.message,
+    required this.tone,
+    this.action,
+    super.key,
+  });
+
+  final String message;
+  final FrankStatusTone tone;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (tone) {
+      FrankStatusTone.success => FrankIcons.checkCircleOutline,
+      FrankStatusTone.working => FrankIcons.hourglassEmpty,
+      FrankStatusTone.attention => FrankIcons.warningAmberOutlined,
+      FrankStatusTone.failure => FrankIcons.errorOutline,
+      FrankStatusTone.neutral => FrankIcons.infoOutline,
+    };
+    return Focus(
+      autofocus: true,
+      child: Semantics(
+        container: true,
+        liveRegion: true,
+        label: message,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: tone.softColor,
+            borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
+            border: Border.all(color: tone.color.withValues(alpha: .78)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Icon(icon, size: FrankUiTokens.iconSize, color: tone.color),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: TextStyle(
+                      color: FrankColors.ink,
+                      fontSize: FrankUiTokens.bodyTextSize,
+                      height: 18 / FrankUiTokens.bodyTextSize,
+                    ),
+                  ),
+                ),
+                if (action != null) ...[const SizedBox(width: 8), action!],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 bool frankIsUnsupportedError(Object? error) {
@@ -294,55 +382,74 @@ class FrankSegmentedControl<T> extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(3),
-        child: Wrap(
-          spacing: 2,
-          runSpacing: 2,
-          children: [
-            for (final item in items)
-              Builder(
-                builder: (context) {
-                  final enabled = enabledBuilder?.call(item.$1) ?? true;
-                  final selected = value == item.$1;
-                  return Semantics(
-                    button: true,
-                    selected: selected,
-                    enabled: enabled,
-                    label: item.$2,
-                    child: TextButton.icon(
-                      key: itemKeyBuilder?.call(item.$1),
-                      onPressed: enabled ? () => onChanged(item.$1) : null,
-                      style: TextButton.styleFrom(
-                        minimumSize: const Size(0, FrankUiTokens.controlHeight),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        foregroundColor: !enabled
-                            ? FrankColors.muted.withValues(alpha: .45)
-                            : selected
-                            ? FrankColors.ink
-                            : FrankColors.muted,
-                        backgroundColor: selected
-                            ? FrankColors.aubergineSelection.withValues(
-                                alpha: .34,
-                              )
-                            : Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            FrankUiTokens.controlRadius,
-                          ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final maxWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : double.infinity;
+            return Wrap(
+              spacing: 2,
+              runSpacing: 2,
+              children: [
+                for (final item in items)
+                  Builder(
+                    builder: (context) {
+                      final enabled = enabledBuilder?.call(item.$1) ?? true;
+                      final selected = value == item.$1;
+                      final itemWidth = maxWidth.isFinite && maxWidth < 500
+                          ? ((maxWidth - (items.length - 1) * 2) / items.length)
+                                .clamp(0.0, maxWidth)
+                                .toDouble()
+                          : null;
+                      final textMaxWidth =
+                          itemWidth ??
+                          (maxWidth.isFinite
+                              ? (maxWidth - (item.$3 == null ? 20 : 48))
+                                    .clamp(0.0, maxWidth)
+                                    .toDouble()
+                              : double.infinity);
+                      final text = Text(
+                        item.$2,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      );
+                      final child = itemWidth == null
+                          ? ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: textMaxWidth,
+                              ),
+                              child: text,
+                            )
+                          : Flexible(child: text);
+                      final button = Semantics(
+                        button: true,
+                        selected: selected,
+                        enabled: enabled,
+                        label: item.$2,
+                        child: FButton(
+                          key: itemKeyBuilder?.call(item.$1),
+                          onPress: enabled ? () => onChanged(item.$1) : null,
+                          variant: selected
+                              ? FButtonVariant.secondary
+                              : FButtonVariant.ghost,
+                          size: FButtonSizeVariant.sm,
+                          mainAxisSize: itemWidth == null
+                              ? MainAxisSize.min
+                              : MainAxisSize.max,
+                          prefix: item.$3 == null
+                              ? null
+                              : Icon(item.$3, size: FrankUiTokens.iconSize),
+                          child: child,
                         ),
-                        textStyle: const TextStyle(
-                          fontSize: FrankUiTokens.metadataTextSize,
-                        ),
-                      ),
-                      icon: item.$3 == null
-                          ? null
-                          : Icon(item.$3, size: FrankUiTokens.iconSize),
-                      label: Text(item.$2),
-                    ),
-                  );
-                },
-              ),
-          ],
+                      );
+                      return itemWidth == null
+                          ? button
+                          : SizedBox(width: itemWidth, child: button);
+                    },
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -406,8 +513,8 @@ class FrankEmptyState extends StatelessWidget {
                       width: 52,
                       height: 52,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const Icon(
-                        Icons.workspaces_outline,
+                      errorBuilder: (_, _, _) => Icon(
+                        FrankIcons.workspacesOutlined,
                         size: 36,
                         color: FrankColors.accent,
                       ),
@@ -461,7 +568,7 @@ class FrankUnavailableState extends StatelessWidget {
   const FrankUnavailableState({
     required this.title,
     required this.message,
-    this.icon = Icons.cloud_off_outlined,
+    this.icon = FrankIcons.cloudOffOutlined,
     this.onRetry,
     this.retryLabel = 'Retry',
     super.key,
@@ -481,10 +588,15 @@ class FrankUnavailableState extends StatelessWidget {
       icon: icon,
       action: onRetry == null
           ? null
-          : OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: FrankUiTokens.iconSize),
-              label: Text(retryLabel),
+          : FButton(
+              onPress: onRetry,
+              variant: FButtonVariant.outline,
+              size: FButtonSizeVariant.sm,
+              prefix: const Icon(
+                FrankIcons.refresh,
+                size: FrankUiTokens.iconSize,
+              ),
+              child: Text(retryLabel),
             ),
     );
   }
@@ -534,8 +646,8 @@ class FrankInlineNotice extends StatelessWidget {
           Icon(
             icon ??
                 (tone == FrankStatusTone.failure
-                    ? Icons.error_outline
-                    : Icons.info_outline),
+                    ? FrankIcons.errorOutline
+                    : FrankIcons.infoOutline),
             size: FrankUiTokens.iconSize,
             color: tone.color,
           ),
@@ -554,38 +666,29 @@ class FrankPrimaryAction extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.icon,
+    this.semanticsTooltip,
     super.key,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+  final String? semanticsTooltip;
 
   @override
   Widget build(BuildContext context) {
-    final button = icon == null
-        ? FilledButton(onPressed: onPressed, style: _style, child: Text(label))
-        : FilledButton.icon(
-            onPressed: onPressed,
-            style: _style,
-            icon: Icon(icon, size: FrankUiTokens.iconSize),
-            label: Text(label),
-          );
+    final button = FButton(
+      onPress: onPressed,
+      variant: FButtonVariant.primary,
+      size: FButtonSizeVariant.sm,
+      semanticsLabel: semanticsTooltip,
+      semanticsTooltip: semanticsTooltip,
+      prefix: icon == null ? null : Icon(icon, size: FrankUiTokens.iconSize),
+      builder: (_, _, _, _, _, child) => Flexible(child: child!),
+      child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
+    );
     return button;
   }
-
-  static final _style = FilledButton.styleFrom(
-    minimumSize: const Size(0, FrankUiTokens.controlHeight),
-    padding: const EdgeInsets.symmetric(horizontal: 13),
-    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    backgroundColor: FrankColors.primaryAction,
-    foregroundColor: FrankColors.canvas,
-    disabledBackgroundColor: FrankColors.primaryAction.withValues(alpha: .35),
-    disabledForegroundColor: FrankColors.canvas.withValues(alpha: .65),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-    ),
-  );
 }
 
 /// Shared compact metric card for headers and evidence summaries.
@@ -730,7 +833,7 @@ class FrankBackdrop extends StatelessWidget {
         gradient: RadialGradient(
           center: Alignment(-.7, -.85),
           radius: 1.15,
-          colors: [Color(0x241F2A22), Colors.transparent],
+          colors: [Color(0x241F2A22), Color(0x00000000)],
         ),
       ),
       child: CustomPaint(painter: _FrankGridPainter(), child: child),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
 import 'package:frank_desktop/core/models/team_models.dart';
@@ -55,7 +55,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('settings-section-team')));
     await tester.pump(const Duration(seconds: 2));
     expect(
-      find.byKey(const ValueKey('team-agent-card-ae-maya')),
+      find.byKey(const ValueKey('team-agent-row-ae-maya')),
       findsOneWidget,
     );
   });

@@ -48,7 +48,6 @@ dev_dependencies:
     sdk: flutter
 
 flutter:
-  uses-material-design: true
   config:
     # Keep the macOS host on Flutter's classic framework integration for now.
     # SPM remains a future packaging choice once the release pipeline is ready.

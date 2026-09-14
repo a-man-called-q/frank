@@ -27,7 +27,13 @@ class _MainSurface extends StatelessWidget {
       return _SettingsSectionSurface(section: section, workspace: workspace);
     }
     if (project == null || conversation == null) {
-      return const NoProjectSurface();
+      final connection = context.watch<ConnectionBloc>().state;
+      return NoProjectSurface(
+        onAddProject: connection.canMutate ? () => _addProject(context) : null,
+        mutationDisabledReason:
+            connection.status.detail ??
+            '${connection.status.label}: changes are paused.',
+      );
     }
 
     return AccountExecutiveChat(
@@ -54,19 +60,54 @@ class _MainSurface extends StatelessWidget {
 }
 
 class NoProjectSurface extends StatelessWidget {
-  const NoProjectSurface({super.key});
+  const NoProjectSurface({
+    this.onAddProject,
+    this.mutationDisabledReason,
+    super.key,
+  });
+
+  final VoidCallback? onAddProject;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) {
-    return const ColoredBox(
+    return ColoredBox(
       color: FrankColors.canvas,
       child: FrankEmptyState(
         showLogo: true,
         title: 'Your office is quiet',
         message: 'No projects yet',
         description: 'Projects will appear here after you create one.',
+        action: FButton(
+          key: const ValueKey('empty-office-add-project'),
+          onPress: onAddProject,
+          semanticsLabel: onAddProject == null
+              ? mutationDisabledReason ?? 'Add project unavailable'
+              : 'Add your first project',
+          semanticsTooltip: onAddProject == null
+              ? mutationDisabledReason ?? 'Reconnect before adding a project'
+              : 'Add your first project',
+          child: const Text('Add your first project'),
+        ),
       ),
     );
+  }
+}
+
+Future<void> _addProject(BuildContext context) async {
+  final result = await showFrankDialog<ProjectSetupResult>(
+    context: context,
+    builder: (_) => AddProjectDialog(
+      browseDirectories: context.read<FrankGateway>().browseProjectDirectories,
+    ),
+  );
+  if (!context.mounted || result == null) return;
+  final projects = context.read<ProjectsBloc>();
+  switch (result) {
+    case RegisterProjectResult(:final draft):
+      projects.add(ProjectRegisterSubmitted(draft));
+    case CloneProjectResult(:final draft):
+      projects.add(ProjectCloneSubmitted(draft));
   }
 }
 
@@ -83,9 +124,15 @@ class _SettingsSectionSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final motionDisabled =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final connection = context.watch<ConnectionBloc>().state;
     final surface = switch (section) {
       SettingsSection.models => OpenRouterSurface(
         gateway: context.read<FrankGateway>(),
+        bloc: context.read<OpenRouterBloc>(),
+        canMutate: connection.canMutate,
+        mutationDisabledReason:
+            connection.status.detail ??
+            '${connection.status.label}: changes are paused.',
       ),
       SettingsSection.organization => _GatewayOrganizationSurface(
         workspace: workspace,
@@ -113,7 +160,7 @@ class _SettingsSectionSurface extends StatelessWidget {
         key: ValueKey('settings-section-surface-${section.name}'),
         child: ColoredBox(
           key: const ValueKey('settings-section-content-host'),
-          color: Colors.transparent,
+          color: const Color(0x00000000),
           child: AnimatedSwitcher(
             key: const ValueKey('settings-section-content-switcher'),
             duration: motionDisabled
@@ -202,14 +249,12 @@ class _GatewayTeamSurface extends StatefulWidget {
 class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
   late Future<List<TeamAgentProfile>> _profiles;
   late Future<List<TeamRoleSummary>> _roles;
-  late Future<OpenRouterCatalog> _catalog;
 
   @override
   void initState() {
     super.initState();
     _profiles = widget.data.loadTeamProfiles();
     _roles = widget.data.gateway.loadTeamRoles();
-    _catalog = widget.data.loadOpenRouterCatalog();
   }
 
   @override
@@ -219,7 +264,6 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         widget.workspace != oldWidget.workspace) {
       _profiles = widget.data.loadTeamProfiles();
       _roles = widget.data.gateway.loadTeamRoles();
-      _catalog = widget.data.loadOpenRouterCatalog();
     }
   }
 
@@ -232,7 +276,7 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         return _GatewaySurfaceStateView(
           title: 'Team',
           description:
-              'The people-shaped part of Frank. Meet the agents moving work forward.',
+              'Manage role-backed agents and inspect their runtime state.',
           message: 'Team profiles unavailable. Try again.',
           error: true,
           onRetry: _retryProfiles,
@@ -244,7 +288,7 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         return _GatewaySurfaceStateView(
           title: 'Team',
           description:
-              'The people-shaped part of Frank. Meet the agents moving work forward.',
+              'Manage role-backed agents and inspect their runtime state.',
           message: snapshot.connectionState == ConnectionState.done
               ? 'No team profiles are configured.'
               : 'Loading team profiles…',
@@ -266,26 +310,41 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
               fullWidth: true,
             );
           }
-          return FutureBuilder<OpenRouterCatalog>(
-            future: _catalog,
-            builder: (context, catalogSnapshot) => TeamSurface(
-              workspace: widget.workspace,
-              profiles: profiles,
-              roles: roleSnapshot.data ?? const [],
-              isFixture: widget.data.gateway.isFixture,
-              catalog: catalogSnapshot.data,
-              catalogError: catalogSnapshot.error,
-              catalogLoading:
-                  catalogSnapshot.connectionState != ConnectionState.done,
-              onSaveAgentModel: _saveAgentModel,
-              onSaveRoleModel: _saveRoleModel,
-              onCreateRole: _createRole,
-              onCreateAgent: _createAgent,
-              onUpdateRole: _updateRole,
-              onArchiveRole: _archiveRole,
-              onUpdateAgent: _updateAgent,
-              onArchiveAgent: _archiveAgent,
-            ),
+          final provider = context.watch<OpenRouterBloc>().state;
+          final connection = context.watch<ConnectionBloc>().state;
+          return TeamSurface(
+            workspace: widget.workspace,
+            profiles: profiles,
+            roles: roleSnapshot.data ?? const [],
+            isFixture: widget.data.gateway.isFixture,
+            catalog: provider.catalog,
+            catalogError: provider.catalogPhase == OpenRouterCatalogPhase.error
+                ? provider.actionError
+                : null,
+            catalogLoading:
+                provider.catalogPhase == OpenRouterCatalogPhase.loading ||
+                provider.catalogPhase == OpenRouterCatalogPhase.idle,
+            providerConfigured: switch (provider.connectionPhase) {
+              OpenRouterConnectionPhase.notConfigured => false,
+              OpenRouterConnectionPhase.loading => null,
+              _ => true,
+            },
+            providerError:
+                provider.connectionPhase == OpenRouterConnectionPhase.error
+                ? provider.actionError
+                : null,
+            canMutate: connection.canMutate,
+            mutationDisabledReason:
+                connection.status.detail ??
+                '${connection.status.label}: changes are paused.',
+            onSaveAgentModel: _saveAgentModel,
+            onSaveRoleModel: _saveRoleModel,
+            onCreateRole: _createRole,
+            onCreateAgent: _createAgent,
+            onUpdateRole: _updateRole,
+            onArchiveRole: _archiveRole,
+            onUpdateAgent: _updateAgent,
+            onArchiveAgent: _archiveAgent,
           );
         },
       );
@@ -547,22 +606,19 @@ class _GatewayOrganizationSurfaceState
   }
 
   Future<List<TeamRoleSummary>> _loadRoles() async {
-    try {
-      return await widget.data.gateway.loadTeamRoles();
-    } on Object {
-      // Role metadata is additive to the Organization v1 surface. An older
-      // daemon can still render and edit legacy staff nodes.
-      return const <TeamRoleSummary>[];
-    }
+    return widget.data.gateway.loadTeamRoles();
   }
 
   Future<WorkflowProjection> _loadWorkflowProjection() async {
-    try {
-      return await widget.data.gateway.loadWorkflowProjection();
-    } on Object {
-      // Keep Organization usable when the v2 feature is not negotiated yet.
-      return const WorkflowProjection();
-    }
+    return widget.data.gateway.loadWorkflowProjection();
+  }
+
+  void _retryMetadata() {
+    if (!mounted) return;
+    setState(() {
+      _roles = _loadRoles();
+      _workflowProjection = _loadWorkflowProjection();
+    });
   }
 
   @override
@@ -582,18 +638,55 @@ class _GatewayOrganizationSurfaceState
       }
       return FutureBuilder<List<TeamRoleSummary>>(
         future: _roles,
-        initialData: const <TeamRoleSummary>[],
-        builder: (context, rolesSnapshot) => FutureBuilder<WorkflowProjection>(
-          future: _workflowProjection,
-          initialData: const WorkflowProjection(),
-          builder: (context, workflowSnapshot) => OrganizationSurface(
-            workspace: widget.workspace,
-            profiles: snapshot.data,
-            roles: rolesSnapshot.data ?? const <TeamRoleSummary>[],
-            workflowProjection:
-                workflowSnapshot.data ?? const WorkflowProjection(),
-          ),
-        ),
+        builder: (context, rolesSnapshot) {
+          if (rolesSnapshot.hasError) {
+            return _GatewaySurfaceStateView(
+              title: 'Organization',
+              description:
+                  'Configure members, roles, routing, and compatible tools.',
+              message: 'Role catalog unavailable. Retry to load the editor.',
+              error: true,
+              onRetry: _retryMetadata,
+              semanticsLabel: 'Organization role catalog unavailable',
+              fullWidth: true,
+            );
+          }
+          return FutureBuilder<WorkflowProjection>(
+            future: _workflowProjection,
+            builder: (context, workflowSnapshot) {
+              if (workflowSnapshot.hasError) {
+                return _GatewaySurfaceStateView(
+                  title: 'Organization',
+                  description:
+                      'Configure members, roles, routing, and compatible tools.',
+                  message:
+                      'Taskboard routing is unavailable. Retry to load the editor.',
+                  error: true,
+                  onRetry: _retryMetadata,
+                  semanticsLabel: 'Organization routing unavailable',
+                  fullWidth: true,
+                );
+              }
+              final connection = context.watch<ConnectionBloc>().state;
+              return OrganizationSurface(
+                workspace: widget.workspace,
+                profiles: snapshot.data,
+                isFixture: widget.data.gateway.isFixture,
+                canMutate: connection.canMutate,
+                mutationDisabledReason:
+                    connection.status.detail ??
+                    '${connection.status.label}: changes are paused.',
+                roles: rolesSnapshot.data ?? const <TeamRoleSummary>[],
+                workflowProjection:
+                    workflowSnapshot.data ?? const WorkflowProjection(),
+                viewMode: context.read<ShellBloc>().state.organizationViewMode,
+                onViewModeChanged: (mode) => context.read<ShellBloc>().add(
+                  ShellOrganizationViewModeChanged(mode),
+                ),
+              );
+            },
+          );
+        },
       );
     },
   );
@@ -632,7 +725,7 @@ class _GatewaySurfaceStateView extends StatelessWidget {
             child: FrankUnavailableState(
               title: error ? '$title unavailable' : title,
               message: friendlyMessage,
-              icon: error ? Icons.error_outline : Icons.hourglass_empty,
+              icon: error ? FrankIcons.errorOutline : FrankIcons.hourglassEmpty,
               onRetry: onRetry,
             ),
           ),

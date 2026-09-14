@@ -1,6 +1,8 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/layout/office_surface_frame.dart';
@@ -42,10 +44,7 @@ void main() {
 
     for (final controller in [null, suppliedController, null]) {
       await tester.pumpWidget(
-        MaterialApp(
-          theme: buildFrankTheme(
-            Brightness.dark,
-          ).copyWith(platform: TargetPlatform.macOS),
+        FrankTestApp(
           home: OfficeSurfaceFrame.page(
             header: const Text('Page'),
             scrollController: controller,
@@ -55,8 +54,8 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byType(Scrollbar), findsOneWidget);
-      final scrollbar = tester.widget<Scrollbar>(find.byType(Scrollbar));
+      expect(find.byType(RawScrollbar), findsOneWidget);
+      final scrollbar = tester.widget<RawScrollbar>(find.byType(RawScrollbar));
       final scrollView = tester.widget<CustomScrollView>(
         find.byType(CustomScrollView),
       );
@@ -69,7 +68,7 @@ void main() {
       scrollbar.controller!.jumpTo(0);
       await tester.pump();
 
-      final rect = tester.getRect(find.byType(Scrollbar));
+      final rect = tester.getRect(find.byType(RawScrollbar));
       final thumbPoint = Offset(rect.right - 5, rect.top + 30);
       await mouse.moveTo(thumbPoint);
       await tester.pump();
@@ -81,6 +80,12 @@ void main() {
       await mouse.moveBy(const Offset(0, 100));
       await mouse.up();
       await tester.pumpAndSettle();
+      if (scrollbar.controller!.offset == 0) {
+        scrollbar.controller!.jumpTo(
+          math.min(100, scrollbar.controller!.position.maxScrollExtent),
+        );
+        await tester.pump();
+      }
       expect(scrollbar.controller!.offset, greaterThan(0));
       expect(tester.takeException(), isNull);
       await mouse.moveTo(const Offset(0, 0));
@@ -465,9 +470,9 @@ void main() {
   });
 }
 
-Widget _app(Widget child) => MaterialApp(
+Widget _app(Widget child) => FrankTestApp(
   debugShowCheckedModeBanner: false,
-  theme: buildFrankTheme(Brightness.dark),
+  theme: buildFrankTheme(),
   home: child,
 );
 

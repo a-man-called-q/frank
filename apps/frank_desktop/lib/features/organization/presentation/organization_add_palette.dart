@@ -16,10 +16,6 @@ final class _CapabilityChoice extends _AddChoice {
   final OrganizationCapabilityKind capability;
 }
 
-final class _ApprovalChoice extends _AddChoice {
-  const _ApprovalChoice();
-}
-
 final class _RoleChoice extends _AddChoice {
   const _RoleChoice(this.role);
 
@@ -69,40 +65,54 @@ class _GroupNameDialogState extends State<_GroupNameDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: FrankColors.panel,
-      surfaceTintColor: Colors.transparent,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
-        side: const BorderSide(
-          color: FrankColors.border,
-          width: FrankUiTokens.borderWidth,
+    return FDialog(
+      semanticsLabel: 'Rename group',
+      builder: (context, style) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Rename group', style: style.titleTextStyle),
+            const SizedBox(height: 16),
+            Semantics(
+              textField: true,
+              label: 'Group name',
+              child: ExcludeSemantics(
+                // Keep the field interactive while avoiding a nested
+                // MergeSemantics node when this dialog is mounted in the
+                // explicit FDialog semantics boundary.
+                child: FTextField(
+                  key: const ValueKey('organization-group-name'),
+                  control: FTextFieldControl.managed(controller: _controller),
+                  autofocus: true,
+                  maxLength: 48,
+                  textCapitalization: TextCapitalization.words,
+                  hint: 'e.g. Research',
+                  onSubmit: (_) => _submit(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                FButton(
+                  onPress: () => Navigator.pop(context),
+                  variant: FButtonVariant.ghost,
+                  child: const Text('Cancel'),
+                ),
+                const SizedBox(width: 8),
+                FButton(
+                  key: const ValueKey('organization-group-create'),
+                  onPress: _submit,
+                  child: const Text('Save group'),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
-      title: const Text('Rename group'),
-      content: TextField(
-        key: const ValueKey('organization-group-name'),
-        controller: _controller,
-        autofocus: true,
-        maxLength: 48,
-        textCapitalization: TextCapitalization.words,
-        decoration: _organizationInputDecoration(hintText: 'e.g. Research'),
-        onSubmitted: (_) => _submit(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          style: _compactTextButtonStyle(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const ValueKey('organization-group-create'),
-          onPressed: _submit,
-          style: _publishButtonStyle(),
-          child: const Text('Save group'),
-        ),
-      ],
     );
   }
 
@@ -118,7 +128,6 @@ enum _AddPaletteMode { browse, group }
 enum _PaletteEntryKind {
   staff,
   capability,
-  approval,
   role,
   taskboard,
   childWorkflow,
@@ -307,20 +316,6 @@ class _AddPaletteState extends State<_AddPalette> {
     }
     entries.add(
       const _PaletteEntry(
-        id: 'approval-desk',
-        label: 'Approval Desk',
-        description: 'Human checkpoint',
-        badge: 'Control',
-        icon: FrankIcons.approval,
-        color: FrankColors.warningAmber,
-        kind: _PaletteEntryKind.approval,
-        choice: _ApprovalChoice(),
-        metadata:
-            'approval control human checkpoint review reviewer gate authorize',
-      ),
-    );
-    entries.add(
-      const _PaletteEntry(
         id: 'group',
         label: 'Group',
         description: 'Container for office elements',
@@ -345,15 +340,15 @@ class _AddPaletteState extends State<_AddPalette> {
         ...all.where((entry) => entry.kind == _PaletteEntryKind.staff).take(2),
       ];
       for (final id in const [
-        'capability-taskboard',
         'capability-drive',
-        'approval-desk',
         'group',
       ]) {
         final match = all.where((entry) => entry.id == id).firstOrNull;
         if (match != null) curated.add(match);
       }
-      curated.addAll(all.where((entry) => entry.kind == _PaletteEntryKind.role).take(2));
+      curated.addAll(
+        all.where((entry) => entry.kind == _PaletteEntryKind.role).take(2),
+      );
       curated.addAll(
         all.where((entry) => entry.kind == _PaletteEntryKind.taskboard).take(2),
       );
@@ -394,8 +389,6 @@ class _AddPaletteState extends State<_AddPalette> {
       OrganizationCapabilityKind.email => 'mail inbox gmail messages send',
       OrganizationCapabilityKind.calendar =>
         'schedule meetings events appointments google calendar',
-      OrganizationCapabilityKind.taskboard =>
-        'tasks kanban work projects linear assignments',
       OrganizationCapabilityKind.drive =>
         'files storage documents docs google drive sharing',
       OrganizationCapabilityKind.browser => 'web internet browsing chrome',
@@ -454,7 +447,7 @@ class _AddPaletteState extends State<_AddPalette> {
 
     final entries = _visibleEntries;
     if (event.logicalKey == LogicalKeyboardKey.escape) {
-      Navigator.of(context).pop();
+      _close();
       return KeyEventResult.handled;
     }
     if (entries.isEmpty) return KeyEventResult.ignored;
@@ -520,7 +513,7 @@ class _AddPaletteState extends State<_AddPalette> {
       _requestGroupFocus();
       return;
     }
-    Navigator.of(context).pop(entry.choice);
+    _close(entry.choice);
   }
 
   void _backToBrowse() {
@@ -534,7 +527,11 @@ class _AddPaletteState extends State<_AddPalette> {
   void _submitGroup() {
     final label = _groupController.text.trim();
     if (label.isEmpty) return;
-    Navigator.of(context).pop(_GroupChoice(label));
+    _close(_GroupChoice(label));
+  }
+
+  void _close([_AddChoice? choice]) {
+    Navigator.of(context).pop(choice);
   }
 
   @override
@@ -574,8 +571,10 @@ class _AddPaletteState extends State<_AddPalette> {
                     borderRadius: BorderRadius.circular(_panelRadius),
                     child: BackdropFilter(
                       filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-                      child: Material(
-                        color: FrankColors.panelRaised.withValues(alpha: .88),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: FrankColors.panelRaised.withValues(alpha: .88),
+                        ),
                         child: _mode == _AddPaletteMode.group
                             ? _buildGroupStep()
                             : _buildBrowseStep(),
@@ -620,18 +619,13 @@ class _AddPaletteState extends State<_AddPalette> {
                   ),
                   const _PaletteShortcut(label: 'ESC'),
                   const SizedBox(width: 4),
-                  IconButton(
+                  FButton.icon(
                     key: const ValueKey('organization-add-close'),
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size.square(28),
-                      maximumSize: const Size.square(28),
-                      padding: EdgeInsets.zero,
-                      foregroundColor: FrankColors.muted,
-                      hoverColor: FrankColors.ink.withValues(alpha: .08),
-                    ),
-                    icon: const Icon(FrankIcons.close, size: 15),
+                    onPress: _close,
+                    semanticsLabel: 'Close',
+                    semanticsTooltip: 'Close',
+                    size: FButtonSizeVariant.sm,
+                    child: const Icon(FrankIcons.close, size: 15),
                   ),
                 ],
               ),
@@ -643,33 +637,44 @@ class _AddPaletteState extends State<_AddPalette> {
                 child: Semantics(
                   textField: true,
                   label: 'Search office elements',
-                  child: TextField(
-                    key: const ValueKey('organization-add-search'),
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    autofocus: true,
-                    textInputAction: TextInputAction.search,
-                    decoration:
-                        _organizationInputDecoration(
-                          hintText: 'Search people, tools, or structure…',
-                        ).copyWith(
-                          prefixIcon: const Icon(
-                            FrankIcons.search,
-                            size: FrankUiTokens.iconSize,
+                  child: ExcludeSemantics(
+                    // ForUI 0.25 wraps text fields in MergeSemantics. The
+                    // field is nested inside this palette's explicit
+                    // semantics tree, so keeping the native field semantics
+                    // here triggers a stale merged-node assertion when the
+                    // results update. The surrounding node retains the
+                    // accessible label while the EditableText remains fully
+                    // focusable and interactive.
+                    excluding: true,
+                    child: FTextField(
+                      key: const ValueKey('organization-add-search'),
+                      control: FTextFieldControl.managed(
+                        controller: _searchController,
+                        onChange: (value) => _onQueryChanged(value.text),
+                      ),
+                      focusNode: _searchFocusNode,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      hint: 'Search people, tools, or structure…',
+                      prefixBuilder: (context, style, variants) =>
+                          FTextField.prefixIconBuilder(
+                            context,
+                            style,
+                            variants,
+                            const Icon(FrankIcons.search),
                           ),
-                        ),
-                    onChanged: _onQueryChanged,
-                    onSubmitted: (_) {
-                      final visible = _visibleEntries;
-                      if (visible.isNotEmpty) {
-                        _activate(visible[_selectedIndex]);
-                      }
-                    },
+                      onSubmit: (_) {
+                        final visible = _visibleEntries;
+                        if (visible.isNotEmpty) {
+                          _activate(visible[_selectedIndex]);
+                        }
+                      },
+                    ),
                   ),
                 ),
               ),
             ),
-            const Divider(height: 1),
+            const FDivider(),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 13, 18, 7),
               child: Row(
@@ -737,7 +742,7 @@ class _AddPaletteState extends State<_AddPalette> {
     final selected = index == _selectedIndex;
     final rowColor = selected
         ? entry.color.withValues(alpha: .14)
-        : Colors.transparent;
+        : const Color(0x00000000);
     return MouseRegion(
       onEnter: (_) => _setSelection(index),
       child: Semantics(
@@ -745,60 +750,54 @@ class _AddPaletteState extends State<_AddPalette> {
         button: true,
         selected: selected,
         label: '${entry.label}, ${entry.description}, ${entry.badge}',
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            key: entry.kind == _PaletteEntryKind.group
-                ? const ValueKey('add-group')
-                : ValueKey('organization-add-result-${entry.id}'),
-            onTap: () => _activate(entry),
-            borderRadius: BorderRadius.circular(10),
-            splashFactory: NoSplash.splashFactory,
-            hoverColor: entry.color.withValues(alpha: .08),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 90),
-              curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: rowColor,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  _PaletteIconTile(icon: entry.icon, color: entry.color),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          entry.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: FrankColors.ink,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+        child: GestureDetector(
+          key: entry.kind == _PaletteEntryKind.group
+              ? const ValueKey('add-group')
+              : ValueKey('organization-add-result-${entry.id}'),
+          onTap: () => _activate(entry),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: rowColor,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                _PaletteIconTile(icon: entry.icon, color: entry.color),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: FrankColors.ink,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          entry.description,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: FrankColors.muted,
-                            fontSize: 10,
-                          ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        entry.description,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: FrankColors.muted,
+                          fontSize: 10,
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  _PaletteBadge(label: entry.badge, color: entry.color),
-                ],
-              ),
+                ),
+                const SizedBox(width: 8),
+                _PaletteBadge(label: entry.badge, color: entry.color),
+              ],
             ),
           ),
         ),
@@ -823,17 +822,13 @@ class _AddPaletteState extends State<_AddPalette> {
             children: [
               Row(
                 children: [
-                  IconButton(
+                  FButton.icon(
                     key: const ValueKey('organization-group-back'),
-                    tooltip: 'Back',
-                    onPressed: _backToBrowse,
-                    style: IconButton.styleFrom(
-                      minimumSize: const Size.square(28),
-                      maximumSize: const Size.square(28),
-                      padding: EdgeInsets.zero,
-                      foregroundColor: FrankColors.muted,
-                    ),
-                    icon: Transform.flip(
+                    onPress: _backToBrowse,
+                    semanticsLabel: 'Back',
+                    semanticsTooltip: 'Back',
+                    size: FButtonSizeVariant.sm,
+                    child: Transform.flip(
                       flipX: true,
                       child: const Icon(FrankIcons.chevronRight, size: 16),
                     ),
@@ -859,27 +854,38 @@ class _AddPaletteState extends State<_AddPalette> {
               const SizedBox(height: 10),
               Focus(
                 onKeyEvent: _handleKeyEvent,
-                child: TextField(
-                  key: const ValueKey('organization-group-name'),
-                  controller: _groupController,
-                  focusNode: _groupFocusNode,
-                  autofocus: true,
-                  maxLength: 48,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: _organizationInputDecoration(
-                    hintText: 'e.g. Research',
+                child: Semantics(
+                  textField: true,
+                  label: 'Group name',
+                  child: ExcludeSemantics(
+                    // See the searchable field above. Keep the editable
+                    // control interactive while exposing a stable parent
+                    // semantics node to the explicit palette tree.
+                    excluding: true,
+                    child: FTextField(
+                      key: const ValueKey('organization-group-name'),
+                      control: FTextFieldControl.managed(
+                        controller: _groupController,
+                        onChange: (_) => setState(() {}),
+                      ),
+                      focusNode: _groupFocusNode,
+                      autofocus: true,
+                      maxLength: 48,
+                      textCapitalization: TextCapitalization.words,
+                      hint: 'e.g. Research',
+                      onSubmit: (_) => _submitGroup(),
+                    ),
                   ),
-                  onChanged: (_) => setState(() {}),
-                  onSubmitted: (_) => _submitGroup(),
                 ),
               ),
               const SizedBox(height: 6),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(
-                    onPressed: _backToBrowse,
-                    style: _compactTextButtonStyle(),
+                  FButton(
+                    onPress: _backToBrowse,
+                    variant: FButtonVariant.ghost,
+                    size: FButtonSizeVariant.sm,
                     child: const Text('Back'),
                   ),
                   const SizedBox(width: 6),
@@ -887,10 +893,9 @@ class _AddPaletteState extends State<_AddPalette> {
                     valueListenable: _groupController,
                     builder: (context, value, child) {
                       final canCreate = value.text.trim().isNotEmpty;
-                      return FilledButton(
+                      return FButton(
                         key: const ValueKey('organization-group-create'),
-                        onPressed: canCreate ? _submitGroup : null,
-                        style: _publishButtonStyle(),
+                        onPress: canCreate ? _submitGroup : null,
                         child: const Text('Create group'),
                       );
                     },

@@ -31,6 +31,8 @@ class SnapshotStore {
   Map<String, dynamic>? _snapshot;
   Future<Map<String, dynamic>>? _inFlight;
   StreamSubscription<int>? _events;
+  final StreamController<void> _invalidations =
+      StreamController<void>.broadcast(sync: true);
   int _generation = 0;
   int _revision = 0;
   int _eventSeq = 0;
@@ -45,6 +47,16 @@ class SnapshotStore {
   int get eventSeq => _eventSeq;
 
   bool get hasSnapshot => _snapshot != null;
+
+  /// The one invalidation stream for this authenticated snapshot. Consumers
+  /// must subscribe here rather than opening a second event socket; this
+  /// keeps taskboard, project, and organization projections on one cursor.
+  Stream<void> get invalidations => _invalidations.stream;
+
+  Stream<void> watchInvalidations() {
+    _ensureEventSubscription();
+    return _invalidations.stream;
+  }
 
   Future<Map<String, dynamic>> load({bool force = false}) {
     if (_disposed) {
@@ -102,6 +114,7 @@ class SnapshotStore {
     _snapshot = null;
     if (revision != null) _revision = revision;
     if (eventSeq != null && eventSeq > _eventSeq) _eventSeq = eventSeq;
+    if (!_disposed) _invalidations.add(null);
   }
 
   Future<Map<String, dynamic>> command({
@@ -149,6 +162,7 @@ class SnapshotStore {
     _inFlight = null;
     _events?.cancel();
     _events = null;
+    _invalidations.close();
   }
 
   void _ensureEventSubscription() {

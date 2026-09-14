@@ -1,4 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import 'package:forui/forui.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/features/chat/presentation/composer/base_composer.dart';
 
@@ -7,9 +9,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: BaseComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: BaseComposer(
             attachmentPreview: const Text('Attachment Preview Slot'),
             input: const Text('Input Slot'),
             toolbarLeading: const Text('Context Slot'),
@@ -32,14 +34,14 @@ void main() {
     var tappedBackground = false;
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: BaseComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: BaseComposer(
             focusNode: focusNode,
             onTapBackground: () {
               tappedBackground = true;
             },
-            input: TextField(focusNode: focusNode),
+            input: FTextField(focusNode: focusNode),
           ),
         ),
       ),
@@ -64,11 +66,11 @@ void main() {
     addTearDown(focusNode.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: BaseComposer(
+      FrankTestApp(
+        home: FScaffold(
+          child: BaseComposer(
             focusNode: focusNode,
-            input: TextField(focusNode: focusNode),
+            input: FTextField(focusNode: focusNode),
           ),
         ),
       ),

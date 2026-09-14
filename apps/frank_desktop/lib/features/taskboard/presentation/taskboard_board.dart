@@ -17,7 +17,7 @@ class _TaskboardContent extends StatelessWidget {
   });
 
   final OfficeWorkspace workspace;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final TaskboardState state;
   final List<TaskboardTask> visibleTasks;
   final bool compact;
@@ -32,7 +32,7 @@ class _TaskboardContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: Colors.transparent,
+      color: const Color(0x00000000),
       child: switch (state.loadStatus) {
         TaskboardLoadStatus.initial ||
         TaskboardLoadStatus.loading => const _TaskboardLoading(),
@@ -118,7 +118,7 @@ class _TaskboardReady extends StatelessWidget {
   });
 
   final OfficeWorkspace workspace;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final TaskboardState state;
   final List<TaskboardTask> visibleTasks;
   final bool compact;
@@ -294,24 +294,29 @@ class _ProjectSelect extends StatelessWidget {
     final expandedWidth = textScaleFactor > 1.25 ? 250.0 : null;
     return SizedBox(
       width: expandedWidth,
-      child: FrankDesktopSelectField<String?>(
-        key: const ValueKey('taskboard-project-filter'),
-        fieldKey: const ValueKey('taskboard-project-filter-trigger'),
-        value: projectId,
-        options: [
-          const FrankDesktopSelectOption<String?>(
-            value: null,
-            label: 'All projects',
+      child: Semantics(
+        label: 'Project filter',
+        child: FSelect<String?>.rich(
+          key: const ValueKey('taskboard-project-filter'),
+          format: (value) =>
+              value == null ? 'All projects' : options[value] ?? 'All projects',
+          control: FSelectControl<String?>.lifted(
+            value: projectId,
+            onChange: onChanged,
           ),
-          for (final entry in options.entries)
-            FrankDesktopSelectOption<String?>(
-              value: entry.key,
-              label: entry.value,
+          hint: 'All projects',
+          children: [
+            FSelectItem<String?>.item(
+              value: null,
+              title: const Text('All projects'),
             ),
-        ],
-        onChanged: onChanged,
-        hint: 'All projects',
-        semanticsLabel: 'Project filter',
+            for (final entry in options.entries)
+              FSelectItem<String?>.item(
+                value: entry.key,
+                title: Text(entry.value),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -330,25 +335,33 @@ class _AttentionToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      key: const ValueKey('taskboard-attention-filter'),
-      onPressed: () => onChanged(!selected),
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, FrankUiTokens.controlHeight),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        foregroundColor: selected
-            ? FrankColors.warningAmber
-            : FrankColors.muted,
-        side: BorderSide(
-          color: selected ? FrankColors.warningAmber : FrankColors.border,
-        ),
-        backgroundColor: selected ? FrankColors.warningAmberSoft : null,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
-        ),
-      ),
-      icon: const Icon(FrankIcons.circleAlert, size: FrankUiTokens.iconSize),
-      label: Text('Needs attention  $count'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 240.0;
+        return FButton(
+          key: const ValueKey('taskboard-attention-filter'),
+          onPress: () => onChanged(!selected),
+          variant: selected ? FButtonVariant.primary : FButtonVariant.outline,
+          size: FButtonSizeVariant.sm,
+          mainAxisSize: MainAxisSize.min,
+          prefix: const Icon(
+            FrankIcons.circleAlert,
+            size: FrankUiTokens.iconSize,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: (maxWidth - 48).clamp(40.0, maxWidth),
+            ),
+            child: Text(
+              'Needs attention  $count',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -393,7 +406,7 @@ class _TaskboardBoard extends StatelessWidget {
   final List<TaskboardTask> tasks;
   final bool workspaceHasTasks;
   final List<TaskboardLane> lanes;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final ValueChanged<String> onSelectTask;
   final FocusNode Function(String taskId) focusNodeFor;
   final bool hasActiveFilters;
@@ -422,8 +435,8 @@ class _TaskboardBoard extends StatelessWidget {
         final availableContentWidth = availableWidth.isFinite
             ? math.max(0.0, availableWidth - gutter * 2)
             : 1000.0;
-        final minBoardWidth = lanes.length * 220.0 +
-            math.max(0, lanes.length - 1) * 10.0;
+        final minBoardWidth =
+            lanes.length * 220.0 + math.max(0, lanes.length - 1) * 10.0;
         final boardWidth = math.max(minBoardWidth, availableContentWidth);
         return SizedBox(
           height: constraints.maxHeight,
@@ -522,7 +535,7 @@ class _MissionBoardSection extends StatelessWidget {
 
   final List<TaskboardTask> tasks;
   final List<TaskboardLane> lanes;
-  final TaskboardProfileLookup profileFor;
+  final TaskboardAgentLookup profileFor;
   final ValueChanged<String> onSelectTask;
   final FocusNode Function(String taskId) focusNodeFor;
 
@@ -638,85 +651,79 @@ class _TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activity = task.latestActivity;
-    return TextButton(
+    return FCard(
       key: ValueKey('taskboard-task-${task.id}'),
-      focusNode: focusNode,
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        alignment: Alignment.topLeft,
-        minimumSize: const Size(double.infinity, 0),
-        padding: const EdgeInsets.all(12),
-        foregroundColor: FrankColors.ink,
-        backgroundColor: FrankColors.panel,
-        side: const BorderSide(color: FrankColors.border),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(FrankUiTokens.panelRadius),
-        ),
-        overlayColor: FrankColors.aubergineAccent.withValues(alpha: .09),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            task.id,
-            style: const TextStyle(
-              color: FrankColors.muted,
-              fontFamily: FrankTypography.monoFontFamily,
-              fontSize: 10,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            task.title,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: FrankColors.ink,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 7),
-          if (activity != null)
-            Text(
-              activity.message,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: task.needsAttention
-                    ? FrankColors.warningAmber
-                    : FrankColors.muted,
-                fontSize: 11,
-              ),
-            ),
-          const SizedBox(height: 10),
-          Row(
+      child: FTappable.static(
+        focusNode: focusNode,
+        onPress: onPressed,
+        semanticsLabel: task.title,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _InitialsAvatar(
-                initials: profile?.initials ?? task.agentInitials,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  profile?.name ?? task.agentName,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: FrankColors.muted,
-                    fontSize: 11,
-                  ),
+              Text(
+                task.id,
+                style: const TextStyle(
+                  color: FrankColors.muted,
+                  fontFamily: FrankTypography.monoFontFamily,
+                  fontSize: 10,
                 ),
               ),
+              const SizedBox(height: 8),
+              Text(
+                task.title,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: FrankColors.ink,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 7),
               if (activity != null)
                 Text(
-                  activity.timeLabel,
-                  style: const TextStyle(
-                    color: FrankColors.muted,
+                  activity.message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: task.needsAttention
+                        ? FrankColors.warningAmber
+                        : FrankColors.muted,
                     fontSize: 11,
                   ),
                 ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _InitialsAvatar(
+                    initials: profile?.initials ?? task.agentInitials,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      profile?.name ?? task.agentName,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: FrankColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                  if (activity != null)
+                    Text(
+                      activity.timeLabel,
+                      style: const TextStyle(
+                        color: FrankColors.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                ],
+              ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }

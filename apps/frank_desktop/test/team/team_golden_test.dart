@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/fixtures/fixture_team.dart';
@@ -31,7 +32,7 @@ void main() {
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
 
-  testWidgets('Nia character profile golden', (tester) async {
+  testWidgets('Nia member details golden', (tester) async {
     final workspace = await tester.runAsync(
       () => FixtureFrankGateway(latency: Duration.zero).loadWorkspace(),
     );
@@ -47,11 +48,16 @@ void main() {
     await _precacheTeamPortraits(tester);
     await tester.pump(const Duration(milliseconds: 250));
     await tester.tap(
-      find.byKey(const ValueKey('team-agent-card-programmer-nia')),
+      find.byKey(const ValueKey('team-agent-row-programmer-nia')),
     );
     await tester.pump(const Duration(milliseconds: 250));
+    final drawerOverlay = find.ancestor(
+      of: find.byKey(const ValueKey('team-member-drawer')),
+      matching: find.byType(Overlay),
+    );
+    expect(drawerOverlay, findsWidgets);
     await expectLater(
-      find.byKey(const ValueKey('team-golden-root')),
+      drawerOverlay.last,
       matchesGoldenFile('goldens/team-profile-nia.png'),
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.macOS));
@@ -79,9 +85,9 @@ void main() {
 }
 
 Widget _goldenApp(Widget child) {
-  return MaterialApp(
+  return FrankTestApp(
     debugShowCheckedModeBanner: false,
-    theme: buildFrankTheme(Brightness.dark),
+    theme: buildFrankTheme(),
     home: RepaintBoundary(
       key: const ValueKey('team-golden-root'),
       child: child,

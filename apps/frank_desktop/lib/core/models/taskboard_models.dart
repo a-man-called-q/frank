@@ -52,8 +52,8 @@ extension TaskboardLaneContract on TaskboardLane {
     _ => this,
   };
 
-  bool get isTerminal => canonical == TaskboardLane.done ||
-      canonical == TaskboardLane.cancelled;
+  bool get isTerminal =>
+      canonical == TaskboardLane.done || canonical == TaskboardLane.cancelled;
 }
 
 extension TaskboardLaneMetadata on TaskboardLane {

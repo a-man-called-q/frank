@@ -102,23 +102,22 @@ class WorkflowTaskboard {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  factory WorkflowTaskboard.fromJson(Map<String, Object?> json) =>
-      WorkflowTaskboard(
-        id: json['id'] as String? ?? '',
-        name: json['name'] as String? ?? 'Taskboard',
-        projectId: json['project_id'] as String? ?? json['projectId'] as String?,
-        workflowId:
-            json['workflow_id'] as String? ?? json['workflowId'] as String?,
-        dispatchMode: WorkflowDispatchModeJson.fromWire(
-          json['dispatch_mode'] ?? json['dispatchMode'],
-        ),
-        defaultRoleId:
-            json['default_role_id'] as String? ??
-            json['defaultRoleId'] as String?,
-        archived: json['archived'] as bool? ?? false,
-        createdAt: _workflowDateTime(json['created_at']),
-        updatedAt: _workflowDateTime(json['updated_at']),
-      );
+  factory WorkflowTaskboard.fromJson(
+    Map<String, Object?> json,
+  ) => WorkflowTaskboard(
+    id: json['id'] as String? ?? '',
+    name: json['name'] as String? ?? 'Taskboard',
+    projectId: json['project_id'] as String? ?? json['projectId'] as String?,
+    workflowId: json['workflow_id'] as String? ?? json['workflowId'] as String?,
+    dispatchMode: WorkflowDispatchModeJson.fromWire(
+      json['dispatch_mode'] ?? json['dispatchMode'],
+    ),
+    defaultRoleId:
+        json['default_role_id'] as String? ?? json['defaultRoleId'] as String?,
+    archived: json['archived'] as bool? ?? false,
+    createdAt: _workflowDateTime(json['created_at']),
+    updatedAt: _workflowDateTime(json['updated_at']),
+  );
 }
 
 @immutable
@@ -194,23 +193,22 @@ class WorkflowHumanInput {
 
   bool get isPending => status == WorkflowHumanInputStatus.pending;
 
-  factory WorkflowHumanInput.fromJson(Map<String, Object?> json) =>
-      WorkflowHumanInput(
-        id: json['id'] as String? ?? '',
-        taskId: json['task_id'] as String? ?? json['taskId'] as String? ?? '',
-        missionId:
-            json['mission_id'] as String? ?? json['missionId'] as String?,
-        requestedBy:
-            json['requested_by'] as String? ?? json['requestedBy'] as String?,
-        kind: WorkflowHumanInputKindJson.fromWire(json['kind']),
-        prompt: json['prompt'] as String? ?? '',
-        status: WorkflowHumanInputStatusJson.fromWire(json['status']),
-        answer: json['answer'] as String?,
-        answeredBy:
-            json['answered_by'] as String? ?? json['answeredBy'] as String?,
-        createdAt: _workflowDateTime(json['created_at']),
-        updatedAt: _workflowDateTime(json['updated_at']),
-      );
+  factory WorkflowHumanInput.fromJson(
+    Map<String, Object?> json,
+  ) => WorkflowHumanInput(
+    id: json['id'] as String? ?? '',
+    taskId: json['task_id'] as String? ?? json['taskId'] as String? ?? '',
+    missionId: json['mission_id'] as String? ?? json['missionId'] as String?,
+    requestedBy:
+        json['requested_by'] as String? ?? json['requestedBy'] as String?,
+    kind: WorkflowHumanInputKindJson.fromWire(json['kind']),
+    prompt: json['prompt'] as String? ?? '',
+    status: WorkflowHumanInputStatusJson.fromWire(json['status']),
+    answer: json['answer'] as String?,
+    answeredBy: json['answered_by'] as String? ?? json['answeredBy'] as String?,
+    createdAt: _workflowDateTime(json['created_at']),
+    updatedAt: _workflowDateTime(json['updated_at']),
+  );
 }
 
 enum WorkflowDrainStatus { running, draining, paused }
@@ -242,21 +240,24 @@ class WorkflowRuntime {
   bool get isDraining => status == WorkflowDrainStatus.draining;
   bool get isPaused => status == WorkflowDrainStatus.paused;
 
-  factory WorkflowRuntime.fromJson(Map<String, Object?> json) => WorkflowRuntime(
-    activeRevision: (json['active_revision'] as num?)?.toInt() ??
-        (json['activeRevision'] as num?)?.toInt() ??
-        0,
-    status: WorkflowDrainStatusJson.fromWire(json['status']),
-    drainRequestedRevision:
-        (json['drain_requested_revision'] as num?)?.toInt() ??
-        (json['drainRequestedRevision'] as num?)?.toInt(),
-    pausedRevision: (json['paused_revision'] as num?)?.toInt() ??
-        (json['pausedRevision'] as num?)?.toInt(),
-    pendingRelocationCount:
-        (json['pending_relocation_count'] as num?)?.toInt() ??
-        (json['pendingRelocationCount'] as num?)?.toInt() ??
-        0,
-  );
+  factory WorkflowRuntime.fromJson(Map<String, Object?> json) =>
+      WorkflowRuntime(
+        activeRevision:
+            (json['active_revision'] as num?)?.toInt() ??
+            (json['activeRevision'] as num?)?.toInt() ??
+            0,
+        status: WorkflowDrainStatusJson.fromWire(json['status']),
+        drainRequestedRevision:
+            (json['drain_requested_revision'] as num?)?.toInt() ??
+            (json['drainRequestedRevision'] as num?)?.toInt(),
+        pausedRevision:
+            (json['paused_revision'] as num?)?.toInt() ??
+            (json['pausedRevision'] as num?)?.toInt(),
+        pendingRelocationCount:
+            (json['pending_relocation_count'] as num?)?.toInt() ??
+            (json['pendingRelocationCount'] as num?)?.toInt() ??
+            0,
+      );
 }
 
 @immutable
@@ -297,15 +298,15 @@ class WorkflowProjection {
         : const [];
     final runtime = json['organization_runtime'] ?? json['organizationRuntime'];
     return WorkflowProjection(
-      boards: maps(json['taskboards'])
-          .map(WorkflowTaskboard.fromJson)
-          .toList(growable: false),
-      offers: maps(json['work_offers'])
-          .map(WorkflowOffer.fromJson)
-          .toList(growable: false),
-      humanInputs: maps(json['human_inputs'])
-          .map(WorkflowHumanInput.fromJson)
-          .toList(growable: false),
+      boards: maps(
+        json['taskboards'],
+      ).map(WorkflowTaskboard.fromJson).toList(growable: false),
+      offers: maps(
+        json['work_offers'],
+      ).map(WorkflowOffer.fromJson).toList(growable: false),
+      humanInputs: maps(
+        json['human_inputs'],
+      ).map(WorkflowHumanInput.fromJson).toList(growable: false),
       runtime: runtime is Map
           ? WorkflowRuntime.fromJson(Map<String, Object?>.from(runtime))
           : const WorkflowRuntime(),

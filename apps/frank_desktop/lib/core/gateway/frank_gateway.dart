@@ -1,6 +1,8 @@
 import '../models/organization_models.dart';
+import '../models/connection_models.dart';
 import '../models/ledger_models.dart';
 import '../models/openrouter_models.dart';
+import '../models/project_models.dart';
 import '../models/taskboard_models.dart';
 import '../models/team_models.dart';
 import '../models/workspace_models.dart';
@@ -13,6 +15,20 @@ abstract interface class GatewaySnapshotMetadata {
 
 abstract interface class WorkspaceGateway {
   Future<OfficeWorkspace> loadWorkspace();
+}
+
+abstract interface class ProjectGateway {
+  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([String? path]);
+
+  Future<void> registerProject(ProjectRegistrationDraft draft);
+
+  Future<ProjectCloneReceipt> cloneProject(ProjectCloneDraft draft);
+
+  Future<ProjectOperation> loadProjectOperation(String operationId);
+
+  Future<void> createMission(String projectId, String objective);
+
+  Stream<void> watchWorkspaceChanges();
 }
 
 abstract interface class TeamGateway {
@@ -143,6 +159,7 @@ abstract interface class FrankGateway
     implements
         GatewaySnapshotMetadata,
         WorkspaceGateway,
+        ProjectGateway,
         TeamGateway,
         OpenRouterGateway,
         LedgerGateway,
@@ -154,6 +171,26 @@ abstract interface class FrankGateway
   /// True only for the in-process demo adapter. Production surfaces use this
   /// to avoid labelling authenticated projections as sample data.
   bool get isFixture => false;
+
+  /// Connection lifecycle is owned by the transport. Fixture gateways expose
+  /// a stable connected value so demo surfaces never masquerade as a live
+  /// authenticated server.
+  FrankConnectionStatus get connectionStatus => isFixture
+      ? const FrankConnectionStatus(
+          phase: FrankConnectionPhase.connected,
+          appProtocolVersion: 2,
+          detail: 'Demo data',
+        )
+      : const FrankConnectionStatus.initial();
+
+  Stream<FrankConnectionStatus> watchConnectionStatus() =>
+      const Stream<FrankConnectionStatus>.empty();
+
+  /// Optional unauthenticated bootstrap metadata. Remote gateways override
+  /// this; fixture gateways keep their explicit demo lifecycle.
+  Future<FrankServerCapabilities?> preflightCapabilities({
+    bool refresh = false,
+  }) async => null;
 
   /// Last revision observed in the authenticated snapshot. Mutating Team
   /// settings sends this value so frankd can reject stale edits instead of
@@ -168,6 +205,39 @@ abstract interface class FrankGateway
 
   @override
   Future<OfficeWorkspace> loadWorkspace();
+
+  @override
+  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([String? path]) =>
+      Future<List<ProjectDirectoryEntry>>.error(
+        StateError('Project browsing is unavailable on this gateway.'),
+      );
+
+  @override
+  Future<void> registerProject(ProjectRegistrationDraft draft) =>
+      Future<void>.error(
+        StateError('Project registration is unavailable on this gateway.'),
+      );
+
+  @override
+  Future<ProjectCloneReceipt> cloneProject(ProjectCloneDraft draft) =>
+      Future<ProjectCloneReceipt>.error(
+        StateError('Project cloning is unavailable on this gateway.'),
+      );
+
+  @override
+  Future<ProjectOperation> loadProjectOperation(String operationId) =>
+      Future<ProjectOperation>.error(
+        StateError('Project operations are unavailable on this gateway.'),
+      );
+
+  @override
+  Future<void> createMission(String projectId, String objective) =>
+      Future<void>.error(
+        StateError('Mission creation is unavailable on this gateway.'),
+      );
+
+  @override
+  Stream<void> watchWorkspaceChanges() => const Stream<void>.empty();
 
   /// Loads the presentation metadata for the workspace's agents.
   ///

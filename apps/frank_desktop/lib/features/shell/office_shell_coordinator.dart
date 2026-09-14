@@ -185,7 +185,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
   @override
   Widget build(BuildContext context) {
     final shell = context.watch<ShellBloc>().state;
-    return FrankDesktopMenuDismissScope(child: _buildBody(context, shell));
+    return _buildBody(context, shell);
   }
 
   Widget _buildBody(BuildContext context, ShellState shell) {
@@ -214,11 +214,14 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
     final generating = chat.generating && chat.pendingContext == conversation;
 
     final nativeSidebarEffect = widget.sidebarEffectBuilder != null;
-    return Scaffold(
-      backgroundColor: nativeSidebarEffect
-          ? Colors.transparent
-          : FrankColors.canvas,
-      body: SafeArea(
+    return FScaffold(
+      childPad: false,
+      scaffoldStyle: FScaffoldStyleDelta.delta(
+        backgroundColor: nativeSidebarEffect
+            ? const Color(0x00000000)
+            : FrankColors.canvas,
+      ),
+      child: SafeArea(
         top: false,
         left: false,
         right: false,
@@ -274,7 +277,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
                                 key: const ValueKey('main-surface-background'),
                                 color: nativeSidebarEffect
                                     ? FrankColors.canvas
-                                    : Colors.transparent,
+                                    : const Color(0x00000000),
                                 child: Stack(
                                   fit: StackFit.expand,
                                   children: [
@@ -334,6 +337,10 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
                     sidebarVisible: shell.sidebarVisible,
                     sidebarWidth: shell.sidebarWidth,
                     isFullscreen: _windowChrome.isFullscreen,
+                    connectionStatus:
+                        context.watch<ConnectionBloc>().state.status,
+                    isFixture:
+                        widget.showDemoBanner || context.read<FrankGateway>().isFixture,
                     onToggleSidebar: () {
                       context.read<ShellBloc>().add(
                         const ShellSidebarToggled(),
@@ -377,7 +384,7 @@ class _OfficeShellBodyState extends State<_OfficeShellBody> {
   };
 
   Color _sceneScrim(ShellState shell) => switch (shell.destination) {
-    OfficeDestination() => Colors.transparent,
+    OfficeDestination() => const Color(0x00000000),
     SettingsDestination(section: _) => FrankColors.canvas.withValues(
       alpha: .94,
     ),
@@ -601,7 +608,7 @@ class _SidebarSlotState extends State<_SidebarSlot>
               child: ColoredBox(
                 color: active
                     ? FrankColors.border.withValues(alpha: 0.9)
-                    : Colors.transparent,
+                    : const Color(0x00000000),
               ),
             ),
           ),

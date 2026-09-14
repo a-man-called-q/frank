@@ -85,4 +85,70 @@ void main() {
       expect(legacyRestored.groupId, OrganizationGroup.clientServices.id);
     },
   );
+
+  test('taskboard wire shape never carries connector/profile fields', () {
+    const node = OrganizationNode(
+      id: 'board-node',
+      kind: OrganizationNodeKind.taskboard,
+      label: 'Inbox',
+      position: OrganizationPoint(0, 0),
+      taskboardId: 'taskboard-inbox',
+      connectorProfileId: 'legacy-profile',
+      connectorProfileLabel: 'Legacy provider',
+      integrationRef: 'legacy-integration',
+      profileRef: 'legacy-profile-ref',
+      capability: OrganizationCapabilityKind.email,
+    );
+    final json = node.toJson();
+    expect(json, {
+      'id': 'board-node',
+      'kind': 'taskboard',
+      'label': 'Inbox',
+      'position': {'x': 0, 'y': 0},
+      'taskboard_id': 'taskboard-inbox',
+    });
+
+    final restored = OrganizationNode.fromJson({
+      ...json,
+      'connector_profile_id': 'stale-profile',
+      'capability': 'email',
+    });
+    expect(restored.taskboardId, 'taskboard-inbox');
+    expect(restored.connectorProfileId, isNull);
+    expect(restored.capability, isNull);
+  });
+
+  test('retired approval nodes are not projected into the authoring graph', () {
+    final graph = OrganizationGraph.fromJson({
+      'id': 'remote',
+      'draft_revision': 3,
+      'published_revision': 2,
+      'nodes': [
+        {
+          'id': 'approval',
+          'kind': 'approval',
+          'label': 'Old approval desk',
+          'position': {'x': 0, 'y': 0},
+        },
+        {
+          'id': 'role',
+          'kind': 'role',
+          'label': 'Worker',
+          'role_id': 'role-worker',
+          'position': {'x': 200, 'y': 0},
+        },
+      ],
+      'relations': [
+        {
+          'id': 'retired-edge',
+          'kind': 'review',
+          'source_node_id': 'role',
+          'target_node_id': 'approval',
+        },
+      ],
+    });
+
+    expect(graph.nodes.map((node) => node.id), ['role']);
+    expect(graph.relations, isEmpty);
+  });
 }

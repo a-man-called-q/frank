@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
+import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/theme.dart';
 import 'package:frank_desktop/core/fixtures/fixture_ledger.dart';
@@ -39,7 +40,7 @@ void main() {
     expect(find.byKey(const ValueKey('ledger-period-session')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('ledger-tab-operational')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(
       find.byKey(const ValueKey('ledger-operational-view')),
@@ -107,7 +108,7 @@ void main() {
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('ledger-period-session')));
-    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 150));
 
     expect(find.text('Session evidence'), findsOneWidget);
     expect(find.text('Not enough data yet'), findsNothing);
@@ -196,9 +197,9 @@ Future<OfficeWorkspace> _workspace() =>
     FixtureFrankGateway(latency: Duration.zero).loadWorkspace();
 
 Widget _app(Widget child) {
-  return MaterialApp(
+  return FrankTestApp(
     debugShowCheckedModeBanner: false,
-    theme: buildFrankTheme(Brightness.dark),
+    theme: buildFrankTheme(),
     home: child,
   );
 }

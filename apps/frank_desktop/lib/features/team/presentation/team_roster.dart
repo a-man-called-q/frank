@@ -2,23 +2,19 @@ part of 'team_surface.dart';
 
 enum TeamRosterTab { members, roles }
 
-enum TeamProfileTab { overview, identity, setup, capabilities, activity }
+enum TeamProfileTab { overview, identity, setup }
 
 extension TeamProfileTabMetadata on TeamProfileTab {
   String get label => switch (this) {
     TeamProfileTab.overview => 'Overview',
     TeamProfileTab.identity => 'Identity',
     TeamProfileTab.setup => 'Setup',
-    TeamProfileTab.capabilities => 'Capabilities',
-    TeamProfileTab.activity => 'Activity',
   };
 
   IconData get icon => switch (this) {
-    TeamProfileTab.overview => Icons.person_outline,
-    TeamProfileTab.identity => Icons.badge_outlined,
-    TeamProfileTab.setup => Icons.tune_outlined,
-    TeamProfileTab.capabilities => Icons.extension_outlined,
-    TeamProfileTab.activity => Icons.timeline_outlined,
+    TeamProfileTab.overview => FrankIcons.personOutline,
+    TeamProfileTab.identity => FrankIcons.badgeOutlined,
+    TeamProfileTab.setup => FrankIcons.tuneOutlined,
   };
 }
 
@@ -40,11 +36,6 @@ class _TeamRoster extends StatelessWidget {
         final width =
             OfficeLayoutMetricsScope.maybeOf(context)?.availableWidth ??
             constraints.crossAxisExtent;
-        final columns = width >= 1120
-            ? 3
-            : width >= 720
-            ? 2
-            : 1;
         final textScale = MediaQuery.maybeOf(context)?.textScaler.scale(1) ?? 1;
 
         if (profiles.isEmpty) {
@@ -52,68 +43,96 @@ class _TeamRoster extends StatelessWidget {
             child: _EmptyTeamState(key: ValueKey('team-roster')),
           );
         }
-        // A one-column roster should grow with its copy at accessibility text
-        // sizes. A fixed-ratio grid cannot negotiate the extra metadata lines
-        // and would clip the card vertically on a narrow surface.
-        if (columns == 1 || textScale > 1.25) {
-          return SliverList(
-            key: const ValueKey('team-agent-list'),
-            delegate: SliverChildBuilderDelegate(
-              (context, index) => Padding(
-                padding: EdgeInsets.only(
-                  top: index == 0 && width >= 600 ? 16 : 0,
-                  bottom: index == profiles.length - 1 ? 0 : 16,
-                ),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: _TeamAgentCard(
-                      profile: profiles[index],
-                      reducedMotion: reducedMotion,
-                      onSelected: () => onSelect(profiles[index]),
-                    ),
+        return SliverMainAxisGroup(
+          slivers: [
+            SliverToBoxAdapter(
+              child: _TeamRosterHeader(
+                compact: width < 760 || textScale > 1.25,
+              ),
+            ),
+            SliverList(
+              key: const ValueKey('team-agent-list'),
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => Padding(
+                  padding: EdgeInsets.only(
+                    bottom: index == profiles.length - 1 ? 0 : 8,
+                  ),
+                  child: _TeamAgentCard(
+                    profile: profiles[index],
+                    reducedMotion: reducedMotion,
+                    compact: width < 760 || textScale > 1.25,
+                    onSelected: () => onSelect(profiles[index]),
                   ),
                 ),
+                childCount: profiles.length,
               ),
-              childCount: profiles.length,
             ),
-          );
-        }
-        return SliverGrid(
-          key: const ValueKey('team-agent-grid'),
-          delegate: SliverChildBuilderDelegate(
-            (context, index) => _TeamAgentCard(
-              profile: profiles[index],
-              reducedMotion: reducedMotion,
-              onSelected: () => onSelect(profiles[index]),
-            ),
-            childCount: profiles.length,
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 0.94,
-          ),
+          ],
         );
       },
     );
   }
 }
 
+class _TeamRosterHeader extends StatelessWidget {
+  const _TeamRosterHeader({required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(14, 16, 14, 8),
+    child: Row(
+      children: [
+        const Expanded(flex: 3, child: _RosterColumnLabel('MEMBER')),
+        const Expanded(flex: 2, child: _RosterColumnLabel('STATUS')),
+        const Expanded(flex: 2, child: _RosterColumnLabel('ROLE')),
+        if (!compact) ...[
+          const Expanded(flex: 3, child: _RosterColumnLabel('CURRENT TASK')),
+          const Expanded(flex: 2, child: _RosterColumnLabel('EFFECTIVE MODEL')),
+          const Expanded(flex: 1, child: _RosterColumnLabel('REVISION')),
+        ],
+        const SizedBox(width: 74),
+      ],
+    ),
+  );
+}
+
+class _RosterColumnLabel extends StatelessWidget {
+  const _RosterColumnLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Text(
+    label,
+    style: const TextStyle(
+      color: FrankColors.muted,
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.8,
+    ),
+  );
+}
+
 class _TeamRoles extends StatelessWidget {
   const _TeamRoles({
     required this.roles,
     required this.profiles,
+    this.models = const [],
     this.onUpdateRole,
     this.onArchiveRole,
+    this.canMutate = true,
+    this.mutationDisabledReason,
   });
 
   final List<TeamRoleSummary> roles;
   final List<TeamAgentProfile> profiles;
+  final List<OpenRouterModel> models;
   final TeamRoleUpdate? onUpdateRole;
   final TeamRoleArchive? onArchiveRole;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) {
@@ -142,6 +161,8 @@ class _TeamRoles extends StatelessWidget {
               onArchive: onArchiveRole == null
                   ? null
                   : () => _archive(context, role),
+              canMutate: canMutate,
+              mutationDisabledReason: mutationDisabledReason,
             ),
           );
         },
@@ -150,38 +171,50 @@ class _TeamRoles extends StatelessWidget {
   }
 
   Future<void> _edit(BuildContext context, TeamRoleSummary role) async {
-    final patch = await showDialog<TeamRolePatch>(
+    await showFrankDialog<void>(
       context: context,
-      builder: (_) => _RoleEditDialog(role: role),
+      barrierDismissible: false,
+      builder: (_) => _RoleEditDialog(
+        role: role,
+        models: models,
+        onSave: (patch) async {
+          await onUpdateRole!(role.id, patch);
+        },
+      ),
     );
-    if (patch == null || onUpdateRole == null || !context.mounted) return;
-    try {
-      await onUpdateRole!(role.id, patch);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Role could not be updated: $error')),
-        );
-      }
-    }
   }
 
   Future<void> _archive(BuildContext context, TeamRoleSummary role) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showFrankDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Archive ${role.name}?'),
-        content: const Text(
-          'Agents and tasks still using this role must be moved first.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+      builder: (dialogContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Archive ${role.name}?',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Archive role'),
+          const SizedBox(height: 10),
+          const Text(
+            'Agents and tasks still using this role must be moved first.',
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              FButton(
+                onPress: () => Navigator.pop(dialogContext, false),
+                variant: FButtonVariant.ghost,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              FButton(
+                onPress: () => Navigator.pop(dialogContext, true),
+                variant: FButtonVariant.destructive,
+                child: const Text('Archive role'),
+              ),
+            ],
           ),
         ],
       ),
@@ -193,9 +226,7 @@ class _TeamRoles extends StatelessWidget {
       await onArchiveRole!(role.id);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Role could not be archived: $error')),
-        );
+        showFrankToast(context, 'Role could not be archived: $error');
       }
     }
   }
@@ -207,6 +238,8 @@ class _RoleCard extends StatelessWidget {
     required this.memberCount,
     this.onEdit,
     this.onArchive,
+    this.canMutate = true,
+    this.mutationDisabledReason,
     super.key,
   });
 
@@ -214,6 +247,8 @@ class _RoleCard extends StatelessWidget {
   final int memberCount;
   final VoidCallback? onEdit;
   final VoidCallback? onArchive;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -226,10 +261,9 @@ class _RoleCard extends StatelessWidget {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CircleAvatar(
-          backgroundColor: FrankColors.aubergineAccent.withValues(alpha: 0.16),
-          foregroundColor: FrankColors.aubergineAccent,
-          child: const Icon(Icons.account_tree_outlined, size: 19),
+        FAvatar.raw(
+          size: 40,
+          child: const Icon(FrankIcons.accountTreeOutlined, size: 19),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -269,18 +303,24 @@ class _RoleCard extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         if (onEdit != null)
-          IconButton(
+          FButton.icon(
             key: ValueKey('team-role-edit-${role.id}'),
-            tooltip: 'Edit role',
-            onPressed: onEdit,
-            icon: const Icon(Icons.edit_outlined, size: 18),
+            semanticsLabel: 'Edit role',
+            onPress: canMutate ? onEdit : null,
+            semanticsTooltip: canMutate
+                ? 'Edit role'
+                : mutationDisabledReason ?? 'Reconnect before changing a role',
+            child: const Icon(FrankIcons.editOutlined, size: 18),
           ),
         if (onArchive != null)
-          IconButton(
+          FButton.icon(
             key: ValueKey('team-role-archive-${role.id}'),
-            tooltip: 'Archive role',
-            onPressed: onArchive,
-            icon: const Icon(Icons.archive_outlined, size: 18),
+            semanticsLabel: 'Archive role',
+            onPress: canMutate ? onArchive : null,
+            semanticsTooltip: canMutate
+                ? 'Archive role'
+                : mutationDisabledReason ?? 'Reconnect before changing a role',
+            child: const Icon(FrankIcons.archiveOutlined, size: 18),
           ),
       ],
     ),
@@ -314,10 +354,13 @@ class _TeamHeader extends StatelessWidget {
     required this.workingCount,
     required this.availableCount,
     required this.roles,
+    this.models = const [],
     required this.selectedTab,
     required this.onTabSelected,
     this.onCreateRole,
     this.onCreateAgent,
+    this.canMutate = true,
+    this.mutationDisabledReason,
   });
 
   final int agentCount;
@@ -325,90 +368,106 @@ class _TeamHeader extends StatelessWidget {
   final int workingCount;
   final int availableCount;
   final List<TeamRoleSummary> roles;
+  final List<OpenRouterModel> models;
   final TeamRosterTab selectedTab;
   final ValueChanged<TeamRosterTab> onTabSelected;
   final TeamRoleCreate? onCreateRole;
   final TeamAgentCreate? onCreateAgent;
+  final bool canMutate;
+  final String? mutationDisabledReason;
 
   @override
   Widget build(BuildContext context) {
     final compact =
         OfficeLayoutMetricsScope.maybeOf(context)?.isCompact ?? false;
-    final stats = Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _TeamStat(label: 'Agents', value: '$agentCount'),
-        if (!compact) ...[
-          _TeamStat(label: 'Active', value: '$workingCount'),
-          _TeamStat(label: 'Available', value: '$availableCount'),
-        ],
-        if (isFixture) const FrankSampleDataBadge(),
-        if (onCreateRole != null)
-          OutlinedButton.icon(
-            key: const ValueKey('team-create-role'),
-            onPressed: () => _createRole(context),
-            icon: const Icon(Icons.account_tree_outlined, size: 16),
-            label: const Text('New role'),
-          ),
-        if (onCreateAgent != null)
-          FilledButton.icon(
-            key: const ValueKey('team-create-agent'),
-            onPressed: roles.isEmpty ? null : () => _createAgent(context),
-            icon: const Icon(Icons.person_add_alt_1, size: 16),
-            label: const Text('New member'),
-          ),
+    final stats = <Widget>[
+      _TeamStat(label: 'Agents', value: '$agentCount'),
+      if (!compact) ...[
+        _TeamStat(label: 'Active', value: '$workingCount'),
+        _TeamStat(label: 'Available', value: '$availableCount'),
       ],
-    );
+      if (isFixture) const FrankSampleDataBadge(),
+      if (onCreateRole != null)
+        FButton(
+          key: const ValueKey('team-create-role'),
+          onPress: canMutate ? () => _createRole(context) : null,
+          semanticsTooltip: canMutate
+              ? 'Create role'
+              : mutationDisabledReason ?? 'Reconnect before creating a role',
+          variant: FButtonVariant.outline,
+          size: FButtonSizeVariant.sm,
+          prefix: const Icon(FrankIcons.accountTreeOutlined, size: 16),
+          child: const Text('New role'),
+        ),
+      if (onCreateAgent != null)
+        FButton(
+          key: const ValueKey('team-create-agent'),
+          onPress: !canMutate || roles.isEmpty
+              ? null
+              : () => _createAgent(context),
+          semanticsTooltip: canMutate
+              ? 'Create team member'
+              : mutationDisabledReason ??
+                    'Reconnect before creating a team member',
+          size: FButtonSizeVariant.sm,
+          prefix: const Icon(FrankIcons.personAddAlt1, size: 16),
+          child: const Text('New member'),
+        ),
+    ];
     final showRoleTab = roles.isNotEmpty || onCreateRole != null;
     final managementEnabled =
         roles.isNotEmpty || onCreateRole != null || onCreateAgent != null;
     final tabs = showRoleTab
-        ? SegmentedButton<TeamRosterTab>(
+        ? FrankSegmentedControl<TeamRosterTab>(
             key: const ValueKey('team-roster-tabs'),
-            segments: const [
-              ButtonSegment(
-                value: TeamRosterTab.members,
-                label: Text('Members'),
-                icon: Icon(Icons.people_outline, size: 15),
-              ),
-              ButtonSegment(
-                value: TeamRosterTab.roles,
-                label: Text('Roles'),
-                icon: Icon(Icons.account_tree_outlined, size: 15),
-              ),
+            value: selectedTab,
+            items: const [
+              (TeamRosterTab.members, 'Members', FrankIcons.peopleOutline),
+              (TeamRosterTab.roles, 'Roles', FrankIcons.accountTreeOutlined),
             ],
-            selected: {selectedTab},
-            onSelectionChanged: (selection) => onTabSelected(selection.first),
+            onChanged: onTabSelected,
           )
         : null;
     final createMenu = onCreateRole == null && onCreateAgent == null
         ? null
-        : PopupMenuButton<String>(
+        : FPopoverMenu(
             key: const ValueKey('team-create-menu'),
-            tooltip: 'Create team item',
-            icon: const Icon(Icons.add, size: 18),
-            onSelected: (value) {
-              if (value == 'role') {
-                _createRole(context);
-              } else {
-                _createAgent(context);
-              }
-            },
-            itemBuilder: (context) => [
-              if (onCreateRole != null)
-                const PopupMenuItem<String>(
-                  value: 'role',
-                  child: Text('New role'),
-                ),
-              if (onCreateAgent != null)
-                PopupMenuItem<String>(
-                  value: 'agent',
-                  enabled: roles.isNotEmpty,
-                  child: const Text('New member'),
-                ),
+            menu: [
+              FItemGroup(
+                children: [
+                  if (onCreateRole != null)
+                    FItem(
+                      title: const Text('New role'),
+                      enabled: canMutate,
+                      onPress: canMutate ? () => _createRole(context) : null,
+                    ),
+                  if (onCreateAgent != null)
+                    FItem(
+                      title: const Text('New member'),
+                      enabled: canMutate && roles.isNotEmpty,
+                      onPress: canMutate ? () => _createAgent(context) : null,
+                    ),
+                ],
+              ),
             ],
+            builder: (_, controller, _) => FButton.icon(
+              onPress: controller.toggle,
+              semanticsLabel: 'Create team item',
+              semanticsTooltip: 'Create team item',
+              child: const Icon(FrankIcons.add, size: 18),
+            ),
           );
+    // Keep the header controls in one compact flow. A nested Column here used
+    // to produce two full-width stacked bars (tabs, then actions) at the
+    // tablet breakpoint, which made the roster feel disconnected from its
+    // controls and pushed the first row below the fold.
+    final controls = Wrap(
+      alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [?tabs, ...stats, if (compact) ?createMenu],
+    );
     return OfficePageHeader(
       title: 'Team',
       // At a narrow, accessibility-scaled width the full sentence wraps into
@@ -416,62 +475,35 @@ class _TeamHeader extends StatelessWidget {
       // Keep the context, but let the roster remain immediately reachable.
       description: compact && managementEnabled
           ? 'Agent roster and role templates.'
-          : 'The people-shaped part of Frank. Meet the agents moving work forward.',
-      actions: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          if (compact && managementEnabled)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (tabs != null) Expanded(child: tabs),
-                if (tabs != null && createMenu != null)
-                  const SizedBox(width: 8),
-                ?createMenu,
-              ],
-            )
-          else ...[
-            ?tabs,
-            if (tabs != null) const SizedBox(height: 8),
-            stats,
-          ],
-        ],
-      ),
+          : 'Manage role-backed agents and inspect their runtime state.',
+      actions: controls,
     );
   }
 
   Future<void> _createRole(BuildContext context) async {
-    final draft = await showDialog<TeamRoleDraft>(
+    await showFrankDialog<void>(
       context: context,
-      builder: (_) => const _RoleDraftDialog(),
+      barrierDismissible: false,
+      builder: (_) => _RoleDraftDialog(
+        models: models,
+        onSave: (draft) async {
+          await onCreateRole!(draft);
+        },
+      ),
     );
-    if (draft == null || onCreateRole == null || !context.mounted) return;
-    try {
-      await onCreateRole!(draft);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Role could not be created: $error')),
-        );
-      }
-    }
   }
 
   Future<void> _createAgent(BuildContext context) async {
-    final draft = await showDialog<TeamAgentDraft>(
+    await showFrankDialog<void>(
       context: context,
-      builder: (_) => _AgentDraftDialog(roles: roles),
+      barrierDismissible: false,
+      builder: (_) => _AgentDraftDialog(
+        roles: roles,
+        onSave: (draft) async {
+          await onCreateAgent!(draft);
+        },
+      ),
     );
-    if (draft == null || onCreateAgent == null || !context.mounted) return;
-    try {
-      await onCreateAgent!(draft);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Member could not be created: $error')),
-        );
-      }
-    }
   }
 }
 
@@ -527,7 +559,7 @@ class _EmptyTeamState extends StatelessWidget {
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.groups_outlined, color: FrankColors.aubergineAccent),
+          Icon(FrankIcons.groupsOutlined, color: FrankColors.aubergineAccent),
           SizedBox(height: 12),
           Text(
             'No agents yet',
