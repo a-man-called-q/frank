@@ -29,6 +29,7 @@ import '../projects/presentation/project_dialogs.dart';
 import '../team/presentation/team_surface.dart';
 import '../taskboard/bloc/taskboard_bloc.dart';
 import '../taskboard/presentation/taskboard_surface.dart';
+import '../toolchains/toolchain_surface.dart';
 import 'bloc/shell_bloc.dart';
 import 'bloc/connection_bloc.dart';
 import 'main_sidebar.dart';
@@ -51,7 +52,8 @@ OfficeSurfaceMode settingsSurfaceModeForSection(SettingsSection section) =>
       SettingsSection.team ||
       SettingsSection.ledger ||
       SettingsSection.models ||
-      SettingsSection.journal => OfficeSurfaceMode.page,
+      SettingsSection.journal ||
+      SettingsSection.toolchains => OfficeSurfaceMode.page,
     };
 
 /// Composition root for the remote-only desktop shell.
@@ -109,8 +111,9 @@ class OfficeShell extends StatelessWidget {
             BlocProvider(create: (_) => OrganizationBloc(gateway: gateway)),
             BlocProvider(create: (_) => TaskboardBloc(gateway: gateway)),
             BlocProvider(
-              create: (_) => OpenRouterBloc(gateway: gateway)
-                ..add(const OpenRouterStarted()),
+              create: (_) =>
+                  OpenRouterBloc(gateway: gateway)
+                    ..add(const OpenRouterStarted()),
             ),
           ],
           child: _OfficeCoordinator(
@@ -166,5 +169,4 @@ class OfficeSessionCache {
 
   Future<LedgerDashboardData> loadLedgerDashboard() =>
       _ledgerDashboard ??= gateway.loadLedgerDashboard();
-
 }

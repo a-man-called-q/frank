@@ -713,3 +713,115 @@ fn tag_and_checksum_helpers_cover_direct_paths() {
     assert!(sums.contains("artifact.zip"));
     assert!(!sums.contains("ignored.txt"));
 }
+
+#[test]
+fn dispatch_routes_every_cli_family_without_bypassing_the_safe_helpers() {
+    let (_dir, root) = simple_git_workspace("1.2.3");
+
+    dispatch(super::Command::Status, &root).unwrap();
+    dispatch(super::Command::Verify, &root).unwrap();
+    dispatch(
+        super::Command::Bump {
+            target: Some("patch".into()),
+            publish: false,
+            dry_run: false,
+            no_push: false,
+        },
+        &root,
+    )
+    .unwrap();
+
+    let (_dir, publish_root) = simple_git_workspace("1.2.3");
+    dispatch(
+        super::Command::Bump {
+            target: None,
+            publish: true,
+            dry_run: true,
+            no_push: true,
+        },
+        &publish_root,
+    )
+    .unwrap();
+    dispatch(
+        super::Command::Tag {
+            allow_dirty: false,
+            dry_run: true,
+            push: true,
+        },
+        &publish_root,
+    )
+    .unwrap();
+
+    let checksums_root = tempdir().unwrap();
+    fs::create_dir_all(checksums_root.path().join("dist")).unwrap();
+    fs::write(checksums_root.path().join("dist/app.zip"), b"app").unwrap();
+    dispatch(super::Command::Checksums, checksums_root.path()).unwrap();
+
+    assert!(
+        dispatch(
+            super::Command::Bump {
+                target: None,
+                publish: false,
+                dry_run: false,
+                no_push: false,
+            },
+            &root,
+        )
+        .is_err()
+    );
+    assert!(
+        dispatch(
+            super::Command::Bump {
+                target: Some("patch".into()),
+                publish: false,
+                dry_run: true,
+                no_push: false,
+            },
+            &root,
+        )
+        .is_err()
+    );
+
+    let missing = tempdir().unwrap().path().join("missing");
+    assert!(
+        dispatch(
+            super::Command::SignManifest {
+                manifest: missing.clone(),
+                private_key: missing.clone(),
+                output: missing.clone(),
+            },
+            &root,
+        )
+        .is_err()
+    );
+    assert!(
+        dispatch(
+            super::Command::PublicKey {
+                private_key: missing.clone(),
+            },
+            &root,
+        )
+        .is_err()
+    );
+    assert!(
+        dispatch(
+            super::Command::VerifyManifest {
+                manifest: missing.clone(),
+                signature: missing,
+                public_key: "not-base64".into(),
+            },
+            &root,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn checksum_and_filename_helpers_fail_closed_for_missing_inputs() {
+    let root = tempdir().unwrap();
+    assert_err(checksums(root.path()), "does not exist");
+    let empty_dist = root.path().join("dist");
+    fs::create_dir_all(&empty_dist).unwrap();
+    assert_err(checksums(root.path()), "No release artifacts");
+    assert!(release_file_name(Path::new("/")).is_err());
+}

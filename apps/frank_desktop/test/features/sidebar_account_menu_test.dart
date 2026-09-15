@@ -36,6 +36,16 @@ void main() {
 
     expect(find.byKey(const ValueKey('sidebar-user-menu')), findsOneWidget);
     expect(find.byType(FPopoverMenu), findsOneWidget);
+    expect(
+      tester
+          .getRect(
+            find.byKey(
+              const ValueKey('sidebar-account-action-change-password'),
+            ),
+          )
+          .width,
+      closeTo(tester.getRect(trigger).width, 0.01),
+    );
     expect(find.text('Change password'), findsOneWidget);
     expect(find.text('Log out all devices'), findsOneWidget);
     expect(find.text('Log out'), findsOneWidget);

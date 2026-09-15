@@ -96,6 +96,36 @@ impl Orchestrator {
             rework_limit: spec.rework_limit,
             rework_count: 0,
         };
+        if let Some(parent_id) = task.parent_task_id {
+            let parent_index = snapshot
+                .tasks
+                .iter()
+                .position(|candidate| candidate.id == parent_id)
+                .ok_or(OrchestratorError::NotFound)?;
+            if matches!(
+                snapshot.tasks[parent_index].status,
+                TaskStatus::Done | TaskStatus::Cancelled
+            ) {
+                return Err(OrchestratorError::Validation(
+                    "cannot add a child to a final parent task".into(),
+                ));
+            }
+            if matches!(
+                snapshot.tasks[parent_index].status,
+                TaskStatus::Running | TaskStatus::Review
+            ) {
+                return Err(OrchestratorError::Validation(
+                    "cannot add a child while the parent task is active".into(),
+                ));
+            }
+            let parent = &mut snapshot.tasks[parent_index];
+            parent.child_task_ids.push(id);
+            parent
+                .child_task_ids
+                .sort_unstable_by_key(|child| child.to_string());
+            parent.child_task_ids.dedup();
+            parent.status = TaskStatus::Blocked;
+        }
         snapshot.tasks.push(task.clone());
         append_task_feed(
             &mut snapshot,

@@ -92,9 +92,7 @@ void main() {
     await tester.pump();
     expect(searchController.offset, 0);
 
-    await tester.tap(
-      find.byKey(const ValueKey('work-inbox-search-clear')),
-    );
+    await tester.tap(find.byKey(const ValueKey('work-inbox-search-clear')));
     await tester.pump(const Duration(milliseconds: 150));
     expect(
       tester
@@ -124,6 +122,10 @@ void main() {
 
     await tester.drag(list, const Offset(0, -280));
     await tester.pump();
+    // Mission rows expose a hover tooltip. Let its exit delay settle before
+    // asserting the short shelf's final scroll state so the test does not
+    // leave a timer pending during teardown.
+    await tester.pump(const Duration(milliseconds: 100));
     expect(controller.offset, 0);
     expect(tester.takeException(), isNull);
   });

@@ -17,10 +17,15 @@ use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
+pub mod openai;
 pub mod openrouter;
 pub mod terminal;
 
-pub use openrouter::{CredentialResolver, EnvironmentCredentialResolver, OpenRouterAdapter};
+pub use openai::OpenAiAdapter;
+pub use openrouter::{
+    CredentialResolver, EnvironmentCredentialResolver, EnvironmentOpenAiCredentialResolver,
+    OpenRouterAdapter,
+};
 
 #[derive(Debug, Error)]
 pub enum ProviderError {
@@ -42,7 +47,13 @@ pub type Result<T> = std::result::Result<T, ProviderError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeProbe {
+    #[serde(default = "default_provider_name")]
+    pub provider: String,
     pub capability: OpenRouterCapability,
+}
+
+fn default_provider_name() -> String {
+    "OpenRouter".to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +77,10 @@ pub struct StartRequest {
     /// OpenRouter session after frankd restarts.
     #[serde(default)]
     pub initial_transcript: Vec<Value>,
+    /// Native OpenAI reasoning effort. OpenRouter ignores this transport
+    /// field; the Responses adapter maps it to `reasoning.effort`.
+    #[serde(default)]
+    pub reasoning_effort: Option<frank_protocol::ReasoningEffort>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +113,12 @@ pub enum RuntimeEvent {
         content: String,
         #[serde(default)]
         tool_calls: Vec<RuntimeToolCall>,
+    },
+    /// Emitted after a complete assistant response that has no outstanding
+    /// tool calls. The orchestrator uses this provider-neutral boundary to
+    /// finalize the task even when the provider process remains connected.
+    TurnCompleted {
+        turn_id: String,
     },
     ApprovalRequest {
         operation: String,
@@ -330,10 +351,11 @@ pub trait RuntimeAdapter: Send + Sync {
 
 #[derive(Clone)]
 pub struct RuntimeManager {
-    /// The runtime has one provider boundary: OpenRouter. Keeping the
-    /// adapter singular makes accidental provider branching impossible in
-    /// production paths.
-    adapter: Arc<dyn RuntimeAdapter>,
+    /// Provider adapters are selected from the canonical model namespace.
+    /// OpenRouter remains the default for legacy unqualified model slugs;
+    /// native OpenAI models use the `openai/` namespace.
+    openrouter: Arc<dyn RuntimeAdapter>,
+    openai: Option<Arc<dyn RuntimeAdapter>>,
 }
 
 impl RuntimeManager {
@@ -344,8 +366,13 @@ impl RuntimeManager {
         if let Ok(adapter) =
             OpenRouterAdapter::new(Arc::new(openrouter::EnvironmentCredentialResolver))
         {
+            let openai =
+                OpenAiAdapter::new(Arc::new(openrouter::EnvironmentOpenAiCredentialResolver))
+                    .ok()
+                    .map(|adapter| Arc::new(adapter) as Arc<dyn RuntimeAdapter>);
             return Self {
-                adapter: Arc::new(adapter),
+                openrouter: Arc::new(adapter),
+                openai,
             };
         }
         // OpenRouterAdapter construction only fails when the reqwest client
@@ -353,35 +380,68 @@ impl RuntimeManager {
         // the unconfigured credential state rather than probing executables.
         let adapter = OpenRouterAdapter::new(Arc::new(openrouter::EnvironmentCredentialResolver))
             .expect("OpenRouter HTTP client must be constructible");
+        let openai = OpenAiAdapter::new(Arc::new(openrouter::EnvironmentOpenAiCredentialResolver))
+            .ok()
+            .map(|adapter| Arc::new(adapter) as Arc<dyn RuntimeAdapter>);
         Self {
-            adapter: Arc::new(adapter),
+            openrouter: Arc::new(adapter),
+            openai,
         }
     }
 
     pub fn with_openrouter_credentials(credentials: Arc<dyn CredentialResolver>) -> Result<Self> {
         let adapter = Arc::new(OpenRouterAdapter::new(credentials)?);
-        Ok(Self::with_openrouter_adapter(adapter))
+        let openai = OpenAiAdapter::new(Arc::new(openrouter::EnvironmentOpenAiCredentialResolver))
+            .ok()
+            .map(Arc::new);
+        Ok(Self::with_provider_adapters(adapter, openai))
     }
 
     pub fn with_openrouter_adapter(adapter: Arc<OpenRouterAdapter>) -> Self {
         Self {
-            adapter: adapter as Arc<dyn RuntimeAdapter>,
+            openrouter: adapter as Arc<dyn RuntimeAdapter>,
+            openai: None,
         }
     }
 
+    pub fn with_provider_adapters(
+        openrouter: Arc<OpenRouterAdapter>,
+        openai: Option<Arc<OpenAiAdapter>>,
+    ) -> Self {
+        Self {
+            openrouter: openrouter as Arc<dyn RuntimeAdapter>,
+            openai: openai.map(|adapter| adapter as Arc<dyn RuntimeAdapter>),
+        }
+    }
+
+    fn adapter_for_model(&self, model: Option<&str>) -> Result<&Arc<dyn RuntimeAdapter>> {
+        if model.is_some_and(|model| model.starts_with("openai/")) {
+            return self.openai.as_ref().ok_or_else(|| {
+                ProviderError::Unavailable(
+                    "native OpenAI provider is not configured on this runtime".into(),
+                )
+            });
+        }
+        Ok(&self.openrouter)
+    }
+
     pub async fn doctor(&self) -> Vec<RuntimeProbe> {
-        vec![self.adapter.probe().await]
+        let mut probes = vec![self.openrouter.probe().await];
+        if let Some(openai) = self.openai.as_ref() {
+            probes.push(openai.probe().await);
+        }
+        probes
     }
 
     pub async fn start(&self, request: StartRequest) -> Result<RuntimeSession> {
-        let adapter = &self.adapter;
+        let adapter = self.adapter_for_model(request.model.as_deref())?;
         let probe = adapter.probe().await;
         if !probe.capability.available || !probe.capability.configured {
             return Err(ProviderError::Unavailable(
                 probe
                     .capability
                     .diagnostic
-                    .unwrap_or_else(|| "OpenRouter is unavailable".into()),
+                    .unwrap_or_else(|| "configured provider is unavailable".into()),
             ));
         }
         adapter.start(request).await
@@ -392,14 +452,14 @@ impl RuntimeManager {
         request: StartRequest,
         provider_session_id: &str,
     ) -> Result<RuntimeSession> {
-        let adapter = &self.adapter;
+        let adapter = self.adapter_for_model(request.model.as_deref())?;
         let probe = adapter.probe().await;
         if !probe.capability.available || !probe.capability.configured {
             return Err(ProviderError::Unavailable(
                 probe
                     .capability
                     .diagnostic
-                    .unwrap_or_else(|| "OpenRouter is unavailable".into()),
+                    .unwrap_or_else(|| "configured provider is unavailable".into()),
             ));
         }
         adapter.resume(request, provider_session_id).await
@@ -410,7 +470,27 @@ impl RuntimeManager {
     }
 
     pub async fn model_catalog(&self, refresh: bool) -> Result<Vec<ModelDescriptor>> {
-        self.adapter.model_catalog(refresh).await
+        let openrouter = self.openrouter.model_catalog(refresh).await;
+        let openai = match self.openai.as_ref() {
+            Some(openai) => Some(openai.model_catalog(refresh).await),
+            None => None,
+        };
+        let mut catalog = Vec::new();
+        let mut last_error = None;
+        match openrouter {
+            Ok(models) => catalog.extend(models),
+            Err(error) => last_error = Some(error),
+        }
+        if let Some(result) = openai {
+            match result {
+                Ok(models) => catalog.extend(models),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        if !catalog.is_empty() || last_error.is_none() {
+            return Ok(catalog);
+        }
+        Err(last_error.expect("a failed provider request sets last_error"))
     }
 }
 
@@ -440,6 +520,102 @@ pub struct ShellOutput {
 mod tests {
     use super::*;
     use frank_protocol::AgentPolicy;
+    use std::sync::atomic::AtomicUsize;
+
+    #[derive(Clone)]
+    struct FakeAdapter {
+        provider: &'static str,
+        starts: Arc<Mutex<Vec<StartRequest>>>,
+        catalog_calls: Arc<AtomicUsize>,
+    }
+
+    impl FakeAdapter {
+        fn new(provider: &'static str) -> Self {
+            Self {
+                provider,
+                starts: Arc::new(Mutex::new(Vec::new())),
+                catalog_calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn probe_value(&self, available: bool, configured: bool) -> RuntimeProbe {
+            RuntimeProbe {
+                provider: self.provider.into(),
+                capability: OpenRouterCapability {
+                    configured,
+                    version: Some("test".into()),
+                    logged_in: configured,
+                    available,
+                    capabilities: vec!["structured".into()],
+                    diagnostic: (!available).then(|| "fake unavailable".into()),
+                    credential_source: Some("test".into()),
+                    catalog_refreshed_at: None,
+                },
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RuntimeAdapter for FakeAdapter {
+        async fn probe(&self) -> RuntimeProbe {
+            self.probe_value(true, true)
+        }
+
+        async fn start(&self, request: StartRequest) -> Result<RuntimeSession> {
+            self.starts.lock().await.push(request.clone());
+            let (command_tx, mut command_rx) = mpsc::channel(8);
+            tokio::spawn(async move { while command_rx.recv().await.is_some() {} });
+            let (event_broadcast, _) = broadcast::channel(8);
+            Ok(RuntimeSession::new_openrouter(
+                "stable-test-session".into(),
+                Arc::new(Mutex::new(Some("provider-test-session".into()))),
+                OpenRouterRuntime {
+                    command_tx,
+                    stopped: Arc::new(AtomicBool::new(false)),
+                },
+                event_broadcast,
+                request,
+            ))
+        }
+
+        async fn model_catalog(&self, _refresh: bool) -> Result<Vec<ModelDescriptor>> {
+            self.catalog_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(vec![ModelDescriptor {
+                id: self.provider.into(),
+                name: format!("{} model", self.provider),
+                canonical_slug: None,
+                context_length: Some(1024),
+                input_price_per_token: None,
+                output_price_per_token: None,
+                supported_parameters: Vec::new(),
+                deprecated_at: None,
+            }])
+        }
+    }
+
+    fn request(model: Option<&str>) -> StartRequest {
+        StartRequest {
+            agent_id: "agent".into(),
+            task_id: Some("task".into()),
+            cwd: "/tmp/project".into(),
+            instructions: "work".into(),
+            policy: AgentPolicy::default(),
+            model: model.map(str::to_string),
+            resume_session_id: None,
+            server_url: None,
+            server_certificate_fingerprint: None,
+            session_capability: None,
+            initial_transcript: Vec::new(),
+            reasoning_effort: None,
+        }
+    }
+
+    fn manager(openrouter: Arc<FakeAdapter>, openai: Option<Arc<FakeAdapter>>) -> RuntimeManager {
+        RuntimeManager {
+            openrouter: openrouter as Arc<dyn RuntimeAdapter>,
+            openai: openai.map(|adapter| adapter as Arc<dyn RuntimeAdapter>),
+        }
+    }
 
     #[test]
     fn measured_and_estimated_usage_never_mix() {
@@ -453,8 +629,115 @@ mod tests {
     async fn missing_provider_is_reported_by_doctor_not_panicked() {
         let manager = RuntimeManager::new();
         let probes = manager.doctor().await;
-        assert_eq!(probes.len(), 1);
-        assert!(probes[0].capability.available || !probes[0].capability.configured);
+        assert!(!probes.is_empty());
+        assert!(
+            probes
+                .iter()
+                .all(|probe| probe.capability.available || !probe.capability.configured)
+        );
+    }
+
+    #[tokio::test]
+    async fn runtime_manager_selects_namespaces_and_combines_catalogs() {
+        let openrouter = Arc::new(FakeAdapter::new("openrouter"));
+        let openai = Arc::new(FakeAdapter::new("openai"));
+        let manager = manager(openrouter.clone(), Some(openai.clone()));
+
+        let probes = manager.health().await;
+        assert_eq!(probes.len(), 2);
+        let catalog = manager.model_catalog(true).await.unwrap();
+        assert_eq!(
+            catalog
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["openrouter", "openai",]
+        );
+        assert_eq!(openrouter.catalog_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(openai.catalog_calls.load(Ordering::Relaxed), 1);
+
+        let session = manager.start(request(Some("openai/gpt-5"))).await.unwrap();
+        assert_eq!(session.request().model.as_deref(), Some("openai/gpt-5"));
+        assert_eq!(openai.starts.lock().await.len(), 1);
+        assert_eq!(openrouter.starts.lock().await.len(), 0);
+
+        let resumed = manager
+            .resume(request(None), "provider-resume")
+            .await
+            .unwrap();
+        assert_eq!(
+            resumed.request().resume_session_id.as_deref(),
+            Some("provider-resume")
+        );
+        assert_eq!(openrouter.starts.lock().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn runtime_session_enforces_caps_emits_ready_and_stops_once() {
+        let adapter = Arc::new(FakeAdapter::new("openrouter"));
+        let session = adapter.start(request(None)).await.unwrap();
+        assert!(session.health().await.unwrap());
+
+        let mut events = session.events().await.unwrap();
+        assert!(matches!(
+            events.recv().await,
+            Some(RuntimeEvent::Ready { provider_session_id }) if provider_session_id == "provider-test-session"
+        ));
+        session
+            .event_broadcast
+            .send(RuntimeEvent::Text {
+                text: "hello".into(),
+            })
+            .unwrap();
+        assert!(
+            matches!(events.recv().await, Some(RuntimeEvent::Text { text }) if text == "hello")
+        );
+
+        session
+            .send(&ProviderMessage {
+                role: "user".into(),
+                content: "hello".into(),
+                correlation_id: None,
+            })
+            .await
+            .unwrap();
+        session.submit_tool_result("call", "ok").await.unwrap();
+        session
+            .respond_to_approval("operation", ApprovalDecision::AllowOnce)
+            .await
+            .unwrap();
+        session.stop().await.unwrap();
+        session.stop().await.unwrap();
+        assert!(!session.health().await.unwrap());
+
+        let oversized = ProviderMessage {
+            role: "user".into(),
+            content: "x".repeat(frank_protocol::MAX_MESSAGE_BODY_BYTES + 1),
+            correlation_id: None,
+        };
+        assert!(matches!(
+            session.send(&oversized).await,
+            Err(ProviderError::Malformed(message)) if message.contains("message")
+        ));
+        assert!(matches!(
+            session
+                .submit_tool_result("call", &"x".repeat(frank_protocol::MAX_COMMAND_BODY_BYTES + 1))
+                .await,
+            Err(ProviderError::Malformed(message)) if message.contains("tool result")
+        ));
+    }
+
+    #[tokio::test]
+    async fn openai_namespace_without_an_adapter_fails_closed() {
+        let manager = manager(Arc::new(FakeAdapter::new("openrouter")), None);
+        let error = manager
+            .start(request(Some("openai/gpt-5")))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ProviderError::Unavailable(message) if message.contains("native OpenAI")
+        ));
     }
 
     #[test]
@@ -471,6 +754,7 @@ mod tests {
             server_certificate_fingerprint: None,
             session_capability: None,
             initial_transcript: Vec::new(),
+            reasoning_effort: Some(frank_protocol::ReasoningEffort::Max),
         };
         assert_eq!(
             request.policy.filesystem,

@@ -12,6 +12,7 @@ import 'package:forui/forui.dart';
 import 'package:material_ui/material_ui.dart' as mui;
 
 import '../../app/icons.dart';
+import '../../app/office_ui.dart';
 import '../../app/theme.dart';
 import '../../core/models/workspace_models.dart';
 import '../floor/office_scene_floor.dart';
@@ -45,6 +46,8 @@ class AccountExecutiveChat extends StatefulWidget {
     required this.onStop,
     this.renderFloor = true,
     this.sceneController,
+    this.onMissionStatus,
+    this.onRetryMissionPlan,
     super.key,
   });
 
@@ -66,6 +69,8 @@ class AccountExecutiveChat extends StatefulWidget {
   /// destination). When absent, this widget owns and disposes its own
   /// controller, which is the standalone/test path used with [renderFloor].
   final OfficeSceneController? sceneController;
+  final Future<void> Function(MissionStatus status)? onMissionStatus;
+  final Future<void> Function()? onRetryMissionPlan;
 
   @override
   State<AccountExecutiveChat> createState() => _AccountExecutiveChatState();
@@ -135,6 +140,8 @@ class _AccountExecutiveChatState extends State<AccountExecutiveChat> {
                           generating: widget.generating,
                           onSend: widget.onSend,
                           onStop: widget.onStop,
+                          onMissionStatus: widget.onMissionStatus,
+                          onRetryMissionPlan: widget.onRetryMissionPlan,
                           sceneController: _sceneController,
                         ),
                       ),
@@ -210,6 +217,8 @@ class _ConversationRail extends StatelessWidget {
     required this.onSend,
     required this.onStop,
     required this.sceneController,
+    this.onMissionStatus,
+    this.onRetryMissionPlan,
   });
 
   final OfficeEmployee executive;
@@ -221,6 +230,8 @@ class _ConversationRail extends StatelessWidget {
   final ValueChanged<String> onSend;
   final VoidCallback onStop;
   final OfficeSceneController sceneController;
+  final Future<void> Function(MissionStatus status)? onMissionStatus;
+  final Future<void> Function()? onRetryMissionPlan;
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +256,14 @@ class _ConversationRail extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (mission != null && onMissionStatus != null) ...[
+                  _MissionLifecycleBar(
+                    mission: mission!,
+                    onStatus: onMissionStatus!,
+                    onRetryPlanning: onRetryMissionPlan,
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 if (showNoMissionsNotice && project.missions.isEmpty) ...[
                   Align(
                     alignment: Alignment.centerLeft,
@@ -267,31 +286,7 @@ class _ConversationRail extends StatelessWidget {
                     child: SizedBox(
                       width: composerWidth,
                       child: messages.isEmpty
-                          ? Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: FlowSuggestionGroup(
-                                layout: FlowSuggestionLayout.column,
-                                suggestions: [
-                                  FlowSuggestion(
-                                    label:
-                                        'Turn a rough idea into a project brief',
-                                    icon: FrankIcons.editNote,
-                                    onTap: () => onSend(
-                                      'Help me turn this rough idea into a project brief.',
-                                    ),
-                                  ),
-                                  FlowSuggestion(
-                                    label: 'Suggest a team for my next project',
-                                    icon: FrankIcons.users,
-                                    onTap: () => onSend(
-                                      'Suggest the smallest team for my next project.',
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
+                          ? const SizedBox.shrink()
                           : Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: _composerCornerRadius,
@@ -343,6 +338,176 @@ class _ConversationRail extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _MissionLifecycleBar extends StatefulWidget {
+  const _MissionLifecycleBar({
+    required this.mission,
+    required this.onStatus,
+    this.onRetryPlanning,
+  });
+
+  final OfficeMission mission;
+  final Future<void> Function(MissionStatus status) onStatus;
+  final Future<void> Function()? onRetryPlanning;
+
+  @override
+  State<_MissionLifecycleBar> createState() => _MissionLifecycleBarState();
+}
+
+class _MissionLifecycleBarState extends State<_MissionLifecycleBar> {
+  bool _busy = false;
+  String? _error;
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await action();
+    } catch (error) {
+      if (mounted) setState(() => _error = frankFriendlyError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mission = widget.mission;
+    final action = switch (mission.status) {
+      MissionStatus.draft when !mission.hasPlan => null,
+      MissionStatus.draft => ('Start', MissionStatus.active),
+      MissionStatus.active => ('Pause', MissionStatus.paused),
+      MissionStatus.paused => ('Resume', MissionStatus.active),
+      MissionStatus.blocked when mission.hasPlan => (
+        'Resume',
+        MissionStatus.active,
+      ),
+      MissionStatus.blocked => null,
+      _ =>
+        mission.allTasksDone
+            ? ('Complete mission', MissionStatus.completed)
+            : null,
+    };
+    final preparing = mission.status == MissionStatus.draft && !mission.hasPlan;
+    final message =
+        _error ??
+        mission.lastError ??
+        (preparing
+            ? 'Preparing plan…'
+            : mission.hasPlan
+            ? '${mission.doneTaskCount}/${mission.totalTaskCount} tasks complete'
+            : 'Mission is ready for planning');
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final actionButton = switch ((
+      mission.lastError != null && widget.onRetryPlanning != null,
+      action,
+    )) {
+      (true, _) =>
+        largeText
+            ? FButton.raw(
+                onPress: _busy ? null : () => _run(widget.onRetryPlanning!),
+                variant: FButtonVariant.outline,
+                size: FButtonSizeVariant.sm,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(_busy ? 'Working…' : 'Retry planning'),
+                  ),
+                ),
+              )
+            : FButton(
+                onPress: _busy ? null : () => _run(widget.onRetryPlanning!),
+                variant: FButtonVariant.outline,
+                size: FButtonSizeVariant.sm,
+                child: const Text('Retry planning'),
+              ),
+      (false, final value?) =>
+        largeText
+            ? FButton.raw(
+                onPress: _busy
+                    ? null
+                    : () => _run(() => widget.onStatus(value.$2)),
+                size: FButtonSizeVariant.sm,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 12,
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(_busy ? 'Working…' : value.$1),
+                  ),
+                ),
+              )
+            : FButton(
+                onPress: _busy
+                    ? null
+                    : () => _run(() => widget.onStatus(value.$2)),
+                size: FButtonSizeVariant.sm,
+                child: Text(_busy ? 'Working…' : value.$1),
+              ),
+      _ => null,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: FrankColors.panel.withValues(alpha: .94),
+        borderRadius: BorderRadius.circular(FrankUiTokens.controlRadius),
+        border: Border.all(
+          color: mission.lastError == null
+              ? FrankColors.border
+              : FrankColors.failure,
+        ),
+      ),
+      child: largeText
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  message,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: mission.lastError == null
+                        ? FrankColors.muted
+                        : FrankColors.failure,
+                    fontSize: 12,
+                  ),
+                ),
+                if (actionButton != null) ...[
+                  const SizedBox(height: 8),
+                  Align(alignment: Alignment.centerRight, child: actionButton),
+                ],
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: mission.lastError == null
+                          ? FrankColors.muted
+                          : FrankColors.failure,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                ?actionButton,
+              ],
+            ),
     );
   }
 }

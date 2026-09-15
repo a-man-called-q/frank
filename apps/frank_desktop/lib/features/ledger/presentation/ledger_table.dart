@@ -54,7 +54,7 @@ class _LedgerAttributionPanel extends StatelessWidget {
                         TextSpan(
                           text: '$attributedPercent%',
                           style: const TextStyle(
-                            color: FrankColors.green,
+                            color: FrankColors.statusSuccess,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -177,7 +177,7 @@ class _LedgerTableRow {
       _LedgerTableCell(
         row.basis.label,
         color: row.isExcluded ? FrankColors.warningAmber : FrankColors.muted,
-        marker: row.isExcluded ? FrankColors.warningAmber : FrankColors.green,
+        marker: row.isExcluded ? FrankColors.warningAmber : FrankColors.statusSuccess,
       ),
     ]);
   }

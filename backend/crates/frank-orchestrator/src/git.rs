@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use frank_protocol::{MAX_COMMAND_BODY_BYTES, PrPolicy, ProjectView, PushPolicy, TaskId};
 use thiserror::Error;
 use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 use crate::helpers::bounded_text;
 
@@ -344,28 +345,30 @@ impl GitWorkflow {
     pub async fn run_checks(&self, worktree: &Path) -> Result<Vec<CheckResult>> {
         let mut results = Vec::with_capacity(self.project.check_commands.len());
         for command in &self.project.check_commands {
-            if command.contains('\n') || command.len() > 4096 {
-                return Err(GitError::InvalidCheck);
+            let (program, args) = parse_legacy_check(command)?;
+            let mut process = Command::new(&program);
+            process
+                .env_clear()
+                .args(&args)
+                .current_dir(worktree)
+                .kill_on_drop(true);
+            if let Some(path) = std::env::var_os("PATH") {
+                process.env("PATH", path);
             }
-            let output = if cfg!(windows) {
-                Command::new("cmd")
-                    .arg("/C")
-                    .arg(command)
-                    .current_dir(worktree)
-                    .output()
-                    .await
-            } else {
-                Command::new("sh")
-                    .arg("-c")
-                    .arg(command)
-                    .current_dir(worktree)
-                    .output()
-                    .await
-            }
-            .map_err(|error| GitError::Command {
-                command: command.clone(),
-                message: error.to_string(),
-            })?;
+            let output = match timeout(Duration::from_secs(600), process.output()).await {
+                Ok(output) => output.map_err(|error| GitError::Command {
+                    command: command.clone(),
+                    message: error.to_string(),
+                })?,
+                Err(_) => {
+                    results.push(CheckResult {
+                        command: command.clone(),
+                        success: false,
+                        output: "check timed out after 600 seconds".into(),
+                    });
+                    break;
+                }
+            };
             let text = bounded_command_output(&output.stdout, &output.stderr);
             results.push(CheckResult {
                 command: command.clone(),
@@ -636,6 +639,55 @@ impl GitWorkflow {
     }
 }
 
+/// Compatibility parser for projects that still persist the old
+/// `check_commands: Vec<String>` field. It intentionally accepts only a
+/// simple executable plus argv vector; shell operators, quoting, expansion,
+/// and interpreter binaries are rejected instead of being passed to `sh -c`.
+fn parse_legacy_check(command: &str) -> Result<(String, Vec<String>)> {
+    if command.trim().is_empty()
+        || command.len() > 4_096
+        || command.chars().any(|character| {
+            character == '\n'
+                || character == '\r'
+                || character == '\0'
+                || matches!(
+                    character,
+                    ';' | '|' | '&' | '<' | '>' | '`' | '$' | '(' | ')'
+                )
+        })
+    {
+        return Err(GitError::InvalidCheck);
+    }
+    let mut parts = command.split_whitespace();
+    let Some(program) = parts.next() else {
+        return Err(GitError::InvalidCheck);
+    };
+    if program.contains('/')
+        || program.contains('\\')
+        || program.chars().any(char::is_control)
+        || matches!(
+            program.to_ascii_lowercase().as_str(),
+            "sh" | "bash"
+                | "zsh"
+                | "fish"
+                | "dash"
+                | "cmd"
+                | "powershell"
+                | "pwsh"
+                | "sudo"
+                | "doas"
+                | "pkexec"
+        )
+    {
+        return Err(GitError::InvalidCheck);
+    }
+    let args = parts.map(str::to_string).collect::<Vec<_>>();
+    if args.iter().any(|arg| arg.chars().any(char::is_control)) {
+        return Err(GitError::InvalidCheck);
+    }
+    Ok((program.to_string(), args))
+}
+
 /// Keep provider/check/Git diagnostics within the same body cap as command
 /// responses.  Git can emit an arbitrarily large diff or hook traceback; a
 /// daemon must not persist that entire buffer in an operation/error row.
@@ -748,6 +800,22 @@ mod tests {
         assert!(matches!(
             GitWorkflow::new(project(), vec![PathBuf::from("/safe")]),
             Err(GitError::OutsideAllowedRoot)
+        ));
+    }
+
+    #[test]
+    fn legacy_checks_are_parsed_as_argv_and_never_shell_code() {
+        assert_eq!(
+            parse_legacy_check("cargo test --workspace").unwrap(),
+            ("cargo".into(), vec!["test".into(), "--workspace".into()])
+        );
+        assert!(matches!(
+            parse_legacy_check("cargo test && touch pwned"),
+            Err(GitError::InvalidCheck)
+        ));
+        assert!(matches!(
+            parse_legacy_check("sh -c echo").unwrap_err(),
+            GitError::InvalidCheck
         ));
     }
 }

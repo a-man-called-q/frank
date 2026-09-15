@@ -22,6 +22,7 @@ void main() {
       'Ledger',
       'Taskboard',
       'Journal',
+      'Toolchains',
     ]);
   });
 

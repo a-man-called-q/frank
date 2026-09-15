@@ -181,6 +181,12 @@ fn assign_task(
         }
         task.claimed_at.clone()
     };
+    // A new owner must never inherit the previous owner's task-scoped grant.
+    for grant in &mut snapshot.task_grants {
+        if grant.task_id == task_id && grant.agent_id != agent_id {
+            grant.revoked = true;
+        }
+    }
     let agent_name = {
         let agent = snapshot
             .agents

@@ -1,5 +1,5 @@
-import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 import 'package:frank_desktop/app/icons.dart';
 import 'package:frank_desktop/app/theme.dart';
@@ -144,6 +144,10 @@ class _FrankComposerState extends State<FrankComposer> {
               control: FTextFieldControl.managed(
                 controller: _effectiveController,
               ),
+              // Reuse ForUI's borderless search-field style. The default text
+              // field style draws its own outline, while the composer already
+              // owns the only container border that should be visible here.
+              style: context.theme.selectStyle.searchStyle.fieldStyles.md,
               focusNode: _effectiveFocusNode,
               minLines: 2,
               maxLines: 6,

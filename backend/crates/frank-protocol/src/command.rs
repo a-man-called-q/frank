@@ -86,6 +86,11 @@ pub enum Command {
         mission_id: MissionId,
         status: MissionStatus,
     },
+    /// Retry supervisor planning for a draft or blocked mission.  The
+    /// command is idempotent: an existing task plan is never duplicated.
+    RetryMissionPlan {
+        mission_id: MissionId,
+    },
     CreateTask(TaskSpec),
     /// Create a raw card directly on a board. This is the v2 entry point for
     /// an AE/operator/agent and deliberately does not require a supervisor
@@ -195,6 +200,16 @@ pub enum Command {
     DecideApproval {
         approval_id: ApprovalId,
         decision: ApprovalDecision,
+    },
+    GrantTaskAccess {
+        task_id: TaskId,
+        agent_id: AgentId,
+        worktree: String,
+        effect: TaskGrantEffect,
+        expires_at: Timestamp,
+    },
+    RevokeTaskGrant {
+        grant_id: String,
     },
     AdjustBudget {
         scope: BudgetScope,

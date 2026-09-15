@@ -6,14 +6,12 @@ use crate::*;
 
 fn validate_role(role: &RoleView) -> Result<()> {
     if !valid_agent_text(&role.name, 128)
-        || !valid_content_text(&role.description, MAX_MESSAGE_BODY_BYTES)
         || role.instructions.len() > MAX_MESSAGE_BODY_BYTES
         || !valid_optional_agent_text(role.model.as_deref(), 256)
-        || !valid_optional_agent_text(role.pack_id.as_deref(), 128)
-        || !valid_optional_agent_text(role.pack_level.as_deref(), 128)
+        || role.model.is_none()
     {
         return Err(OrchestratorError::Validation(
-            "role name, description, or template is invalid".into(),
+            "role name and canonical model are required".into(),
         ));
     }
     Ok(())
@@ -23,22 +21,10 @@ pub(crate) fn apply_role_patch(role: &mut RoleView, patch: RolePatch) {
     if let Some(value) = patch.name {
         role.name = value;
     }
-    if let Some(value) = patch.description {
-        role.description = value;
-    }
-    if let Some(value) = patch.template {
-        role.template = value;
-    }
     if patch.clear_model {
         role.model = None;
     } else if let Some(value) = patch.model {
         role.model = value;
-    }
-    if let Some(value) = patch.pack_id {
-        role.pack_id = value;
-    }
-    if let Some(value) = patch.pack_level {
-        role.pack_level = value;
     }
     if let Some(value) = patch.instructions {
         role.instructions = value;
@@ -49,9 +35,6 @@ pub(crate) fn apply_role_patch(role: &mut RoleView, patch: RolePatch) {
     if let Some(value) = patch.budget {
         role.budget = value;
     }
-    if let Some(value) = patch.avatar {
-        role.avatar = value;
-    }
 }
 
 /// Materialize a role's full template into an agent. This is deliberately
@@ -60,7 +43,6 @@ pub(crate) fn apply_role_patch(role: &mut RoleView, patch: RolePatch) {
 pub(crate) fn materialize_role(agent: &mut AgentView, role: &RoleView) {
     agent.role_id = Some(role.id);
     agent.role_revision = role.revision;
-    agent.template = role.template;
     agent.model = agent.model_override.clone().or_else(|| role.model.clone());
     agent.effective_model = agent.model.clone();
     agent.model_source = if agent.model_override.is_some() {
@@ -68,12 +50,9 @@ pub(crate) fn materialize_role(agent: &mut AgentView, role: &RoleView) {
     } else {
         ModelSource::Role
     };
-    agent.pack_id = role.pack_id.clone();
-    agent.pack_level = role.pack_level.clone();
     agent.instructions = role.instructions.clone();
     agent.policy = role.policy.clone();
     agent.budget = role.budget.clone();
-    agent.avatar = role.avatar.clone();
 }
 
 impl Orchestrator {
@@ -86,14 +65,12 @@ impl Orchestrator {
         match command {
             Command::CreateRole(spec) => {
                 if !valid_agent_text(&spec.name, 128)
-                    || !valid_content_text(&spec.description, MAX_MESSAGE_BODY_BYTES)
                     || spec.instructions.len() > MAX_MESSAGE_BODY_BYTES
                     || !valid_optional_agent_text(spec.model.as_deref(), 256)
-                    || !valid_optional_agent_text(spec.pack_id.as_deref(), 128)
-                    || !valid_optional_agent_text(spec.pack_level.as_deref(), 128)
+                    || spec.model.is_none()
                 {
                     return Err(OrchestratorError::Validation(
-                        "role name, description, or template is invalid".into(),
+                        "role name and canonical model are required".into(),
                     ));
                 }
                 if let Some(model) = spec.model.as_deref() {
@@ -112,15 +89,10 @@ impl Orchestrator {
                 let role = RoleView {
                     id,
                     name: spec.name,
-                    description: spec.description,
-                    template: spec.template,
                     model: spec.model,
-                    pack_id: spec.pack_id,
-                    pack_level: spec.pack_level,
                     instructions: spec.instructions,
                     policy: spec.policy,
                     budget: spec.budget,
-                    avatar: spec.avatar,
                     revision: 1,
                     archived: false,
                 };
@@ -137,6 +109,11 @@ impl Orchestrator {
                     && let Some(Some(model)) = patch.model.as_ref()
                 {
                     self.validate_openrouter_model(Some(model)).await?;
+                }
+                if patch.clear_model || matches!(patch.model, Some(None)) {
+                    return Err(OrchestratorError::Validation(
+                        "a role must keep a canonical model".into(),
+                    ));
                 }
                 let role = snapshot
                     .roles

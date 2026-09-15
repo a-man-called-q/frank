@@ -171,15 +171,19 @@ class _TeamRoles extends StatelessWidget {
   }
 
   Future<void> _edit(BuildContext context, TeamRoleSummary role) async {
-    await showFrankDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _RoleEditDialog(
-        role: role,
-        models: models,
-        onSave: (patch) async {
-          await onUpdateRole!(role.id, patch);
-        },
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => _TeamFormPage(
+          form: _RoleEditDialog(
+            role: role,
+            models: models,
+            onSave: (patch) async {
+              await onUpdateRole!(role.id, patch);
+            },
+          ),
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
     );
   }
@@ -187,34 +191,24 @@ class _TeamRoles extends StatelessWidget {
   Future<void> _archive(BuildContext context, TeamRoleSummary role) async {
     final confirmed = await showFrankDialog<bool>(
       context: context,
-      builder: (dialogContext) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Archive ${role.name}?',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      builder: (dialogContext) => FrankDialogScaffold(
+        title: Text(
+          'Archive ${role.name}?',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        content: const Text(
+          'Agents and tasks still using this role must be moved first.',
+        ),
+        actions: [
+          FButton(
+            onPress: () => Navigator.pop(dialogContext, false),
+            variant: FButtonVariant.ghost,
+            child: const Text('Cancel'),
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'Agents and tasks still using this role must be moved first.',
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              FButton(
-                onPress: () => Navigator.pop(dialogContext, false),
-                variant: FButtonVariant.ghost,
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 8),
-              FButton(
-                onPress: () => Navigator.pop(dialogContext, true),
-                variant: FButtonVariant.destructive,
-                child: const Text('Archive role'),
-              ),
-            ],
+          FButton(
+            onPress: () => Navigator.pop(dialogContext, true),
+            variant: FButtonVariant.destructive,
+            child: const Text('Archive role'),
           ),
         ],
       ),
@@ -252,7 +246,7 @@ class _RoleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(18),
+    padding: const EdgeInsets.all(FrankUiTokens.panelPadding),
     decoration: BoxDecoration(
       color: FrankColors.panel,
       borderRadius: BorderRadius.circular(14),
@@ -278,24 +272,21 @@ class _RoleCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                role.description.isEmpty
-                    ? 'No description yet.'
-                    : role.description,
-                style: const TextStyle(color: FrankColors.muted, fontSize: 12),
-              ),
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 6,
                 children: [
-                  _RolePill(label: role.template),
+                  _RolePill(
+                    label: role.defaultModel == null ||
+                            role.defaultModel!.trim().isEmpty
+                        ? 'Model unavailable'
+                        : role.defaultModel!,
+                  ),
                   _RolePill(label: '$memberCount members'),
                   if (role.revision > 0)
                     _RolePill(label: 'Revision ${role.revision}'),
-                  if (role.defaultModel != null)
-                    _RolePill(label: role.defaultModel!),
+                  _RolePill(label: _rolePolicySummary(role.policy)),
                 ],
               ),
             ],
@@ -325,6 +316,13 @@ class _RoleCard extends StatelessWidget {
       ],
     ),
   );
+}
+
+String _rolePolicySummary(Map<String, Object?> policy) {
+  final filesystem = policy['filesystem']?.toString() ?? 'workspace-write';
+  final shell = policy['shell']?.toString() ?? 'ask';
+  final network = policy['network']?.toString() ?? 'ask';
+  return '${filesystem.replaceAll('-', ' ')} · shell $shell · network $network';
 }
 
 class _RolePill extends StatelessWidget {
@@ -387,32 +385,6 @@ class _TeamHeader extends StatelessWidget {
         _TeamStat(label: 'Available', value: '$availableCount'),
       ],
       if (isFixture) const FrankSampleDataBadge(),
-      if (onCreateRole != null)
-        FButton(
-          key: const ValueKey('team-create-role'),
-          onPress: canMutate ? () => _createRole(context) : null,
-          semanticsTooltip: canMutate
-              ? 'Create role'
-              : mutationDisabledReason ?? 'Reconnect before creating a role',
-          variant: FButtonVariant.outline,
-          size: FButtonSizeVariant.sm,
-          prefix: const Icon(FrankIcons.accountTreeOutlined, size: 16),
-          child: const Text('New role'),
-        ),
-      if (onCreateAgent != null)
-        FButton(
-          key: const ValueKey('team-create-agent'),
-          onPress: !canMutate || roles.isEmpty
-              ? null
-              : () => _createAgent(context),
-          semanticsTooltip: canMutate
-              ? 'Create team member'
-              : mutationDisabledReason ??
-                    'Reconnect before creating a team member',
-          size: FButtonSizeVariant.sm,
-          prefix: const Icon(FrankIcons.personAddAlt1, size: 16),
-          child: const Text('New member'),
-        ),
     ];
     final showRoleTab = roles.isNotEmpty || onCreateRole != null;
     final managementEnabled =
@@ -428,34 +400,24 @@ class _TeamHeader extends StatelessWidget {
             onChanged: onTabSelected,
           )
         : null;
-    final createMenu = onCreateRole == null && onCreateAgent == null
+    final createAction = selectedTab == TeamRosterTab.roles
+        ? onCreateRole == null
+              ? null
+              : FButton(
+                  key: const ValueKey('team-create-role'),
+                  onPress: canMutate ? () => _createRole(context) : null,
+                  size: FButtonSizeVariant.sm,
+                  prefix: const Icon(FrankIcons.accountTreeOutlined, size: 16),
+                  child: const Text('New role'),
+                )
+        : onCreateAgent == null
         ? null
-        : FPopoverMenu(
-            key: const ValueKey('team-create-menu'),
-            menu: [
-              FItemGroup(
-                children: [
-                  if (onCreateRole != null)
-                    FItem(
-                      title: const Text('New role'),
-                      enabled: canMutate,
-                      onPress: canMutate ? () => _createRole(context) : null,
-                    ),
-                  if (onCreateAgent != null)
-                    FItem(
-                      title: const Text('New member'),
-                      enabled: canMutate && roles.isNotEmpty,
-                      onPress: canMutate ? () => _createAgent(context) : null,
-                    ),
-                ],
-              ),
-            ],
-            builder: (_, controller, _) => FButton.icon(
-              onPress: controller.toggle,
-              semanticsLabel: 'Create team item',
-              semanticsTooltip: 'Create team item',
-              child: const Icon(FrankIcons.add, size: 18),
-            ),
+        : FButton(
+            key: const ValueKey('team-create-agent'),
+            onPress: canMutate ? () => _createAgent(context) : null,
+            size: FButtonSizeVariant.sm,
+            prefix: const Icon(FrankIcons.personAddAlt1, size: 16),
+            child: const Text('Add member'),
           );
     // Keep the header controls in one compact flow. A nested Column here used
     // to produce two full-width stacked bars (tabs, then actions) at the
@@ -466,7 +428,7 @@ class _TeamHeader extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       spacing: 8,
       runSpacing: 8,
-      children: [?tabs, ...stats, if (compact) ?createMenu],
+      children: [?tabs, ...stats, ?createAction],
     );
     return OfficePageHeader(
       title: 'Team',
@@ -474,34 +436,48 @@ class _TeamHeader extends StatelessWidget {
       // several lines and pushes the first roster card below the viewport.
       // Keep the context, but let the roster remain immediately reachable.
       description: compact && managementEnabled
-          ? 'Agent roster and role templates.'
+          ? 'Agent roster and role-backed workers.'
           : 'Manage role-backed agents and inspect their runtime state.',
       actions: controls,
     );
   }
 
   Future<void> _createRole(BuildContext context) async {
-    await showFrankDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _RoleDraftDialog(
-        models: models,
-        onSave: (draft) async {
-          await onCreateRole!(draft);
-        },
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => _TeamFormPage(
+          form: _RoleDraftDialog(
+            models: models,
+            onSave: (draft) async {
+              await onCreateRole!(draft);
+            },
+          ),
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
     );
   }
 
   Future<void> _createAgent(BuildContext context) async {
-    await showFrankDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _AgentDraftDialog(
-        roles: roles,
-        onSave: (draft) async {
-          await onCreateAgent!(draft);
-        },
+    if (roles.isEmpty) {
+      // A member cannot operate without a role. Route the owner to role
+      // creation first instead of presenting a form that can only fail.
+      await _createRole(context);
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => _TeamFormPage(
+          form: _AgentDraftDialog(
+            roles: roles,
+            onSave: (draft) async {
+              await onCreateAgent!(draft);
+            },
+          ),
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
     );
   }

@@ -19,6 +19,9 @@ services:
     volumes:
       - frank-data:/var/lib/frank
       - ${FRANK_TLS_DIR:-./docker/tls}:/etc/frank/tls:ro
+      # Expose the requested calculator workspace to frankd while keeping the
+      # host project at its original path on the user's external volume.
+      - ${CALCULATOR_PROJECT_DIR:-/Volumes/external/Works/personal/calculator}:/srv/frank/projects/calculator
     init: true
     stop_grace_period: 30s
     restart: unless-stopped

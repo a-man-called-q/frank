@@ -106,9 +106,9 @@ void main() {
       find.byKey(const ValueKey('team-profile-panel-identity')),
       findsOneWidget,
     );
-    expect(find.text('Curious'), findsOneWidget);
-    expect(find.text('Practical'), findsOneWidget);
-    expect(find.text('Methodical'), findsOneWidget);
+    expect(find.text('Role'), findsOneWidget);
+    expect(find.text('Prompt pack'), findsNothing);
+    expect(find.text('ROLE MARKERS'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('team-profile-tab-setup')));
     await tester.pump(const Duration(milliseconds: 100));
@@ -120,8 +120,8 @@ void main() {
     // The drawer keeps the effective model visible in the compact identity
     // summary while Setup repeats it with source/configuration context.
     expect(find.text('openai/gpt-4o-mini'), findsWidgets);
-    expect(find.text('caveman'), findsNWidgets(2));
-    expect(find.text('full'), findsOneWidget);
+    expect(find.text('caveman'), findsNothing);
+    expect(find.text('full'), findsNothing);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump(const Duration(milliseconds: 100));

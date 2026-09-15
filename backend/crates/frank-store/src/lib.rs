@@ -22,6 +22,7 @@ mod artifacts;
 mod auth;
 mod commit;
 mod events;
+mod journal;
 pub mod memory;
 mod migrations;
 mod operations_store;
@@ -32,6 +33,7 @@ mod schema;
 mod sessions;
 mod snapshot_store;
 mod terminal_store;
+mod toolchains;
 mod types;
 
 pub use projection::ProjectionTable;
@@ -188,6 +190,18 @@ impl Store {
             .bind(timestamp_now())
             .execute(&pool)
             .await?;
+        // Journal v1 is a projection, not a second source of truth. Backfill
+        // old event rows once so a newly upgraded desktop has useful history
+        // immediately; future commits insert richer entries atomically.
+        sqlx::query(
+            "INSERT OR IGNORE INTO journal_entries (sequence, occurred_at, actor_json, kind, outcome, summary, detail_json) SELECT seq, occurred_at, actor_json, 'event', 'info', 'Historical server event', event_json FROM events",
+        )
+        .execute(&pool)
+        .await?;
+        sqlx::query("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (9, ?)")
+            .bind(timestamp_now())
+            .execute(&pool)
+            .await?;
         // Keep the one-owner invariant in a separate singleton slot. This is
         // additive for databases that already have the owner table and gives
         // concurrent first-run processes a durable claim point even when they
@@ -243,6 +257,28 @@ impl Store {
                 .execute(&pool)
                 .await?;
         }
+        // v10 upgrades the coarse v9 backfill into the typed Journal
+        // projection. Replaying is idempotent by event sequence and keeps
+        // the source of truth in the retained event log.
+        let journal_migration_applied = sqlx::query_scalar::<_, i64>(
+            "SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE version = 10)",
+        )
+        .fetch_one(&pool)
+        .await?
+            != 0;
+        if !journal_migration_applied {
+            journal::rebuild_journal_from_events(&pool).await?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (10, ?)",
+            )
+            .bind(timestamp_now())
+            .execute(&pool)
+            .await?;
+        }
+        // Jobs are durable records, but an in-memory WebSocket cannot survive
+        // a daemon restart. Mark only queued/running jobs as interrupted so a
+        // later UI refresh never presents stale work as active.
+        toolchains::mark_runner_jobs_interrupted_pool(&pool).await?;
         Ok(Self {
             pool,
             database_path,
@@ -285,10 +321,10 @@ pub fn api_error(error: &StoreError) -> ApiError {
 mod tests {
     use super::*;
     use frank_protocol::{
-        AgentId, AgentPolicy, AgentTemplate, AgentView, ArtifactUploadSpec, ArtifactUploadView,
-        ArtifactView, AvatarSpec, Budget, CommandResult, CorrelationId, Event, MissionStatus,
-        MissionView, ModelSource, OperationId, OperationKind, OperationStatus, OperationView,
-        ProjectId, ProjectView, RoleId, RoleView, TaskId, TaskStatus, TaskView, UsageView,
+        AgentId, AgentPolicy, AgentView, ArtifactUploadSpec, ArtifactUploadView, ArtifactView,
+        Budget, CommandResult, CorrelationId, Event, MissionStatus, MissionView, ModelSource,
+        OperationId, OperationKind, OperationStatus, OperationView, ProjectId, ProjectView, RoleId,
+        RoleView, TaskId, TaskStatus, TaskView, UsageView,
     };
     use frank_protocol::{DEFAULT_REWORK_LIMIT, WorkItemKind};
 
@@ -336,6 +372,40 @@ mod tests {
             .unwrap();
         assert_eq!(replay.response, commit.response);
         assert_eq!(store.events_after(0, 50).await.unwrap().events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn journal_projection_is_committed_and_filterable_with_event() {
+        let store = Store::open_in_memory().await.unwrap();
+        let snapshot = store.snapshot().await.unwrap();
+        store
+            .commit_command(
+                CommandId::new(),
+                Some(0),
+                ActorRef::system(),
+                Event::TaskStatusChanged {
+                    task_id: TaskId::nil(),
+                    status: TaskStatus::Done,
+                },
+                snapshot,
+                CommandResult::Accepted,
+            )
+            .await
+            .unwrap();
+        let page = store
+            .journal_page(&frank_protocol::JournalFilter {
+                kinds: vec![frank_protocol::JournalEntryKind::Task],
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(page.entries.len(), 1);
+        assert_eq!(page.entries[0].sequence, 1);
+        assert_eq!(
+            page.entries[0].outcome,
+            frank_protocol::JournalOutcome::Success
+        );
+        assert_eq!(page.next_before_sequence, Some(1));
     }
 
     #[tokio::test]
@@ -754,6 +824,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/mission-test".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: "1".into(),
             updated_at: "2".into(),
         });
@@ -880,24 +951,17 @@ mod tests {
             supervisor_session_id: Some("legacy-session".into()),
             branch: "frank/keep-me".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
         snapshot.roles.push(RoleView {
             id: role_id,
             name: "Legacy role".into(),
-            description: "Legacy".into(),
-            template: AgentTemplate::Builder,
             model: Some("legacy/model".into()),
-            pack_id: None,
-            pack_level: None,
             instructions: "build".into(),
             policy: AgentPolicy::default(),
             budget: Budget::unlimited(),
-            avatar: AvatarSpec {
-                palette: "legacy".into(),
-                seed: 1,
-            },
             revision: 1,
             archived: false,
         });
@@ -906,22 +970,15 @@ mod tests {
             role_id: Some(role_id),
             role_revision: 1,
             display_name: "Legacy agent".into(),
-            template: AgentTemplate::Builder,
             model: Some("legacy/model".into()),
             effective_model: Some("legacy/model".into()),
             model_source: ModelSource::Role,
             model_override: None,
             pending_model_override: None,
             pending_model_change: false,
-            pack_id: None,
-            pack_level: None,
             instructions: "build".into(),
             policy: AgentPolicy::default(),
             budget: Budget::unlimited(),
-            avatar: AvatarSpec {
-                palette: "legacy".into(),
-                seed: 1,
-            },
             status: frank_protocol::AgentStatus::Working,
             provider_session_id: Some("legacy-session".into()),
             last_claimed_at: None,

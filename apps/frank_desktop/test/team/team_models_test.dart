@@ -6,16 +6,12 @@ void main() {
     const patch = TeamAgentPatch(
       displayName: TeamPatchField<String>.set('Maya Chen'),
       modelOverride: TeamPatchField<String>.clear(),
-      avatar: TeamPatchField<TeamAvatarSpec>.set(
-        TeamAvatarSpec(palette: 'frank', seed: 7),
-      ),
     );
 
     expect(patch.toJson(), {
       'display_name': 'Maya Chen',
       'model_override': null,
       'clear_model_override': true,
-      'avatar': {'palette': 'frank', 'seed': 7},
     });
     expect(Map<String, Object?>.from(patch), patch.toJson());
     expect(const TeamAgentPatch().toJson(), isEmpty);

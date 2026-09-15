@@ -117,18 +117,26 @@ impl ScopedBridge {
                 Ok(serde_json::to_value(task)?)
             }
             "task_update" => {
-                let patch: TaskPatch = serde_json::from_value(args)
+                let input: TaskUpdateInput = serde_json::from_value(args)
                     .map_err(|error| McpError::Arguments(error.to_string()))?;
                 let snapshot = snapshot_for_task(&self.client, self.capability.task_id).await?;
+                let command = match input.status {
+                    Some(TaskCompletionIntent::Completed) => Command::SetTaskStatus {
+                        task_id: self.capability.task_id,
+                        status: TaskStatus::Review,
+                    },
+                    Some(TaskCompletionIntent::Rework) => Command::RequestTaskRework {
+                        task_id: self.capability.task_id,
+                        reason: "worker requested rework".into(),
+                    },
+                    None => Command::UpdateTask {
+                        task_id: self.capability.task_id,
+                        patch: input.patch,
+                    },
+                };
                 let response = self
                     .client
-                    .command(
-                        Command::UpdateTask {
-                            task_id: self.capability.task_id,
-                            patch,
-                        },
-                        Some(snapshot.revision),
-                    )
+                    .command(command, Some(snapshot.revision))
                     .await?;
                 Ok(serde_json::to_value(response)?)
             }
@@ -143,7 +151,6 @@ impl ScopedBridge {
                     .map(|task| task.mission_id)
                     .ok_or(McpError::OutOfScope)?;
                 spec.mission_id = mission_id;
-                spec.dependencies.push(self.capability.task_id);
                 let response = self
                     .client
                     .command(Command::CreateTask(spec), Some(snapshot.revision))
@@ -218,9 +225,6 @@ impl ScopedBridge {
                             McpError::Arguments("current work item has no board".into())
                         })?;
                     }
-                    if !spec.dependencies.contains(&self.capability.task_id) {
-                        spec.dependencies.push(self.capability.task_id);
-                    }
                 }
                 let response = self
                     .client
@@ -241,7 +245,7 @@ impl ScopedBridge {
                     .command(
                         Command::SetTaskStatus {
                             task_id: self.capability.task_id,
-                            status: TaskStatus::Done,
+                            status: TaskStatus::Review,
                         },
                         Some(snapshot.revision),
                     )
@@ -339,9 +343,6 @@ impl ScopedBridge {
                     .map(|task| task.mission_id)
                     .ok_or(McpError::OutOfScope)?;
                 spec.mission_id = mission_id;
-                if !spec.dependencies.contains(&self.capability.task_id) {
-                    spec.dependencies.push(self.capability.task_id);
-                }
                 let response = self
                     .client
                     .command(Command::CreateTask(spec), Some(snapshot.revision))
@@ -846,6 +847,7 @@ fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::BufReader;
 
     #[test]
     fn capability_is_scoped_and_expires() {
@@ -859,5 +861,101 @@ mod tests {
         let tools = tool_descriptors();
         assert!(tools.iter().any(|tool| tool["name"] == "task_get"));
         assert!(!tools.iter().any(|tool| tool["name"] == "git_push"));
+    }
+
+    #[tokio::test]
+    async fn bounded_line_reader_handles_exact_frames_oversize_and_eof() {
+        let mut reader = BufReader::new(&b"one\ntwo\n"[..]);
+        assert_eq!(
+            read_bounded_line(&mut reader, 8).await.unwrap(),
+            Some((b"one\n".to_vec(), false))
+        );
+        assert_eq!(
+            read_bounded_line(&mut reader, 8).await.unwrap(),
+            Some((b"two\n".to_vec(), false))
+        );
+        assert_eq!(read_bounded_line(&mut reader, 8).await.unwrap(), None);
+
+        let mut reader = BufReader::new(&b"123456\nsmall\n"[..]);
+        assert_eq!(
+            read_bounded_line(&mut reader, 5).await.unwrap(),
+            Some((Vec::new(), true))
+        );
+        assert_eq!(
+            read_bounded_line(&mut reader, 6).await.unwrap(),
+            Some((b"small\n".to_vec(), false))
+        );
+
+        let mut reader = BufReader::new(&b"unterminated"[..]);
+        assert_eq!(
+            read_bounded_line(&mut reader, 4).await.unwrap(),
+            Some((Vec::new(), true))
+        );
+        let mut reader = BufReader::new(&b"tail"[..]);
+        assert_eq!(
+            read_bounded_line(&mut reader, 8).await.unwrap(),
+            Some((b"tail".to_vec(), false))
+        );
+    }
+
+    #[tokio::test]
+    async fn scoped_bridge_rejects_bad_capabilities_and_non_mcp_tools_before_network() {
+        let client = RemoteClient::new(
+            frank_client::ClientConfig::new("http://127.0.0.1:37465").allow_insecure_local(),
+        )
+        .unwrap();
+        let capability = SessionCapability::from_token("token", AgentId::nil(), TaskId::nil());
+        let bridge = ScopedBridge { client, capability };
+        assert!(bridge.authorize("token").is_ok());
+        assert!(matches!(
+            bridge.authorize("wrong"),
+            Err(McpError::InvalidCapability)
+        ));
+        assert!(matches!(
+            bridge.call("wrong", "task_get", Value::Null).await,
+            Err(McpError::InvalidCapability)
+        ));
+        assert!(matches!(
+            bridge.call("token", "git_push", Value::Null).await,
+            Err(McpError::UnknownTool)
+        ));
+        assert!(matches!(
+            bridge.call("token", "task_get", Value::Null).await,
+            Err(McpError::Client(ClientError::Http(_)))
+        ));
+    }
+
+    #[test]
+    fn json_rpc_frames_round_trip_and_capability_expiry_is_fail_closed() {
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: json!(7),
+            method: "tools/call".into(),
+            params: json!({"name": "task_get", "arguments": {}}),
+        };
+        let encoded = serde_json::to_vec(&request).unwrap();
+        let decoded = serde_json::from_slice::<JsonRpcRequest>(&encoded).unwrap();
+        assert_eq!(decoded.jsonrpc, request.jsonrpc);
+        assert_eq!(decoded.id, request.id);
+        assert_eq!(decoded.method, request.method);
+        assert_eq!(decoded.params, request.params);
+
+        let response = JsonRpcResponse {
+            jsonrpc: "2.0".into(),
+            id: json!(7),
+            result: Some(json!({"ok": true})),
+            error: None,
+        };
+        assert_eq!(
+            serde_json::from_slice::<JsonRpcResponse>(&serde_json::to_vec(&response).unwrap())
+                .unwrap()
+                .result,
+            response.result
+        );
+
+        let mut capability = SessionCapability::from_token("token", AgentId::nil(), TaskId::nil());
+        capability.expires_at = 0;
+        assert!(!capability.is_valid("token", AgentId::nil(), TaskId::nil()));
+        assert!(!capability.is_valid("token", AgentId::new(), TaskId::nil()));
     }
 }

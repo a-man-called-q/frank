@@ -224,12 +224,40 @@ pub(crate) async fn apply_projection_tx(
             {
                 upsert_task_projection(tx, parent).await?;
             }
+            for grant in snapshot
+                .task_grants
+                .iter()
+                .filter(|grant| grant.task_id == *task_id)
+            {
+                sqlx::query(
+                    "UPDATE task_grants SET revoked = ?, value_json = ? WHERE grant_id = ?",
+                )
+                .bind(if grant.revoked { 1_i64 } else { 0_i64 })
+                .bind(serde_json::to_string(grant)?)
+                .bind(&grant.id)
+                .execute(&mut **tx)
+                .await?;
+            }
         }
         Event::TaskAssigned { task_id, .. }
         | Event::TaskClaimed { task_id, .. }
         | Event::TaskReleased { task_id } => {
             if let Some(task) = snapshot.tasks.iter().find(|task| task.id == *task_id) {
                 upsert_task_projection(tx, task).await?;
+            }
+            for grant in snapshot
+                .task_grants
+                .iter()
+                .filter(|grant| grant.task_id == *task_id)
+            {
+                sqlx::query(
+                    "UPDATE task_grants SET revoked = ?, value_json = ? WHERE grant_id = ?",
+                )
+                .bind(if grant.revoked { 1_i64 } else { 0_i64 })
+                .bind(serde_json::to_string(grant)?)
+                .bind(&grant.id)
+                .execute(&mut **tx)
+                .await?;
             }
         }
         Event::TaskWorktreeProvisioning { task, operation } => {
@@ -309,6 +337,20 @@ pub(crate) async fn apply_projection_tx(
                 if let Some(task) = snapshot.tasks.iter().find(|task| task.id == *task_id) {
                     upsert_task_projection(tx, task).await?;
                 }
+            }
+            for grant in snapshot
+                .task_grants
+                .iter()
+                .filter(|grant| grant.agent_id == *agent_id)
+            {
+                sqlx::query(
+                    "UPDATE task_grants SET revoked = ?, value_json = ? WHERE grant_id = ?",
+                )
+                .bind(if grant.revoked { 1_i64 } else { 0_i64 })
+                .bind(serde_json::to_string(grant)?)
+                .bind(&grant.id)
+                .execute(&mut **tx)
+                .await?;
             }
         }
         Event::WorkOfferCreated { offer } | Event::WorkOfferResponded { offer } => {
@@ -418,7 +460,48 @@ pub(crate) async fn apply_projection_tx(
                     .bind(approval.task_id.to_string())
                     .bind(serde_json::to_string(approval)?)
                     .execute(&mut **tx)
+                .await?;
+            }
+        }
+        Event::TaskGrantCreated { grant } => {
+            sqlx::query("INSERT INTO task_grants (grant_id, task_id, agent_id, worktree, effect, expires_at, revoked, value_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(grant_id) DO UPDATE SET task_id = excluded.task_id, agent_id = excluded.agent_id, worktree = excluded.worktree, effect = excluded.effect, expires_at = excluded.expires_at, revoked = excluded.revoked, value_json = excluded.value_json")
+                .bind(&grant.id)
+                .bind(grant.task_id.to_string())
+                .bind(grant.agent_id.to_string())
+                .bind(&grant.worktree)
+                .bind(serde_json::to_value(grant.effect)?.as_str().unwrap_or("unknown"))
+                .bind(&grant.expires_at)
+                .bind(if grant.revoked { 1_i64 } else { 0_i64 })
+                .bind(serde_json::to_string(grant)?)
+                .execute(&mut **tx)
+                .await?;
+            if let Some(approval_id) = grant.source_approval_id
+                && let Some(approval) = snapshot
+                    .approvals
+                    .iter()
+                    .find(|approval| approval.id == approval_id)
+            {
+                sqlx::query("INSERT INTO approvals (approval_id, task_id, value_json) VALUES (?, ?, ?) ON CONFLICT(approval_id) DO UPDATE SET task_id = excluded.task_id, value_json = excluded.value_json")
+                    .bind(approval.id.to_string())
+                    .bind(approval.task_id.to_string())
+                    .bind(serde_json::to_string(approval)?)
+                    .execute(&mut **tx)
                     .await?;
+            }
+        }
+        Event::TaskGrantRevoked { grant_id } => {
+            if let Some(grant) = snapshot
+                .task_grants
+                .iter()
+                .find(|grant| grant.id == *grant_id)
+            {
+                sqlx::query(
+                    "UPDATE task_grants SET revoked = 1, value_json = ? WHERE grant_id = ?",
+                )
+                .bind(serde_json::to_string(grant)?)
+                .bind(grant_id)
+                .execute(&mut **tx)
+                .await?;
             }
         }
         Event::ArtifactPublished { artifact } => {
@@ -609,6 +692,51 @@ pub(crate) async fn apply_projection_tx(
         | Event::DeliveryCompleted { .. }
         | Event::DeliveryBlocked { .. }
         | Event::SupervisorPlanProposed { .. } => {}
+        Event::ToolchainInstallationRecorded {
+            manifest_id,
+            version,
+            runner_id,
+            status,
+            project_id,
+            task_id,
+            install_path,
+        } => {
+            let value = serde_json::json!({
+                "manifest_id": manifest_id,
+                "version": version,
+                "runner_id": runner_id,
+                "status": status,
+                "project_id": project_id,
+                "task_id": task_id,
+                "install_path": install_path,
+            });
+            sqlx::query("INSERT INTO toolchain_installations (manifest_id, version, runner_id, value_json, status, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(manifest_id, version, runner_id) DO UPDATE SET value_json = excluded.value_json, status = excluded.status, updated_at = excluded.updated_at")
+                .bind(manifest_id)
+                .bind(version)
+                .bind(runner_id.to_string())
+                .bind(serde_json::to_string(&value)?)
+                .bind(serde_json::to_value(status)?.as_str().unwrap_or("unknown"))
+                .bind(timestamp_now())
+                .execute(&mut **tx)
+                .await?;
+        }
+        Event::CheckRunRecorded { check } => {
+            let status = serde_json::to_value(check.status)?
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string();
+            sqlx::query("INSERT INTO check_runs (check_run_id, project_id, task_id, runner_id, value_json, status, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(check_run_id) DO UPDATE SET value_json = excluded.value_json, status = excluded.status, finished_at = excluded.finished_at")
+                .bind(&check.id)
+                .bind(check.project_id.to_string())
+                .bind(check.task_id.map(|id| id.to_string()))
+                .bind(check.runner_id.to_string())
+                .bind(serde_json::to_string(check)?)
+                .bind(status)
+                .bind(&check.started_at)
+                .bind(&check.finished_at)
+                .execute(&mut **tx)
+                .await?;
+        }
     }
     // Task transitions append feed entries directly to the authoritative
     // snapshot. Re-project the small feed rows here as well so status/claim

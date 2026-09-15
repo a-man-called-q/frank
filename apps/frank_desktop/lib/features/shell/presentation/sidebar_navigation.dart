@@ -69,7 +69,7 @@ class _SidebarHeader extends StatelessWidget {
                               const Icon(
                                 FrankIcons.lockOutline,
                                 size: 11,
-                                color: FrankColors.green,
+                                color: FrankColors.statusSuccess,
                               ),
                               const SizedBox(width: 4),
                               const Text(
@@ -447,6 +447,11 @@ class _GlobalNavigation extends StatelessWidget {
         SettingsSection.models,
         icon: FrankIcons.cloud,
         label: 'Models & OpenRouter',
+      ),
+      _sectionItem(
+        SettingsSection.toolchains,
+        icon: FrankIcons.extensionOutlined,
+        label: 'Toolchains',
       ),
     ],
   );

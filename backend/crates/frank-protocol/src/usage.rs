@@ -176,6 +176,10 @@ pub enum ApprovalStatus {
 #[serde(rename_all = "lowercase")]
 pub enum ApprovalDecision {
     AllowOnce,
+    /// Persist a task-scoped write/check grant after the owner confirms the
+    /// exact preview. Network, credentials, and privileged effects never use
+    /// this decision.
+    AllowForTask,
     DenyOnce,
 }
 

@@ -75,11 +75,23 @@ pub(crate) async fn dispatch(
             serde_json::to_value(task).map_err(|error| error.to_string())?
         }
         "task_update" => {
-            let patch: TaskPatch = serde_json::from_value(input.clone())
-                .map_err(|error| format!("invalid task patch: {error}"))?;
-            orchestrator
-                .command_from_agent(agent_id, Command::UpdateTask { task_id, patch })
-                .await?
+            let update: TaskUpdateInput = serde_json::from_value(input.clone())
+                .map_err(|error| format!("invalid task update: {error}"))?;
+            let command = match update.status {
+                Some(TaskCompletionIntent::Completed) => Command::SetTaskStatus {
+                    task_id,
+                    status: TaskStatus::Review,
+                },
+                Some(TaskCompletionIntent::Rework) => Command::RequestTaskRework {
+                    task_id,
+                    reason: "worker requested rework".into(),
+                },
+                None => Command::UpdateTask {
+                    task_id,
+                    patch: update.patch,
+                },
+            };
+            orchestrator.command_from_agent(agent_id, command).await?
         }
         "task_create_child" => {
             let args: ChildTaskArgs = serde_json::from_value(input.clone())
@@ -87,10 +99,7 @@ pub(crate) async fn dispatch(
             if args.title.trim().is_empty() || args.objective.trim().is_empty() {
                 return Err("child task title and objective are required".into());
             }
-            let mut dependencies = args.dependencies;
-            if !dependencies.contains(&task_id) {
-                dependencies.push(task_id);
-            }
+            let dependencies = args.dependencies;
             orchestrator
                 .command_from_agent(
                     agent_id,

@@ -43,7 +43,7 @@ pub(crate) async fn dispatch(
                     agent_id,
                     Command::SetTaskStatus {
                         task_id,
-                        status: TaskStatus::Done,
+                        status: TaskStatus::Review,
                     },
                 )
                 .await?
@@ -79,7 +79,7 @@ pub(crate) async fn dispatch(
                         mission_id: task.mission_id,
                         title,
                         objective,
-                        dependencies: vec![task_id],
+                        dependencies: Vec::new(),
                         required_role_id: None,
                         priority: input.get("priority").and_then(Value::as_i64).unwrap_or(0) as i32,
                         assigned_agent: None,
@@ -107,11 +107,23 @@ pub(crate) async fn dispatch(
             if let Some(object) = patch.as_object_mut() {
                 object.remove("task_id");
             }
-            let patch: TaskPatch = serde_json::from_value(patch)
-                .map_err(|error| format!("invalid task patch: {error}"))?;
-            orchestrator
-                .command_from_agent(agent_id, Command::UpdateTask { task_id: id, patch })
-                .await?
+            let update: TaskUpdateInput = serde_json::from_value(patch)
+                .map_err(|error| format!("invalid task update: {error}"))?;
+            let command = match update.status {
+                Some(TaskCompletionIntent::Completed) => Command::SetTaskStatus {
+                    task_id: id,
+                    status: TaskStatus::Review,
+                },
+                Some(TaskCompletionIntent::Rework) => Command::RequestTaskRework {
+                    task_id: id,
+                    reason: "worker requested rework".into(),
+                },
+                None => Command::UpdateTask {
+                    task_id: id,
+                    patch: update.patch,
+                },
+            };
+            orchestrator.command_from_agent(agent_id, command).await?
         }
         "taskboard_assign" => {
             let id = TaskId::parse(&required_string(input, "task_id")?)

@@ -46,6 +46,9 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
   OpenRouterConnection? _latestConnection;
   String _catalogFilter = 'all';
 
+  OpenAiGateway? get _openAiGateway =>
+      widget.gateway is OpenAiGateway ? widget.gateway as OpenAiGateway : null;
+
   @override
   void initState() {
     super.initState();
@@ -170,6 +173,17 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
             },
           ),
         ),
+        if (_openAiGateway case final openAiGateway?)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: _OpenAiConnectionPanel(
+                gateway: openAiGateway,
+                canMutate: widget.canMutate,
+                mutationDisabledReason: widget.mutationDisabledReason,
+              ),
+            ),
+          ),
         SliverToBoxAdapter(
           child: FutureBuilder<OpenRouterCatalog>(
             future: _catalog,
@@ -201,6 +215,10 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
 
   Widget _buildFromState(BuildContext context, OpenRouterState state) {
     final connection = state.connection;
+    final providerConfigured =
+        (connection?.configured == true && connection?.diagnostic == null) ||
+        (state.openAiConnection?.configured == true &&
+            state.openAiConnection?.diagnostic == null);
     final connectionLoading =
         state.connectionPhase == OpenRouterConnectionPhase.loading;
     final catalogLoading =
@@ -216,7 +234,7 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
         title: 'Models & OpenRouter',
         description:
             'Connect Frank to OpenRouter, choose tool-capable models, and set the supervisor model.',
-        actions: connection?.configured == true
+        actions: providerConfigured
             ? FButton(
                 key: const ValueKey('provider-refresh-models'),
                 onPress: state.actionInFlight || !widget.canMutate
@@ -263,6 +281,17 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
             ),
           ),
         ),
+        if (_openAiGateway case final openAiGateway?)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: _OpenAiConnectionPanel(
+                gateway: openAiGateway,
+                canMutate: widget.canMutate,
+                mutationDisabledReason: widget.mutationDisabledReason,
+              ),
+            ),
+          ),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.only(bottom: 16),
@@ -274,7 +303,8 @@ class _OpenRouterSurfaceState extends State<OpenRouterSurface> {
               supervisorModel: state.supervisorModel,
               supervisorSaveBusy: state.actionInFlight,
               snapshotRevision: widget.gateway.snapshotRevision,
-              openRouterConfigured: connection?.configured == true,
+              openRouterConfigured:
+                  providerConfigured,
               canMutate: widget.canMutate,
               mutationDisabledReason: widget.mutationDisabledReason,
               filter: _catalogFilter,
@@ -416,6 +446,9 @@ class _ConnectionCard extends StatelessWidget {
     required this.onTest,
     required this.onRemove,
     required this.canMutate,
+    this.providerName = 'OpenRouter',
+    this.keyPrefix = 'provider',
+    this.keyHint = 'sk-or-v1-…',
     this.mutationDisabledReason,
   });
 
@@ -430,6 +463,9 @@ class _ConnectionCard extends StatelessWidget {
   final VoidCallback onTest;
   final VoidCallback onRemove;
   final bool canMutate;
+  final String providerName;
+  final String keyPrefix;
+  final String keyHint;
   final String? mutationDisabledReason;
 
   @override
@@ -453,7 +489,7 @@ class _ConnectionCard extends StatelessWidget {
     final canRemove = connection?.configured == true && !environmentManaged;
 
     return FrankPanel(
-      key: const ValueKey('provider-connection-card'),
+      key: ValueKey('$keyPrefix-connection-card'),
       raised: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,9 +503,9 @@ class _ConnectionCard extends StatelessWidget {
                     color: FrankColors.aubergineAccent,
                   ),
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
-                      'OpenRouter',
+                      providerName,
                       style: TextStyle(
                         color: FrankColors.ink,
                         fontSize: 16,
@@ -510,7 +546,7 @@ class _ConnectionCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               frankFriendlyError(diagnostic),
-              key: const ValueKey('provider-connection-diagnostic'),
+              key: ValueKey('$keyPrefix-connection-diagnostic'),
               style: const TextStyle(color: FrankColors.failure, height: 1.35),
             ),
           ],
@@ -524,31 +560,31 @@ class _ConnectionCard extends StatelessWidget {
           if (showKeyInput && !environmentManaged) ...[
             const SizedBox(height: 16),
             FTextField(
-              key: const ValueKey('provider-api-key-field'),
+              key: ValueKey('$keyPrefix-api-key-field'),
               control: FTextFieldControl.managed(controller: keyController),
               obscureText: true,
               enabled: !busy && canMutate,
               autofillHints: const [AutofillHints.password],
-              label: const Text('OpenRouter API key'),
-              hint: 'sk-or-v1-…',
+              label: Text('$providerName API key'),
+              hint: keyHint,
             ),
             const SizedBox(height: 10),
             FrankPrimaryAction(
-              key: const ValueKey('provider-save-credential'),
+              key: ValueKey('$keyPrefix-save-credential'),
               label: busy ? 'Saving…' : 'Save credential',
               onPressed: busy || !canMutate ? null : onSave,
               icon: FrankIcons.save,
-              semanticsTooltip: canMutate
-                  ? 'Save OpenRouter credential'
-                  : mutationDisabledReason ??
-                        'Reconnect before changing OpenRouter credentials',
+                  semanticsTooltip: canMutate
+                      ? 'Save $providerName credential'
+                      : mutationDisabledReason ??
+                            'Reconnect before changing $providerName credentials',
             ),
           ],
           if (actionError case final error?) ...[
             const SizedBox(height: 10),
             Text(
               error,
-              key: const ValueKey('provider-action-error'),
+              key: ValueKey('$keyPrefix-action-error'),
               style: const TextStyle(color: FrankColors.failure),
             ),
           ],
@@ -560,45 +596,45 @@ class _ConnectionCard extends StatelessWidget {
               if (!environmentManaged)
                 if (connection?.configured == true)
                   FButton(
-                    key: const ValueKey('provider-replace-credential'),
+                    key: ValueKey('$keyPrefix-replace-credential'),
                     onPress: busy || !canMutate ? null : onToggleKey,
                     semanticsTooltip: canMutate
-                        ? 'Replace OpenRouter credential'
+                        ? 'Replace $providerName credential'
                         : mutationDisabledReason ??
-                              'Reconnect before changing OpenRouter credentials',
+                              'Reconnect before changing $providerName credentials',
                     variant: FButtonVariant.outline,
                     child: Text(showKeyInput ? 'Cancel' : 'Replace'),
                   )
                 else if (!loading)
                   FrankPrimaryAction(
-                    key: const ValueKey('provider-add-api-key'),
+                    key: ValueKey('$keyPrefix-add-api-key'),
                     label: showKeyInput ? 'Cancel' : 'Add API key',
                     icon: FrankIcons.keyOutlined,
                     onPressed: busy || !canMutate ? null : onToggleKey,
                     semanticsTooltip: canMutate
-                        ? 'Add OpenRouter API key'
+                        ? 'Add $providerName API key'
                         : mutationDisabledReason ??
-                              'Reconnect before adding an OpenRouter API key',
+                              'Reconnect before adding a $providerName API key',
                   ),
               if (connection?.configured == true)
                 FButton(
-                  key: const ValueKey('provider-test-connection'),
+                  key: ValueKey('$keyPrefix-test-connection'),
                   onPress: busy || !canMutate ? null : onTest,
                   semanticsTooltip: canMutate
-                      ? 'Test OpenRouter connection'
+                      ? 'Test $providerName connection'
                       : mutationDisabledReason ??
-                            'Reconnect before testing OpenRouter',
+                            'Reconnect before testing $providerName',
                   variant: FButtonVariant.outline,
                   child: const Text('Test connection'),
                 ),
               if (canRemove)
                 FButton(
-                  key: const ValueKey('provider-remove-credential'),
+                  key: ValueKey('$keyPrefix-remove-credential'),
                   onPress: busy || !canMutate ? null : onRemove,
                   semanticsTooltip: canMutate
-                      ? 'Remove OpenRouter credential'
+                      ? 'Remove $providerName credential'
                       : mutationDisabledReason ??
-                            'Reconnect before changing OpenRouter credentials',
+                            'Reconnect before changing $providerName credentials',
                   variant: FButtonVariant.ghost,
                   child: const Text('Remove'),
                 ),
@@ -608,6 +644,130 @@ class _ConnectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _OpenAiConnectionPanel extends StatefulWidget {
+  const _OpenAiConnectionPanel({
+    required this.gateway,
+    required this.canMutate,
+    this.mutationDisabledReason,
+  });
+
+  final OpenAiGateway gateway;
+  final bool canMutate;
+  final String? mutationDisabledReason;
+
+  @override
+  State<_OpenAiConnectionPanel> createState() => _OpenAiConnectionPanelState();
+}
+
+class _OpenAiConnectionPanelState extends State<_OpenAiConnectionPanel> {
+  late Future<OpenRouterConnection> _connection;
+  final _keyController = TextEditingController();
+  bool _showKey = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    super.dispose();
+  }
+
+  void _reload() {
+    _connection = widget.gateway.loadOpenAiConnection();
+  }
+
+  Future<void> _save() async {
+    final key = _keyController.text.trim();
+    if (key.isEmpty) {
+      setState(() => _error = 'Enter an OpenAI API key first.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.gateway.saveOpenAiCredential(key);
+      _keyController.clear();
+      if (mounted) {
+        setState(() {
+          _showKey = false;
+          _reload();
+        });
+      }
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = _friendlyError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _test() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final connection = await widget.gateway.testOpenAiConnection();
+      if (mounted) {
+        setState(() {
+          _connection = Future.value(connection);
+        });
+      }
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = _friendlyError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _remove() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final connection = await widget.gateway.removeOpenAiCredential();
+      if (mounted) setState(() => _connection = Future.value(connection));
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = _friendlyError(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<OpenRouterConnection>(
+    future: _connection,
+    builder: (context, snapshot) => _ConnectionCard(
+      connection: snapshot.data,
+      loading: snapshot.connectionState != ConnectionState.done,
+      showKeyInput: _showKey,
+      keyController: _keyController,
+      busy: _busy,
+      actionError: _error,
+      canMutate: widget.canMutate,
+      mutationDisabledReason: widget.mutationDisabledReason,
+      providerName: 'OpenAI',
+      keyPrefix: 'openai-provider',
+      keyHint: 'sk-…',
+      onToggleKey: () => setState(() {
+        _showKey = !_showKey;
+        _error = null;
+      }),
+      onSave: _save,
+      onTest: _test,
+      onRemove: _remove,
+    ),
+  );
 }
 
 class _CatalogCard extends StatelessWidget {
@@ -679,14 +839,14 @@ class _CatalogCard extends StatelessWidget {
             key: const ValueKey('provider-supervisor-card'),
             child: const _LockedOpenRouterPreview(
               title: 'Supervisor model',
-              message: 'Locked until an OpenRouter API key is added.',
+              message: 'Locked until a model provider API key is added.',
             ),
           ),
           const SizedBox(height: 12),
           FrankPanel(
             key: const ValueKey('provider-model-catalog-card'),
             child: const _LockedOpenRouterPreview(
-              title: 'OpenRouter model catalog',
+              title: 'Model catalog',
               message: 'Model browsing is locked until the provider is set up.',
             ),
           ),
@@ -712,7 +872,7 @@ class _CatalogCard extends StatelessWidget {
               ),
               const SizedBox(height: 5),
               const Text(
-                'The supervisor also runs through OpenRouter. Select an exact canonical slug; Frank never substitutes a missing model.',
+                'Select an exact canonical model slug from a connected provider; Frank never substitutes a missing model.',
                 style: TextStyle(color: FrankColors.muted, height: 1.4),
               ),
               const SizedBox(height: 14),
@@ -722,13 +882,13 @@ class _CatalogCard extends StatelessWidget {
                 _CatalogState(
                   icon: FrankIcons.cloudOffOutlined,
                   message:
-                      'Model catalog unavailable. Configure OpenRouter and try again.',
+                      'Model catalog unavailable. Configure a provider and try again.',
                   error: true,
                 )
               else if (models.isEmpty)
                 _CatalogState(
                   icon: FrankIcons.listAltOutlined,
-                  message: 'No tool-capable OpenRouter models are available.',
+                  message: 'No tool-capable models are available.',
                 )
               else
                 FrankOpenRouterModelPicker(
@@ -742,7 +902,7 @@ class _CatalogCard extends StatelessWidget {
               if (catalog?.stale == true) ...[
                 const SizedBox(height: 8),
                 const Text(
-                  'Showing the last-known-good catalog because OpenRouter could not be reached.',
+                  'Showing the last-known-good catalog because a provider could not be reached.',
                   style: TextStyle(
                     color: FrankColors.warningAmber,
                     fontSize: 12,
@@ -776,7 +936,7 @@ class _CatalogCard extends StatelessWidget {
                 children: [
                   const Expanded(
                     child: Text(
-                      'OpenRouter model catalog',
+                      'Model catalog',
                       style: TextStyle(
                         color: FrankColors.ink,
                         fontSize: 15,
@@ -884,6 +1044,11 @@ class _ModelTile extends StatelessWidget {
                   ),
                 ),
               ),
+              _MetadataBadge(
+                label: model.providerLabel,
+                tone: FrankStatusTone.neutral,
+              ),
+              const SizedBox(width: 6),
               if (model.supportsTools)
                 const _MetadataBadge(
                   label: 'Tools',

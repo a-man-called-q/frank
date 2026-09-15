@@ -13,7 +13,9 @@ use axum::{
     Json, Router,
     routing::{get, post, put},
 };
-use frank_agent::{CredentialResolver, EnvironmentCredentialResolver};
+use frank_agent::{
+    CredentialResolver, EnvironmentCredentialResolver, EnvironmentOpenAiCredentialResolver,
+};
 use frank_credential::{CredentialStore, NativeCredentialStore};
 use frank_protocol::ModelDescriptor;
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,7 @@ use crate::auth::authenticate;
 use crate::{ServerState, api_error_response};
 
 const OPENROUTER_REFERENCE: &str = "openrouter";
+const OPENAI_REFERENCE: &str = "openai";
 const MAX_PROVIDER_KEY_BYTES: usize = 8 * 1024;
 
 #[derive(Clone)]
@@ -76,7 +79,7 @@ impl OpenRouterCredentialStore {
 
 #[async_trait::async_trait]
 impl CredentialResolver for OpenRouterCredentialStore {
-    async fn openrouter_api_key(&self) -> frank_agent::Result<Option<String>> {
+    async fn api_key(&self) -> frank_agent::Result<Option<String>> {
         if let Some(value) = self
             .persisted()
             .map_err(|error| frank_agent::ProviderError::Process(error.to_string()))?
@@ -84,7 +87,74 @@ impl CredentialResolver for OpenRouterCredentialStore {
         {
             return Ok(Some(value));
         }
-        EnvironmentCredentialResolver.openrouter_api_key().await
+        EnvironmentCredentialResolver.api_key().await
+    }
+
+    fn credential_source(&self) -> Option<String> {
+        self.source()
+    }
+}
+
+#[derive(Clone)]
+pub struct OpenAiCredentialStore {
+    native: NativeCredentialStore,
+}
+
+impl std::fmt::Debug for OpenAiCredentialStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OpenAiCredentialStore")
+            .finish_non_exhaustive()
+    }
+}
+
+impl OpenAiCredentialStore {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            native: NativeCredentialStore::daemon(root),
+        }
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn persisted(&self) -> frank_credential::Result<Option<String>> {
+        self.native.load(OPENAI_REFERENCE)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn save(&self, key: &str) -> frank_credential::Result<()> {
+        self.native.save(OPENAI_REFERENCE, key)
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn delete(&self) -> frank_credential::Result<()> {
+        self.native.delete(OPENAI_REFERENCE)
+    }
+
+    pub fn source(&self) -> Option<String> {
+        if let Some(source) = self.native.source(OPENAI_REFERENCE) {
+            Some(source.into())
+        } else if std::env::var("OPENAI_API_KEY")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            Some("environment".into())
+        } else {
+            None
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl CredentialResolver for OpenAiCredentialStore {
+    async fn api_key(&self) -> frank_agent::Result<Option<String>> {
+        if let Some(value) = self
+            .persisted()
+            .map_err(|error| frank_agent::ProviderError::Process(error.to_string()))?
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(Some(value));
+        }
+        EnvironmentOpenAiCredentialResolver.api_key().await
     }
 
     fn credential_source(&self) -> Option<String> {
@@ -128,6 +198,23 @@ pub fn router() -> Router<ServerState> {
         .route(
             &crate::api_path("/providers/openrouter/models/refresh"),
             post(refresh_models),
+        )
+        .route(&crate::api_path("/providers/openai"), get(openai_status))
+        .route(
+            &crate::api_path("/providers/openai/credential"),
+            put(save_openai_credential).delete(delete_openai_credential),
+        )
+        .route(
+            &crate::api_path("/providers/openai/test"),
+            post(test_openai_connection),
+        )
+        .route(
+            &crate::api_path("/providers/openai/models"),
+            get(openai_models),
+        )
+        .route(
+            &crate::api_path("/providers/openai/models/refresh"),
+            post(refresh_openai_models),
         )
 }
 
@@ -237,6 +324,143 @@ async fn refresh_models(State(state): State<ServerState>, headers: HeaderMap) ->
     model_response(state, headers, true).await
 }
 
+async fn openai_status(State(state): State<ServerState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = require_owner(&state, &headers).await {
+        return response;
+    }
+    (
+        StatusCode::OK,
+        Json(state.openai_adapter.connection().await),
+    )
+        .into_response()
+}
+
+async fn save_openai_credential(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Json(payload): Json<CredentialRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = require_owner(&state, &headers).await {
+        return response;
+    }
+    let key = payload.api_key.trim();
+    if key.is_empty() || key.len() > MAX_PROVIDER_KEY_BYTES {
+        return api_error_response(
+            StatusCode::BAD_REQUEST,
+            frank_protocol::ApiError::new(
+                frank_protocol::ErrorCode::Validation,
+                "OpenAI API key is empty or too large",
+            ),
+        )
+        .into_response();
+    }
+    match state.openai_credentials.save(key) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({
+                "saved": true,
+                "source": state.openai_credentials.source(),
+            })),
+        )
+            .into_response(),
+        Err(error) => api_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            frank_protocol::ApiError::new(
+                frank_protocol::ErrorCode::Internal,
+                sanitize(&error.to_string()),
+            ),
+        )
+        .into_response(),
+    }
+}
+
+async fn delete_openai_credential(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(response) = require_owner(&state, &headers).await {
+        return response;
+    }
+    match state.openai_credentials.delete() {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({
+                "deleted": true,
+                "source": state.openai_credentials.source(),
+            })),
+        )
+            .into_response(),
+        Err(error) => api_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            frank_protocol::ApiError::new(
+                frank_protocol::ErrorCode::Internal,
+                sanitize(&error.to_string()),
+            ),
+        )
+        .into_response(),
+    }
+}
+
+async fn test_openai_connection(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(response) = require_owner(&state, &headers).await {
+        return response;
+    }
+    (
+        StatusCode::OK,
+        Json(state.openai_adapter.connection().await),
+    )
+        .into_response()
+}
+
+async fn openai_models(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Query(query): Query<ModelQuery>,
+) -> impl IntoResponse {
+    openai_model_response(state, headers, query.refresh).await
+}
+
+async fn refresh_openai_models(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    openai_model_response(state, headers, true).await
+}
+
+async fn openai_model_response(
+    state: ServerState,
+    headers: HeaderMap,
+    refresh: bool,
+) -> axum::response::Response {
+    if let Err(response) = require_owner(&state, &headers).await {
+        return response;
+    }
+    match state.openai_adapter.models_with_status(refresh).await {
+        Ok((models, refreshed_at, stale)) => (
+            StatusCode::OK,
+            Json(ModelResponse {
+                models,
+                refreshed_at: refreshed_at
+                    .unwrap_or_else(frank_protocol::timestamp_now)
+                    .to_string(),
+                stale,
+            }),
+        )
+            .into_response(),
+        Err(error) => crate::api_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            frank_protocol::ApiError::new(
+                frank_protocol::ErrorCode::ProviderUnavailable,
+                sanitize(&error.to_string()),
+            ),
+        )
+        .into_response(),
+    }
+}
+
 async fn model_response(
     state: ServerState,
     headers: HeaderMap,
@@ -296,6 +520,7 @@ async fn require_owner(
 fn sanitize(value: &str) -> String {
     value
         .replace("OPENROUTER_API_KEY", "provider credential")
+        .replace("OPENAI_API_KEY", "provider credential")
         .chars()
         .take(512)
         .collect()

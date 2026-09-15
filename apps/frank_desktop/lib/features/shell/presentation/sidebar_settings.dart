@@ -27,6 +27,7 @@ class _SidebarFooterState extends State<_SidebarFooter> {
     final username =
         widget.authRepository?.currentSession?.owner.username ?? 'Owner';
     final storageWarning = widget.authRepository?.storageWarning;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
     return Padding(
       padding: EdgeInsets.all(widget.dense ? 8 : 12),
       child: Column(
@@ -60,39 +61,79 @@ class _SidebarFooterState extends State<_SidebarFooter> {
             ),
             const SizedBox(height: 6),
           ],
-          FPopoverMenu(
-            key: const ValueKey('sidebar-user-menu'),
-            groupId: 'sidebar-account-menu',
-            menuBuilder: (context, controller, _) =>
-                _accountMenu(controller),
-            semanticsLabel: 'Account settings',
-            builder: (_, controller, _) => Semantics(
-              key: const ValueKey('sidebar-user-button'),
-              container: true,
-              explicitChildNodes: true,
-              button: true,
-              label: 'Account owner',
-              hint: 'Open account settings',
-              onTap: controller.toggle,
-              child: ExcludeSemantics(
-                child: FButton(
-                  onPress: controller.toggle,
-                  size: FButtonSizeVariant.sm,
-                  mainAxisSize: MainAxisSize.max,
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  prefix: FAvatar.raw(
-                    size: widget.dense ? 20 : 22,
-                    child: Text(username.characters.first.toUpperCase()),
-                  ),
-                  suffix: const Icon(FrankIcons.more, size: 15),
-                  child: Text(
-                    username,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // FPopoverMenu is rendered in a portal, so it does not inherit
+              // the footer button's width from the surrounding Column. Give
+              // the portal the same finite width as the button instead of
+              // falling back to Forui's intrinsic 150-250px menu range.
+              final menuWidth = constraints.maxWidth;
+              return FPopoverMenu(
+                key: const ValueKey('sidebar-user-menu'),
+                groupId: 'sidebar-account-menu',
+                // Account actions can be opened while a project menu is
+                // closing. Disable the portal's width/scale transition so
+                // the menu items never get laid out against a transient 0px
+                // constraint.
+                style: FPopoverMenuStyleDelta.delta(
+                  minWidth: menuWidth,
+                  maxWidth: menuWidth,
+                  motion: FPopoverMotion.none,
+                ),
+                menuBuilder: (context, controller, _) =>
+                    _accountMenu(controller),
+                semanticsLabel: 'Account settings',
+                builder: (_, controller, _) => Semantics(
+                  key: const ValueKey('sidebar-user-button'),
+                  container: true,
+                  explicitChildNodes: true,
+                  button: true,
+                  label: 'Account owner',
+                  hint: 'Open account settings',
+                  onTap: controller.toggle,
+                  child: ExcludeSemantics(
+                    child: largeText
+                        ? FButton.icon(
+                            onPress: controller.toggle,
+                            size: FButtonSizeVariant.sm,
+                            semanticsLabel: 'Account owner',
+                            semanticsTooltip: 'Open account settings',
+                            child: const Icon(FrankIcons.user, size: 16),
+                          )
+                        : FButton.raw(
+                            onPress: controller.toggle,
+                            size: FButtonSizeVariant.sm,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 9,
+                              ),
+                              child: Row(
+                                children: [
+                                  FAvatar.raw(
+                                    size: widget.dense ? 20 : 22,
+                                    child: Text(
+                                      username.characters.first.toUpperCase(),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      username,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(FrankIcons.more, size: 15),
+                                ],
+                              ),
+                            ),
+                          ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       ),
@@ -150,29 +191,52 @@ class _SidebarFooterState extends State<_SidebarFooter> {
 
   Widget _legacyFooter() => Padding(
     padding: EdgeInsets.all(widget.dense ? 8 : 12),
-    child: Semantics(
-      key: const ValueKey('sidebar-user-button'),
-      container: true,
-      button: true,
-      enabled: false,
-      label: 'User',
-      hint: 'User profile is not available yet',
-      child: FButton(
-        onPress: null,
-        variant: FButtonVariant.outline,
-        size: FButtonSizeVariant.sm,
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.start,
-        prefix: FAvatar.raw(
-          size: widget.dense ? 20 : 22,
-          child: const Text('U'),
-        ),
-        child: const Text(
-          'User',
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12),
-        ),
-      ),
+    child: Builder(
+      builder: (context) {
+        final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+        return Semantics(
+          key: const ValueKey('sidebar-user-button'),
+          container: true,
+          button: true,
+          enabled: false,
+          label: 'User',
+          hint: 'User profile is not available yet',
+          child: largeText
+              ? FButton.raw(
+                  onPress: null,
+                  semanticsLabel: 'User',
+                  semanticsTooltip: 'User profile is not available yet',
+                  size: FButtonSizeVariant.sm,
+                  variant: FButtonVariant.outline,
+                  child: const SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: Center(child: Icon(FrankIcons.user, size: 16)),
+                  ),
+                )
+              : FButton(
+                  onPress: null,
+                  variant: FButtonVariant.outline,
+                  size: FButtonSizeVariant.sm,
+                  mainAxisSize: MainAxisSize.max,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  prefix: largeText
+                      ? null
+                      : FAvatar.raw(
+                          size: widget.dense ? 20 : 22,
+                          child: const Text('U'),
+                        ),
+                  builder: (_, _, _, _, _, child) => Expanded(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: child!,
+                    ),
+                  ),
+                  child: const Text('User', style: TextStyle(fontSize: 12)),
+                ),
+        );
+      },
     ),
   );
 
@@ -262,7 +326,8 @@ class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
                       control: FTextFieldControl.managed(controller: _next),
                       obscureText: true,
                       label: const Text('New password'),
-                      validator: (value) => value == null || value.runes.length < 15
+                      validator: (value) =>
+                          value == null || value.runes.length < 15
                           ? 'Use at least 15 characters'
                           : value.runes.length > 128
                           ? 'Use at most 128 characters'

@@ -14,19 +14,22 @@ class _OrganizationSurfaceState extends State<OrganizationSurface> {
   OrganizationLookupIndex _indexFor(
     OrganizationGraph graph,
     OrganizationState state,
+    List<TeamAgentProfile>? visibleProfiles,
   ) {
+    final profiles = visibleProfiles ??
+        widget.profiles?.where((profile) => !profile.archived).toList(growable: false);
     if (_lookup == null ||
         !identical(_lookupGraph, graph) ||
-        !identical(_lookupProfiles, widget.profiles) ||
+        !listEquals(_lookupProfiles, profiles) ||
         !identical(_lookupConnectors, state.connectorProfiles)) {
       _lookup = OrganizationLookupIndex.build(
         graph: graph,
         employees: widget.workspace.employees,
-        profiles: widget.profiles ?? const [],
+        profiles: profiles ?? const [],
         connectorProfiles: state.connectorProfiles,
       );
       _lookupGraph = graph;
-      _lookupProfiles = widget.profiles;
+      _lookupProfiles = profiles;
       _lookupConnectors = state.connectorProfiles;
     }
     return _lookup!;
@@ -51,6 +54,9 @@ class _OrganizationSurfaceState extends State<OrganizationSurface> {
   Widget build(BuildContext context) {
     return BlocBuilder<OrganizationBloc, OrganizationState>(
       builder: (context, state) {
+        final visibleProfiles = widget.profiles
+            ?.where((profile) => !profile.archived)
+            .toList(growable: false);
         final inspectorVisible =
             state.selectedNodeId != null ||
             state.selectedRelationId != null ||
@@ -63,9 +69,13 @@ class _OrganizationSurfaceState extends State<OrganizationSurface> {
             final inspector = inspectorVisible && state.graph != null
                 ? _OrganizationInspector(
                     workspace: widget.workspace,
-                    profiles: widget.profiles,
+                    profiles: visibleProfiles,
                     connectorProfiles: state.connectorProfiles,
-                    lookupIndex: _indexFor(state.graph!, state),
+                    lookupIndex: _indexFor(
+                      state.graph!,
+                      state,
+                      visibleProfiles,
+                    ),
                     docked: desktopPane,
                     onClose: () => _editorKey.currentState?._clearSelection(),
                     onDelete: () => _editorKey.currentState?._deleteSelection(),
@@ -113,10 +123,14 @@ class _OrganizationSurfaceState extends State<OrganizationSurface> {
                             graph: state.graph!,
                             state: state,
                             workspace: widget.workspace,
-                            profiles: widget.profiles,
+                            profiles: visibleProfiles,
                             roles: widget.roles,
                             workflowProjection: widget.workflowProjection,
-                            lookupIndex: _indexFor(state.graph!, state),
+                            lookupIndex: _indexFor(
+                              state.graph!,
+                              state,
+                              visibleProfiles,
+                            ),
                             viewMode:
                                 widget.viewMode ?? OrganizationViewMode.canvas,
                             onViewModeChanged: widget.onViewModeChanged,

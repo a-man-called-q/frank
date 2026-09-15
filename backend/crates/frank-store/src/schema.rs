@@ -70,4 +70,20 @@ pub(crate) const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS conversations_mission_idx ON conversations (mission_id)",
     "CREATE INDEX IF NOT EXISTS operations_status_idx ON operations (status, updated_at)",
     "CREATE INDEX IF NOT EXISTS artifact_uploads_expiry_idx ON artifact_uploads (completed, expires_at)",
+    // Owner-only Journal projection. Events remain the recovery source of
+    // truth; this indexed table makes timeline filters cheap and allows the
+    // desktop to page older activity without replaying the entire log.
+    "CREATE TABLE IF NOT EXISTS journal_entries (sequence INTEGER PRIMARY KEY, occurred_at TEXT NOT NULL, actor_json TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, project_id TEXT, mission_id TEXT, task_id TEXT, agent_id TEXT, check_run_id TEXT, summary TEXT NOT NULL, detail_json TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS journal_kind_seq_idx ON journal_entries (kind, sequence DESC)",
+    "CREATE INDEX IF NOT EXISTS journal_task_seq_idx ON journal_entries (task_id, sequence DESC)",
+    "CREATE INDEX IF NOT EXISTS journal_agent_seq_idx ON journal_entries (agent_id, sequence DESC)",
+    "CREATE TABLE IF NOT EXISTS runners (runner_id TEXT PRIMARY KEY, value_json TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS toolchain_installations (manifest_id TEXT NOT NULL, version TEXT NOT NULL, runner_id TEXT NOT NULL, value_json TEXT NOT NULL, status TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (manifest_id, version, runner_id))",
+    "CREATE TABLE IF NOT EXISTS check_runs (check_run_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, task_id TEXT, runner_id TEXT NOT NULL, value_json TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT)",
+    "CREATE INDEX IF NOT EXISTS check_runs_project_idx ON check_runs (project_id, started_at DESC)",
+    "CREATE TABLE IF NOT EXISTS runner_jobs (job_id TEXT PRIMARY KEY, runner_id TEXT NOT NULL, project_id TEXT NOT NULL, task_id TEXT, check_id TEXT NOT NULL, value_json TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS runner_jobs_runner_idx ON runner_jobs (runner_id, updated_at DESC)",
+    "CREATE TABLE IF NOT EXISTS runner_credentials (runner_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, created_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)",
+    "CREATE TABLE IF NOT EXISTS task_grants (grant_id TEXT PRIMARY KEY, task_id TEXT NOT NULL, agent_id TEXT NOT NULL, worktree TEXT NOT NULL, effect TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, value_json TEXT NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS task_grants_scope_idx ON task_grants (task_id, agent_id, revoked, expires_at)",
 ];

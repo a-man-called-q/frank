@@ -39,6 +39,11 @@ impl Orchestrator {
                 task.claim_source = None;
                 task.status = TaskStatus::Blocked;
             }
+            for grant in &mut snapshot.task_grants {
+                if grant.task_id == *task_id && grant.agent_id == agent_id {
+                    grant.revoked = true;
+                }
+            }
             append_task_feed(
                 &mut snapshot,
                 *task_id,

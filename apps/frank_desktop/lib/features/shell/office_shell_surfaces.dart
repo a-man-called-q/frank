@@ -55,6 +55,29 @@ class _MainSurface extends StatelessWidget {
       ),
       onStop: () =>
           context.read<ChatBloc>().add(const ChatMessageStopRequested()),
+      onMissionStatus: mission?.id == null
+          ? null
+          : (status) async {
+              await context.read<FrankGateway>().setMissionStatus(
+                missionId: mission!.id,
+                status: status,
+              );
+              if (context.mounted) {
+                context.read<ProjectsBloc>().add(
+                  const ProjectsRefreshRequested(),
+                );
+              }
+            },
+      onRetryMissionPlan: mission?.id == null
+          ? null
+          : () async {
+              await context.read<FrankGateway>().retryMissionPlan(mission!.id);
+              if (context.mounted) {
+                context.read<ProjectsBloc>().add(
+                  const ProjectsRefreshRequested(),
+                );
+              }
+            },
     );
   }
 }
@@ -95,10 +118,16 @@ class NoProjectSurface extends StatelessWidget {
 }
 
 Future<void> _addProject(BuildContext context) async {
-  final result = await showFrankDialog<ProjectSetupResult>(
-    context: context,
-    builder: (_) => AddProjectDialog(
-      browseDirectories: context.read<FrankGateway>().browseProjectDirectories,
+  final result = await Navigator.of(context).push<ProjectSetupResult>(
+    PageRouteBuilder<ProjectSetupResult>(
+      pageBuilder: (_, _, _) => AddProjectDialog(
+        asPage: true,
+        browseDirectories: context
+            .read<FrankGateway>()
+            .browseProjectDirectories,
+      ),
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
     ),
   );
   if (!context.mounted || result == null) return;
@@ -151,6 +180,7 @@ class _SettingsSectionSurface extends StatelessWidget {
         data: context.read<OfficeSessionCache>(),
       ),
       SettingsSection.journal => const JournalSurface(),
+      SettingsSection.toolchains => ToolchainSurface(workspace: workspace),
     };
 
     return Semantics(
@@ -249,12 +279,22 @@ class _GatewayTeamSurface extends StatefulWidget {
 class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
   late Future<List<TeamAgentProfile>> _profiles;
   late Future<List<TeamRoleSummary>> _roles;
+  StreamSubscription<void>? _workspaceChanges;
 
   @override
   void initState() {
     super.initState();
     _profiles = widget.data.loadTeamProfiles();
     _roles = widget.data.gateway.loadTeamRoles();
+    _workspaceChanges = widget.data.gateway.watchWorkspaceChanges().listen((_) {
+      if (!mounted) return;
+      // Keep any editor route/draft intact; only refresh the projections that
+      // feed the roster and role cards behind it.
+      setState(() {
+        _profiles = widget.data.loadTeamProfiles(refresh: true);
+        _roles = widget.data.gateway.loadTeamRoles();
+      });
+    });
   }
 
   @override
@@ -262,9 +302,25 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.data, oldWidget.data) ||
         widget.workspace != oldWidget.workspace) {
+      _workspaceChanges?.cancel();
+      _workspaceChanges = widget.data.gateway.watchWorkspaceChanges().listen((
+        _,
+      ) {
+        if (!mounted) return;
+        setState(() {
+          _profiles = widget.data.loadTeamProfiles(refresh: true);
+          _roles = widget.data.gateway.loadTeamRoles();
+        });
+      });
       _profiles = widget.data.loadTeamProfiles();
       _roles = widget.data.gateway.loadTeamRoles();
     }
+  }
+
+  @override
+  void dispose() {
+    _workspaceChanges?.cancel();
+    super.dispose();
   }
 
   @override
@@ -324,11 +380,14 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
             catalogLoading:
                 provider.catalogPhase == OpenRouterCatalogPhase.loading ||
                 provider.catalogPhase == OpenRouterCatalogPhase.idle,
-            providerConfigured: switch (provider.connectionPhase) {
-              OpenRouterConnectionPhase.notConfigured => false,
-              OpenRouterConnectionPhase.loading => null,
-              _ => true,
-            },
+            providerConfigured:
+                provider.catalog?.models.any((model) => model.isOpenAi) == true
+                ? true
+                : switch (provider.connectionPhase) {
+                    OpenRouterConnectionPhase.notConfigured => false,
+                    OpenRouterConnectionPhase.loading => null,
+                    _ => true,
+                  },
             providerError:
                 provider.connectionPhase == OpenRouterConnectionPhase.error
                 ? provider.actionError
@@ -362,7 +421,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
     if (!error.toString().toLowerCase().contains('revision')) return;
     widget.data.invalidateTeamProfiles();
     final freshProfiles = widget.data.loadTeamProfiles(refresh: true);
-    if (mounted) setState(() => _profiles = freshProfiles);
+    if (mounted) {
+      setState(() {
+        _profiles = freshProfiles;
+      });
+    }
   }
 
   Future<List<TeamAgentProfile>> _saveAgentModel(
@@ -376,7 +439,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         expectedRevision: widget.data.gateway.snapshotRevision,
       );
       widget.data.updateTeamProfiles(profiles);
-      if (mounted) setState(() => _profiles = Future.value(profiles));
+      if (mounted) {
+        setState(() {
+          _profiles = Future.value(profiles);
+        });
+      }
       return profiles;
     } catch (error) {
       // Reload the projection after a stale revision so the editor shows the
@@ -397,7 +464,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         expectedRevision: widget.data.gateway.snapshotRevision,
       );
       widget.data.updateTeamProfiles(profiles);
-      if (mounted) setState(() => _profiles = Future.value(profiles));
+      if (mounted) {
+        setState(() {
+          _profiles = Future.value(profiles);
+        });
+      }
       return profiles;
     } catch (error) {
       _reloadProfilesAfterRevisionConflict(error);
@@ -426,7 +497,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
     try {
       final profiles = await widget.data.gateway.createAgent(draft);
       widget.data.updateTeamProfiles(profiles);
-      if (mounted) setState(() => _profiles = Future.value(profiles));
+      if (mounted) {
+        setState(() {
+          _profiles = Future.value(profiles);
+        });
+      }
       return profiles;
     } catch (error) {
       _reloadProfilesAfterRevisionConflict(error);
@@ -482,7 +557,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         expectedRevision: widget.data.gateway.snapshotRevision,
       );
       widget.data.updateTeamProfiles(profiles);
-      if (mounted) setState(() => _profiles = Future.value(profiles));
+      if (mounted) {
+        setState(() {
+          _profiles = Future.value(profiles);
+        });
+      }
       return profiles;
     } catch (error) {
       _reloadProfilesAfterRevisionConflict(error);
@@ -497,7 +576,11 @@ class _GatewayTeamSurfaceState extends State<_GatewayTeamSurface> {
         expectedRevision: widget.data.gateway.snapshotRevision,
       );
       widget.data.updateTeamProfiles(profiles);
-      if (mounted) setState(() => _profiles = Future.value(profiles));
+      if (mounted) {
+        setState(() {
+          _profiles = Future.value(profiles);
+        });
+      }
       return profiles;
     } catch (error) {
       _reloadProfilesAfterRevisionConflict(error);

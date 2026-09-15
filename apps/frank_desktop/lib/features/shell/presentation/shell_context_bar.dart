@@ -84,7 +84,7 @@ class ShellContextBar extends StatelessWidget {
                 FrankConnectionPhase.offline ||
                 FrankConnectionPhase.incompatible => FrankColors.failure,
                 FrankConnectionPhase.checking => FrankColors.warningAmber,
-                FrankConnectionPhase.connected => FrankColors.green,
+                FrankConnectionPhase.connected => FrankColors.statusSuccess,
                 null => FrankColors.warningAmber,
               };
         final connectionIcon = isFixture

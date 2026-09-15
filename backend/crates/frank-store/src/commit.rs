@@ -113,11 +113,13 @@ impl Store {
         // narrow tables make queries/indexes and future migrations durable
         // without leaving a committed event whose projection failed later.
         apply_projection_tx(&mut tx, &envelope.event, &snapshot).await?;
-        sqlx::query("INSERT INTO events (seq, revision, occurred_at, actor_json, event_json) VALUES (?, ?, ?, ?, ?)")
+        crate::journal::insert_journal_entry_tx(&mut tx, &envelope, &snapshot).await?;
+        sqlx::query("INSERT INTO events (seq, revision, occurred_at, actor_json, correlation_id, event_json) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(seq as i64)
             .bind(revision as i64)
             .bind(&occurred_at)
             .bind(actor_json)
+            .bind(envelope.correlation_id.map(|id| id.to_string()))
             .bind(&event_json)
             .execute(&mut *tx)
             .await?;

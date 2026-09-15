@@ -148,6 +148,19 @@ impl Orchestrator {
     ) -> Result<(Snapshot, Event, CommandResult)> {
         let task = create_work_item(&snapshot, spec, actor).await?;
         let task_id = task.id;
+        if let Some(parent_id) = task.parent_task_id {
+            let parent = snapshot
+                .tasks
+                .iter_mut()
+                .find(|candidate| candidate.id == parent_id)
+                .ok_or(OrchestratorError::NotFound)?;
+            parent.child_task_ids.push(task_id);
+            parent
+                .child_task_ids
+                .sort_unstable_by_key(|child| child.to_string());
+            parent.child_task_ids.dedup();
+            parent.status = TaskStatus::Blocked;
+        }
         snapshot.tasks.push(task.clone());
         append_task_feed(
             &mut snapshot,
@@ -271,6 +284,22 @@ impl Orchestrator {
                 "child work items cannot spawn grandchildren".into(),
             ));
         }
+        if matches!(
+            snapshot.tasks[parent_index].status,
+            TaskStatus::Done | TaskStatus::Cancelled
+        ) {
+            return Err(OrchestratorError::Validation(
+                "cannot add children to a final parent task".into(),
+            ));
+        }
+        if matches!(
+            snapshot.tasks[parent_index].status,
+            TaskStatus::Running | TaskStatus::Review
+        ) {
+            return Err(OrchestratorError::Validation(
+                "cannot add children while the parent task is active".into(),
+            ));
+        }
         let parent_mission = snapshot.tasks[parent_index].mission_id;
         let mut created = Vec::with_capacity(children.len());
         for mut spec in children {
@@ -281,9 +310,6 @@ impl Orchestrator {
                 return Err(OrchestratorError::Validation(
                     "child work item must stay in the parent mission".into(),
                 ));
-            }
-            if !spec.dependencies.contains(&parent_task_id) {
-                spec.dependencies.push(parent_task_id);
             }
             spec.parent_task_id = Some(parent_task_id);
             created.push(create_work_item(&snapshot, spec, actor).await?);

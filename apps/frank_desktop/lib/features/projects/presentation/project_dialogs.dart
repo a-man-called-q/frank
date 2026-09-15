@@ -23,10 +23,11 @@ final class CloneProjectResult extends ProjectSetupResult {
 }
 
 class AddProjectDialog extends StatefulWidget {
-  const AddProjectDialog({this.browseDirectories, super.key});
+  const AddProjectDialog({this.browseDirectories, this.asPage = false, super.key});
 
   final Future<List<ProjectDirectoryEntry>> Function(String? path)?
   browseDirectories;
+  final bool asPage;
 
   @override
   State<AddProjectDialog> createState() => _AddProjectDialogState();
@@ -36,6 +37,7 @@ class _AddProjectDialogState extends State<AddProjectDialog> {
   final _name = TextEditingController();
   final _path = TextEditingController();
   final _branch = TextEditingController(text: 'main');
+  final _checkCommands = TextEditingController();
   final _url = TextEditingController();
   final _destination = TextEditingController();
   bool _clone = false;
@@ -59,6 +61,7 @@ class _AddProjectDialogState extends State<AddProjectDialog> {
     _name.dispose();
     _path.dispose();
     _branch.dispose();
+    _checkCommands.dispose();
     _url.dispose();
     _destination.dispose();
     super.dispose();
@@ -129,6 +132,15 @@ class _AddProjectDialogState extends State<AddProjectDialog> {
       setState(() => _error = 'Choose a server project directory and name.');
       return;
     }
+    final checkCommands = _checkCommands.text
+        .split('\n')
+        .map((command) => command.trim())
+        .where((command) => command.isNotEmpty)
+        .toList(growable: false);
+    if (checkCommands.any((command) => command.contains('\r'))) {
+      setState(() => _error = 'Enter one check command per line.');
+      return;
+    }
     Navigator.pop(
       context,
       RegisterProjectResult(
@@ -138,16 +150,15 @@ class _AddProjectDialogState extends State<AddProjectDialog> {
           baseBranch: _branch.text.trim().isEmpty
               ? 'main'
               : _branch.text.trim(),
+          checkCommands: checkCommands,
         ),
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) => FDialog(
-    builder: (context, style) => _dialogLayout(
-      title: Text('Add project', style: style.titleTextStyle),
-      content: Column(
+  Widget build(BuildContext context) {
+    final body = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -252,20 +263,59 @@ class _AddProjectDialogState extends State<AddProjectDialog> {
               control: FTextFieldControl.managed(controller: _branch),
               label: const Text('Base branch'),
             ),
+            const SizedBox(height: 10),
+            FTextField(
+              control: FTextFieldControl.managed(controller: _checkCommands),
+              label: const Text('Check commands'),
+              hint: 'npm test\n# one command per line',
+              maxLines: 3,
+            ),
           ],
           if (_error case final error?) ...[
             const SizedBox(height: 10),
             FrankActionFeedback(message: error, tone: FrankStatusTone.failure),
           ],
         ],
+    );
+    if (widget.asPage) {
+      return ColoredBox(
+        color: FrankColors.canvas,
+        child: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(FrankUiTokens.pageGutter),
+                child: FrankDialogScaffold(
+                  title: const Text(
+                    'Add project',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  content: body,
+                  actions: _dialogActions(
+                    cancel: () => Navigator.of(context).pop(),
+                    confirm: _submit,
+                    label: _clone ? 'Start clone' : 'Register project',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return FDialog(
+      builder: (context, style) => _dialogLayout(
+        title: Text('Add project', style: style.titleTextStyle),
+        content: body,
+        actions: _dialogActions(
+          cancel: () => Navigator.of(context).pop(),
+          confirm: _submit,
+          label: _clone ? 'Start clone' : 'Register project',
+        ),
       ),
-      actions: _dialogActions(
-        cancel: () => Navigator.of(context).pop(),
-        confirm: _submit,
-        label: _clone ? 'Start clone' : 'Register project',
-      ),
-    ),
-  );
+    );
+  }
 }
 
 class CreateMissionDialog extends StatefulWidget {
@@ -542,18 +592,8 @@ Widget _dialogLayout({
   required Widget content,
   required List<Widget> actions,
 }) => Padding(
-  padding: const EdgeInsets.all(20),
-  child: Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      title,
-      const SizedBox(height: 16),
-      content,
-      const SizedBox(height: 20),
-      Row(mainAxisAlignment: MainAxisAlignment.end, children: actions),
-    ],
-  ),
+  padding: EdgeInsets.zero,
+  child: FrankDialogScaffold(title: title, content: content, actions: actions),
 );
 
 List<Widget> _dialogActions({
@@ -566,6 +606,5 @@ List<Widget> _dialogActions({
     variant: FButtonVariant.ghost,
     child: const Text('Cancel'),
   ),
-  const SizedBox(width: 8),
   FButton(onPress: confirm, child: Text(label)),
 ];

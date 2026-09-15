@@ -295,7 +295,7 @@ class _ProjectTreeState extends State<_ProjectTree> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: FButton(
+            child: FButton.icon(
               key: ValueKey('project-actions-${widget.project.id}'),
               onPress: onPress ?? _toggleActions,
               semanticsLabel: 'Project actions for ${widget.project.name}',
@@ -359,6 +359,7 @@ class _ProjectTreeState extends State<_ProjectTree> {
     return FPopoverMenu(
       key: ValueKey('project-popover-${widget.project.id}'),
       groupId: 'project-tree-menu',
+      style: const FPopoverMenuStyleDelta.delta(motion: FPopoverMotion.none),
       menu: _actionMenu(),
       semanticsLabel: 'Project actions for ${widget.project.name}',
       builder: (_, controller, _) {
@@ -471,7 +472,7 @@ class _ProjectTreeState extends State<_ProjectTree> {
 
   Widget _createMissionAction() {
     return SizedBox(
-      width: 86,
+      width: 28,
       height: 28,
       child: ExcludeSemantics(
         excluding: !_showActions,
@@ -480,13 +481,12 @@ class _ProjectTreeState extends State<_ProjectTree> {
           child: AnimatedOpacity(
             opacity: _showActions ? 1 : 0,
             duration: const Duration(milliseconds: 120),
-            child: FButton(
+            child: FButton.icon(
               onPress: widget.onCreateMission,
               semanticsLabel: 'New mission in ${widget.project.name}',
               semanticsTooltip: 'New mission in ${widget.project.name}',
               size: FButtonSizeVariant.sm,
-              prefix: const Icon(FrankIcons.editNote, size: 14),
-              child: const Text('New mission'),
+              child: const Icon(FrankIcons.editNote, size: 14),
             ),
           ),
         ),
@@ -692,6 +692,7 @@ class _MissionTreeRowState extends State<_MissionTreeRow> {
     return FPopoverMenu(
       key: ValueKey('mission-popover-${widget.mission.id}'),
       groupId: 'project-tree-menu',
+      style: const FPopoverMenuStyleDelta.delta(motion: FPopoverMotion.none),
       menu: _actionMenu(),
       semanticsLabel: 'Mission actions for ${widget.mission.title}',
       builder: (_, controller, _) {

@@ -117,7 +117,7 @@ class _FrankOpenRouterModelPickerState
                 FSelectItem<String?>.item(
                   value: model.canonicalSlug,
                   title: Text(
-                    '${model.name} · ${model.canonicalSlug} · ${model.priceTier}',
+                    '${model.name} · ${model.providerLabel} · ${model.canonicalSlug} · ${model.priceTier}',
                   ),
                 ),
           ],

@@ -382,7 +382,7 @@ class _DraftStatus extends StatelessWidget {
     final (label, color) = switch (state.persistenceStatus) {
       OrganizationPersistenceStatus.published => (
         'Published r${state.graph?.publishedRevision ?? 0}',
-        FrankColors.green,
+        FrankColors.statusSuccess,
       ),
       OrganizationPersistenceStatus.clean => ('Draft saved', FrankColors.muted),
       OrganizationPersistenceStatus.dirty => (
@@ -437,7 +437,7 @@ class _SetupBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = configured ? FrankColors.green : FrankColors.warningAmber;
+    final color = configured ? FrankColors.statusSuccess : FrankColors.warningAmber;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(

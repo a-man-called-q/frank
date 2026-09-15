@@ -552,7 +552,8 @@ pub fn organization_permission(name: &str) -> Option<(&'static str, &'static str
 pub fn input_schema(name: &str) -> Value {
     let properties = match name {
         "shell_exec" | "terminal_execute" => json!({"command": {"type": "string"}}),
-        "workspace_read" | "memory_read" | "email_read" | "drive_read" | "calendar_update" => {
+        "workspace_read" => json!({"path": {"type": "string"}}),
+        "memory_read" | "email_read" | "drive_read" | "calendar_update" => {
             json!({"id": {"type": "string"}})
         }
         "workspace_search" | "email_search" | "drive_search" | "browser_browse"

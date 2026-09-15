@@ -188,6 +188,7 @@ class _ClaimPanelState extends State<_ClaimPanel> {
   List<TeamAgentProfile> get _eligibleProfiles => widget.profiles
       .where(
         (profile) =>
+            !profile.archived &&
             (profile.status == TeamAgentStatus.available ||
                 profile.status == TeamAgentStatus.idle ||
                 profile.status == TeamAgentStatus.offline) &&
@@ -252,18 +253,36 @@ class _ClaimPanelState extends State<_ClaimPanel> {
                   ),
                   if (assigned)
                     Flexible(
-                      child: FButton(
-                        key: ValueKey('taskboard-release-${widget.task.id}'),
-                        onPress: mutating ? null : widget.onRelease,
-                        variant: FButtonVariant.ghost,
-                        size: FButtonSizeVariant.sm,
-                        child: const Flexible(
-                          child: Text(
-                            'Release',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
+                      child: MediaQuery.textScalerOf(context).scale(1) >= 1.5
+                          ? FButton.raw(
+                              key: ValueKey(
+                                'taskboard-release-${widget.task.id}',
+                              ),
+                              onPress: mutating ? null : widget.onRelease,
+                              variant: FButtonVariant.ghost,
+                              size: FButtonSizeVariant.sm,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                child: Text('Release'),
+                              ),
+                            )
+                          : FButton(
+                              key: ValueKey(
+                                'taskboard-release-${widget.task.id}',
+                              ),
+                              onPress: mutating ? null : widget.onRelease,
+                              variant: FButtonVariant.ghost,
+                              size: FButtonSizeVariant.sm,
+                              child: const Flexible(
+                                child: Text(
+                                  'Release',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
                     ),
                 ],
               ),
@@ -378,6 +397,43 @@ class _CommentComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final submitButton = largeText
+        ? FButton.raw(
+            key: const ValueKey('taskboard-comment-submit'),
+            onPress: submitting
+                ? null
+                : () {
+                    final body = controller.text.trim();
+                    if (body.isEmpty) return;
+                    onSubmit(body);
+                    controller.clear();
+                  },
+            variant: FButtonVariant.outline,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: const Text('Post'),
+              ),
+            ),
+          )
+        : FButton(
+            key: const ValueKey('taskboard-comment-submit'),
+            onPress: submitting
+                ? null
+                : () {
+                    final body = controller.text.trim();
+                    if (body.isEmpty) return;
+                    onSubmit(body);
+                    controller.clear();
+                  },
+            variant: FButtonVariant.outline,
+            prefix: const Icon(FrankIcons.send, size: FrankUiTokens.iconSize),
+            child: const Flexible(
+              child: Text('Post note', overflow: TextOverflow.ellipsis),
+            ),
+          );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -393,25 +449,7 @@ class _CommentComposer extends StatelessWidget {
         const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: double.infinity,
-            child: FButton(
-              key: const ValueKey('taskboard-comment-submit'),
-              onPress: submitting
-                  ? null
-                  : () {
-                      final body = controller.text.trim();
-                      if (body.isEmpty) return;
-                      onSubmit(body);
-                      controller.clear();
-                    },
-              variant: FButtonVariant.outline,
-              prefix: const Icon(FrankIcons.send, size: FrankUiTokens.iconSize),
-              child: const Flexible(
-                child: Text('Post note', overflow: TextOverflow.ellipsis),
-              ),
-            ),
-          ),
+          child: SizedBox(width: double.infinity, child: submitButton),
         ),
       ],
     );
@@ -518,7 +556,56 @@ class _DecisionPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final decision = task.decision!;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
     final submitting = status == TaskboardDecisionStatus.submitting;
+    final decisionButton = largeText
+        ? FButton.raw(
+            key: ValueKey('taskboard-decision-${task.id}'),
+            onPress: submitting
+                ? null
+                : () {
+                    final value = decision.requiresInput
+                        ? int.tryParse(controller.text.trim())
+                        : null;
+                    onSubmit(
+                      decision.requiresInput
+                          ? TaskboardDecisionInput.positiveInteger(value ?? 0)
+                          : const TaskboardDecisionInput.approve(),
+                    );
+                  },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(error == null ? 'Submit' : 'Retry'),
+              ),
+            ),
+          )
+        : FButton(
+            key: ValueKey('taskboard-decision-${task.id}'),
+            onPress: submitting
+                ? null
+                : () {
+                    final value = decision.requiresInput
+                        ? int.tryParse(controller.text.trim())
+                        : null;
+                    onSubmit(
+                      decision.requiresInput
+                          ? TaskboardDecisionInput.positiveInteger(value ?? 0)
+                          : const TaskboardDecisionInput.approve(),
+                    );
+                  },
+            prefix: submitting
+                ? const FCircularProgress(size: FCircularProgressSizeVariant.sm)
+                : const Icon(FrankIcons.check, size: FrankUiTokens.iconSize),
+            child: Flexible(
+              child: Text(
+                error == null ? decision.actionLabel : 'Try again',
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
+          );
     return Padding(
       padding: const EdgeInsets.only(bottom: 19),
       child: DecoratedBox(
@@ -602,41 +689,7 @@ class _DecisionPanel extends StatelessWidget {
               const SizedBox(height: 12),
               Align(
                 alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FButton(
-                    key: ValueKey('taskboard-decision-${task.id}'),
-                    onPress: submitting
-                        ? null
-                        : () {
-                            final value = decision.requiresInput
-                                ? int.tryParse(controller.text.trim())
-                                : null;
-                            onSubmit(
-                              decision.requiresInput
-                                  ? TaskboardDecisionInput.positiveInteger(
-                                      value ?? 0,
-                                    )
-                                  : const TaskboardDecisionInput.approve(),
-                            );
-                          },
-                    prefix: submitting
-                        ? const FCircularProgress(
-                            size: FCircularProgressSizeVariant.sm,
-                          )
-                        : const Icon(
-                            FrankIcons.check,
-                            size: FrankUiTokens.iconSize,
-                          ),
-                    child: Flexible(
-                      child: Text(
-                        error == null ? decision.actionLabel : 'Try again',
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ),
-                  ),
-                ),
+                child: SizedBox(width: double.infinity, child: decisionButton),
               ),
             ],
           ),

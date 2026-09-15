@@ -37,6 +37,7 @@ class SnapshotStore {
   int _revision = 0;
   int _eventSeq = 0;
   bool _loggedOut = false;
+  bool _stale = false;
   bool _disposed = false;
 
   Map<String, dynamic>? get snapshot =>
@@ -47,6 +48,11 @@ class SnapshotStore {
   int get eventSeq => _eventSeq;
 
   bool get hasSnapshot => _snapshot != null;
+
+  /// True after an event invalidation until the latest snapshot is adopted.
+  /// Mutations must use the refreshed revision rather than the revision that
+  /// was current before the event arrived.
+  bool get isStale => _stale;
 
   /// The one invalidation stream for this authenticated snapshot. Consumers
   /// must subscribe here rather than opening a second event socket; this
@@ -81,6 +87,7 @@ class SnapshotStore {
       // flight wins over the late response.
       if (!_disposed && !_loggedOut && generation == _generation) {
         _snapshot = normalized;
+        _stale = false;
         final valueRevision = int.tryParse(
           normalized['revision']?.toString() ?? '',
         );
@@ -112,8 +119,24 @@ class SnapshotStore {
   void invalidate({int? revision, int? eventSeq}) {
     _generation++;
     _snapshot = null;
+    _stale = true;
     if (revision != null) _revision = revision;
     if (eventSeq != null && eventSeq > _eventSeq) _eventSeq = eventSeq;
+    if (!_disposed) _invalidations.add(null);
+  }
+
+  /// Adopt a conflict payload without issuing a second HTTP request. This is
+  /// used by append-only create commands before their single safe retry.
+  void adoptLatest(Map<String, dynamic> value) {
+    if (_disposed || _loggedOut) return;
+    final normalized = Map<String, dynamic>.from(value);
+    _generation++;
+    _snapshot = normalized;
+    _stale = false;
+    final valueRevision = int.tryParse(normalized['revision']?.toString() ?? '');
+    if (valueRevision != null) _revision = valueRevision;
+    final valueEventSeq = int.tryParse(normalized['event_seq']?.toString() ?? '');
+    if (valueEventSeq != null && valueEventSeq > _eventSeq) _eventSeq = valueEventSeq;
     if (!_disposed) _invalidations.add(null);
   }
 
@@ -202,7 +225,7 @@ class SnapshotCommandConflict implements Exception {
     Map<String, dynamic> response, {
     int? expectedRevision,
   }) {
-    final latest = response['latest_snapshot'];
+    final latest = error['latest_snapshot'] ?? response['latest_snapshot'];
     return SnapshotCommandConflict(
       code: (error['code'] ?? 'command-failed').toString(),
       message: (error['message'] ?? 'Command failed').toString(),

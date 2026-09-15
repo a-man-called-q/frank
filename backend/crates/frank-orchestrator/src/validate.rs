@@ -397,6 +397,8 @@ pub(crate) fn authorize(command: &Command, actor_kind: ActorKind, role: DeviceRo
             | Command::RequestOrganizationDrain { .. }
             | Command::ResumeOrganization { .. }
             | Command::FireAgent { .. }
+            | Command::GrantTaskAccess { .. }
+            | Command::RevokeTaskGrant { .. }
     );
     if owner_only && !role.can_admin() {
         return Err(OrchestratorError::Forbidden);
@@ -784,6 +786,15 @@ pub(crate) fn validate_task_spec(spec: &TaskSpec, tasks: &[TaskView]) -> Result<
             "task dependency id is invalid".into(),
         ));
     }
+    if let Some(parent_id) = spec.parent_task_id
+        && spec.dependencies.iter().any(|dependency| {
+            *dependency == parent_id || is_parent_of(tasks, *dependency, parent_id)
+        })
+    {
+        return Err(OrchestratorError::Validation(
+            "a child task cannot depend on its parent or an ancestor".into(),
+        ));
+    }
     let candidate = TaskView {
         id: TaskId::nil(),
         mission_id: spec.mission_id,
@@ -840,6 +851,7 @@ pub(crate) fn validate_task_view(candidate: &TaskView, tasks: &[TaskView]) -> Re
             "task cannot depend on itself".into(),
         ));
     }
+    validate_parent_link(candidate, tasks)?;
     if candidate
         .dependencies
         .iter()
@@ -858,6 +870,24 @@ pub(crate) fn validate_task_view(candidate: &TaskView, tasks: &[TaskView]) -> Re
             "task dependency crosses mission boundary".into(),
         ));
     }
+    if let Some(parent_id) = candidate.parent_task_id
+        && candidate.dependencies.iter().any(|dependency| {
+            *dependency == parent_id || is_parent_of(tasks, *dependency, parent_id)
+        })
+    {
+        return Err(OrchestratorError::Validation(
+            "a child task cannot depend on its parent or an ancestor".into(),
+        ));
+    }
+    if candidate
+        .dependencies
+        .iter()
+        .any(|dependency| is_parent_of(tasks, candidate.id, *dependency))
+    {
+        return Err(OrchestratorError::Validation(
+            "a task cannot depend on one of its descendants".into(),
+        ));
+    }
     let mut graph: HashMap<TaskId, Vec<TaskId>> = tasks
         .iter()
         .map(|task| (task.id, task.dependencies.clone()))
@@ -873,6 +903,64 @@ pub(crate) fn validate_task_view(candidate: &TaskView, tasks: &[TaskView]) -> Re
         }
     }
     Ok(())
+}
+
+fn validate_parent_link(candidate: &TaskView, tasks: &[TaskView]) -> Result<()> {
+    let Some(parent_id) = candidate.parent_task_id else {
+        return Ok(());
+    };
+    if parent_id == TaskId::nil() || parent_id == candidate.id {
+        return Err(OrchestratorError::Validation(
+            "task cannot be its own parent".into(),
+        ));
+    }
+    let Some(parent) = tasks.iter().find(|task| task.id == parent_id) else {
+        return Err(OrchestratorError::Validation(
+            "task parent does not exist".into(),
+        ));
+    };
+    if parent.mission_id != candidate.mission_id {
+        return Err(OrchestratorError::Validation(
+            "task parent crosses mission boundary".into(),
+        ));
+    }
+    let mut current = Some(parent_id);
+    let mut visited = HashSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id) {
+            return Err(OrchestratorError::Validation(
+                "task parent relationships must form a tree".into(),
+            ));
+        }
+        if id == candidate.id {
+            return Err(OrchestratorError::Validation(
+                "task cannot be an ancestor of itself".into(),
+            ));
+        }
+        current = tasks
+            .iter()
+            .find(|task| task.id == id)
+            .and_then(|task| task.parent_task_id);
+    }
+    Ok(())
+}
+
+fn is_parent_of(tasks: &[TaskView], ancestor: TaskId, descendant: TaskId) -> bool {
+    let mut current = Some(descendant);
+    let mut visited = HashSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id) {
+            return false;
+        }
+        let Some(task) = tasks.iter().find(|task| task.id == id) else {
+            return false;
+        };
+        if task.parent_task_id == Some(ancestor) {
+            return true;
+        }
+        current = task.parent_task_id;
+    }
+    false
 }
 
 pub(crate) fn dfs_cycle(
@@ -905,9 +993,6 @@ pub(crate) fn apply_agent_patch(agent: &mut AgentView, patch: AgentPatch) {
     }
     if let Some(value) = patch.display_name {
         agent.display_name = value;
-    }
-    if let Some(value) = patch.avatar {
-        agent.avatar = value;
     }
 }
 

@@ -1,10 +1,12 @@
 import '../models/organization_models.dart';
 import '../models/connection_models.dart';
 import '../models/ledger_models.dart';
+import '../models/journal_models.dart';
 import '../models/openrouter_models.dart';
 import '../models/project_models.dart';
 import '../models/taskboard_models.dart';
 import '../models/team_models.dart';
+import '../models/toolchain_models.dart';
 import '../models/workspace_models.dart';
 import '../models/workflow_models.dart';
 
@@ -27,6 +29,13 @@ abstract interface class ProjectGateway {
   Future<ProjectOperation> loadProjectOperation(String operationId);
 
   Future<void> createMission(String projectId, String objective);
+
+  Future<void> setMissionStatus({
+    required String missionId,
+    required MissionStatus status,
+  });
+
+  Future<void> retryMissionPlan(String missionId);
 
   Stream<void> watchWorkspaceChanges();
 }
@@ -77,6 +86,17 @@ abstract interface class OpenRouterGateway implements GatewaySnapshotMetadata {
     required String? model,
     required int expectedRevision,
   });
+}
+
+/// Native OpenAI provider operations. Kept separate from [OpenRouterGateway]
+/// so fixture and older gateways remain source-compatible while the desktop
+/// can progressively expose both providers.
+abstract interface class OpenAiGateway {
+  Future<OpenRouterConnection> loadOpenAiConnection();
+  Future<OpenRouterConnection> testOpenAiConnection();
+  Future<OpenRouterConnection> saveOpenAiCredential(String apiKey);
+  Future<OpenRouterConnection> removeOpenAiCredential();
+  Future<OpenRouterCatalog> loadOpenAiModels({bool refresh = false});
 }
 
 abstract interface class LedgerGateway {
@@ -147,6 +167,45 @@ abstract interface class TaskboardGateway {
   Stream<void> watchTaskboard();
 }
 
+abstract interface class JournalGateway {
+  Future<JournalPage> loadJournal({
+    int? beforeSequence,
+    int limit,
+    String? projectId,
+    String? missionId,
+    String? taskId,
+    String? agentId,
+    JournalEntryKind? kind,
+    JournalOutcome? outcome,
+  });
+}
+
+abstract interface class ToolchainGateway {
+  Future<List<ToolchainRequirement>> loadToolchains({String? projectPath});
+  Future<List<RunnerInfo>> loadRunners();
+  Future<String> requestToolchainApproval({
+    required String agentId,
+    required String taskId,
+    required String operation,
+    required String cwd,
+    required String project,
+    required String reason,
+  });
+  Future<void> decideToolchainApproval({
+    required String approvalId,
+    required ToolchainApprovalDecision decision,
+  });
+  Future<ToolchainInstallResult> installToolchain({
+    required String runnerId,
+    required String projectId,
+    required String taskId,
+    required String manifestId,
+    required String version,
+    required String projectPath,
+    required String approvalId,
+  });
+}
+
 abstract interface class ChatGateway {
   Stream<String> replyTo(
     String text, {
@@ -167,6 +226,8 @@ abstract interface class FrankGateway
         ConnectorGateway,
         WorkflowGateway,
         TaskboardGateway,
+        JournalGateway,
+        ToolchainGateway,
         ChatGateway {
   /// True only for the in-process demo adapter. Production surfaces use this
   /// to avoid labelling authenticated projections as sample data.
@@ -207,10 +268,11 @@ abstract interface class FrankGateway
   Future<OfficeWorkspace> loadWorkspace();
 
   @override
-  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([String? path]) =>
-      Future<List<ProjectDirectoryEntry>>.error(
-        StateError('Project browsing is unavailable on this gateway.'),
-      );
+  Future<List<ProjectDirectoryEntry>> browseProjectDirectories([
+    String? path,
+  ]) => Future<List<ProjectDirectoryEntry>>.error(
+    StateError('Project browsing is unavailable on this gateway.'),
+  );
 
   @override
   Future<void> registerProject(ProjectRegistrationDraft draft) =>
@@ -235,6 +297,19 @@ abstract interface class FrankGateway
       Future<void>.error(
         StateError('Mission creation is unavailable on this gateway.'),
       );
+
+  @override
+  Future<void> setMissionStatus({
+    required String missionId,
+    required MissionStatus status,
+  }) => Future<void>.error(
+    StateError('Mission lifecycle commands are unavailable on this gateway.'),
+  );
+
+  @override
+  Future<void> retryMissionPlan(String missionId) => Future<void>.error(
+    StateError('Mission planning commands are unavailable on this gateway.'),
+  );
 
   @override
   Stream<void> watchWorkspaceChanges() => const Stream<void>.empty();
@@ -472,6 +547,64 @@ abstract interface class FrankGateway
   /// empty stream; the taskboard keeps its bounded refresh fallback as well.
   @override
   Stream<void> watchTaskboard() => const Stream<void>.empty();
+
+  @override
+  Future<JournalPage> loadJournal({
+    int? beforeSequence,
+    int limit = 50,
+    String? projectId,
+    String? missionId,
+    String? taskId,
+    String? agentId,
+    JournalEntryKind? kind,
+    JournalOutcome? outcome,
+  }) => Future<JournalPage>.error(
+    StateError('Journal projection is unavailable on this gateway.'),
+  );
+
+  @override
+  Future<List<ToolchainRequirement>> loadToolchains({String? projectPath}) =>
+      Future<List<ToolchainRequirement>>.error(
+        StateError('Toolchain projection is unavailable on this gateway.'),
+      );
+
+  @override
+  Future<List<RunnerInfo>> loadRunners() => Future<List<RunnerInfo>>.error(
+    StateError('Host runner projection is unavailable on this gateway.'),
+  );
+
+  @override
+  Future<String> requestToolchainApproval({
+    required String agentId,
+    required String taskId,
+    required String operation,
+    required String cwd,
+    required String project,
+    required String reason,
+  }) => Future<String>.error(
+    StateError('Toolchain approvals are unavailable on this gateway.'),
+  );
+
+  @override
+  Future<void> decideToolchainApproval({
+    required String approvalId,
+    required ToolchainApprovalDecision decision,
+  }) => Future<void>.error(
+    StateError('Toolchain approvals are unavailable on this gateway.'),
+  );
+
+  @override
+  Future<ToolchainInstallResult> installToolchain({
+    required String runnerId,
+    required String projectId,
+    required String taskId,
+    required String manifestId,
+    required String version,
+    required String projectPath,
+    required String approvalId,
+  }) => Future<ToolchainInstallResult>.error(
+    StateError('Toolchain installation is unavailable on this gateway.'),
+  );
 
   @override
   Stream<String> replyTo(

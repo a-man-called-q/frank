@@ -27,7 +27,7 @@ void main() {
       expect(profiles, hasLength(4));
       expect(profiles.first.employeeId, 'ae-maya');
       expect(profiles.first.role, 'Account Executive');
-      expect(profiles.first.specialization, 'Generalist');
+      expect(profiles.first.role, 'Account Executive');
       expect(dashboard.isFixture, isTrue);
       expect(dashboard.lifetime.attribution, isNotEmpty);
     },

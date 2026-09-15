@@ -10,7 +10,15 @@ enum WorkspaceView { office, settings }
 /// segmented control chooses the broad workspace destination, while this
 /// value chooses the current Settings area without introducing a conversation
 /// context.
-enum SettingsSection { models, organization, team, ledger, taskboard, journal }
+enum SettingsSection {
+  models,
+  organization,
+  team,
+  ledger,
+  taskboard,
+  journal,
+  toolchains,
+}
 
 extension SettingsSectionMetadata on SettingsSection {
   String get label => switch (this) {
@@ -20,6 +28,7 @@ extension SettingsSectionMetadata on SettingsSection {
     SettingsSection.ledger => 'Ledger',
     SettingsSection.taskboard => 'Taskboard',
     SettingsSection.journal => 'Journal',
+    SettingsSection.toolchains => 'Toolchains',
   };
 
   String get description => switch (this) {
@@ -34,6 +43,8 @@ extension SettingsSectionMetadata on SettingsSection {
     SettingsSection.taskboard => 'Track project tasks in a Kanban board.',
     SettingsSection.journal =>
       'Review operational events globally or by agent and project.',
+    SettingsSection.toolchains =>
+      'Inspect host SDKs, checks, and approval-scoped installation plans.',
   };
 }
 
@@ -113,6 +124,9 @@ class OfficeMission {
     this.updatedAt,
     this.assignedAgentIds = const [],
     this.pendingApprovalCount = 0,
+    this.totalTaskCount = 0,
+    this.doneTaskCount = 0,
+    this.lastError,
   });
 
   final String id;
@@ -122,6 +136,12 @@ class OfficeMission {
   final DateTime? updatedAt;
   final List<String> assignedAgentIds;
   final int pendingApprovalCount;
+  final int totalTaskCount;
+  final int doneTaskCount;
+  final String? lastError;
+
+  bool get hasPlan => totalTaskCount > 0;
+  bool get allTasksDone => hasPlan && doneTaskCount >= totalTaskCount;
 
   String get statusLabel => switch (status) {
     MissionStatus.planned || MissionStatus.draft => 'Draft',
@@ -159,6 +179,7 @@ class OfficeProject {
     required this.summary,
     required this.messages,
     required this.missions,
+    this.path = '',
   });
 
   final String id;
@@ -168,6 +189,9 @@ class OfficeProject {
   final double progress;
   final List<String> team;
   final String summary;
+  /// Canonical project path supplied by the daemon. The desktop never scans
+  /// it directly; it is forwarded only to owner-scoped server projections.
+  final String path;
 
   /// Conversation used by Office mode for this project's latest engagement.
   final List<OfficeMessage> messages;

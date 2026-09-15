@@ -51,6 +51,11 @@ void main() {
       expect(find.bySemanticsLabel('Start voice dictation'), findsNothing);
       expect(find.bySemanticsLabel('Message Maya'), findsOneWidget);
       expect(find.bySemanticsLabel('Send message'), findsOneWidget);
+
+      final field = tester.widget<FTextField>(find.byType(FTextField));
+      final style = field.style as FTextFieldStyle;
+      expect(style.color.base, isNull);
+      expect(style.border.base.borderSide.width, 0);
     },
   );
 

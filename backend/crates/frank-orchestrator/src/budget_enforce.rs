@@ -181,7 +181,7 @@ impl Orchestrator {
             for token in capabilities {
                 self.revoke_agent_capability(&token).await;
             }
-            self.clear_agent_session(agent_id, AgentStatus::Paused)
+            self.clear_agent_session(agent_id, AgentStatus::Idle)
                 .await?;
         }
         // A concurrent manual move/cancel may have won the race. In that

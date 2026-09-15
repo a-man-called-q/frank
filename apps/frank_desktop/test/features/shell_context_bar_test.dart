@@ -5,6 +5,7 @@ import '../support/frank_test_app.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/icons.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
+import 'package:frank_desktop/core/models/connection_models.dart';
 import 'package:frank_desktop/features/shell/presentation/shell_context_bar.dart';
 
 const _employee = OfficeEmployee(
@@ -44,6 +45,10 @@ void main() {
               sidebarVisible: false,
               isFullscreen: false,
               onToggleSidebar: () {},
+              connectionStatus: const FrankConnectionStatus(
+                phase: FrankConnectionPhase.connected,
+                appProtocolVersion: 2,
+              ),
             ),
           ),
         ),

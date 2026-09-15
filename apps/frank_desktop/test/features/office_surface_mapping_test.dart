@@ -23,6 +23,7 @@ void main() {
       SettingsSection.team,
       SettingsSection.ledger,
       SettingsSection.journal,
+      SettingsSection.toolchains,
     ]) {
       expect(settingsSurfaceModeForSection(section), OfficeSurfaceMode.page);
     }

@@ -677,7 +677,7 @@ class _OfficeSceneStageState extends State<OfficeSceneStage> {
       name: 'accent-strip-front',
       size: vm.Vector3(3.7, 0.08, 0.22),
       position: vm.Vector3(0.0, 0.42, -1.56),
-      color: FrankColors.green,
+      color: FrankColors.statusSuccess,
     ),
   ];
 
@@ -911,11 +911,15 @@ class _OfficeSceneError extends StatelessWidget {
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
-                  child: FButton(
+                  child: FButton.raw(
                     onPress: onRetry,
                     size: FButtonSizeVariant.sm,
-                    child: const Flexible(
-                      child: Text('Retry', overflow: TextOverflow.ellipsis),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      child: Text('Retry'),
                     ),
                   ),
                 ),

@@ -102,10 +102,6 @@ class _SetupPanelState extends State<_SetupPanel> {
         : widget.catalog?.stale == true
         ? 'Stale'
         : 'Ready';
-    final promptPack = profile.promptPack.trim().isEmpty
-        ? 'Not reported'
-        : profile.promptPack;
-    final level = profile.level.trim().isEmpty ? 'Not reported' : profile.level;
     return _PanelCard(
       key: const ValueKey('team-profile-setup'),
       child: Column(
@@ -287,16 +283,6 @@ class _SetupPanelState extends State<_SetupPanel> {
             ),
           ],
           const SizedBox(height: 16),
-          _SetupRow(
-            icon: FrankIcons.autoAwesomeOutlined,
-            label: 'Prompt pack',
-            value: promptPack,
-          ),
-          _SetupRow(
-            icon: FrankIcons.tuneOutlined,
-            label: 'Level',
-            value: level,
-          ),
           _SetupRow(
             icon: FrankIcons.historyToggleOffOutlined,
             label: 'Role revision',
@@ -499,63 +485,6 @@ class _InfoCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _TraitSection extends StatelessWidget {
-  const _TraitSection({required this.profile});
-
-  final TeamAgentProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PanelCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'WHAT THEY BRING',
-            style: TextStyle(
-              color: FrankColors.aubergineAccent,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.1,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _TraitChips(profile: profile),
-        ],
-      ),
-    );
-  }
-}
-
-class _TraitChips extends StatelessWidget {
-  const _TraitChips({required this.profile});
-
-  final TeamAgentProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 7,
-      runSpacing: 7,
-      children: [
-        for (final trait in profile.traits)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-            decoration: BoxDecoration(
-              color: profile.accent.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(7),
-              border: Border.all(color: profile.accent.withValues(alpha: 0.34)),
-            ),
-            child: Text(
-              trait,
-              style: TextStyle(color: profile.accent, fontSize: 11),
-            ),
-          ),
-      ],
     );
   }
 }

@@ -44,8 +44,10 @@ backend/crates/frank-protocol ──> (leaves)
 backend/crates/frank-store ──> frank-protocol, frank-safeio
 backend/crates/frank-agent ──> frank-protocol
 backend/crates/frank-tool-catalog ──> (leaves)
+backend/crates/frank-toolchain ──> frank-protocol
+backend/crates/frank-runner ──> frank-toolchain, frank-protocol
 backend/crates/frank-orchestrator ──> frank-store, frank-agent, frank-ledger, frank-protocol
-backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio
+backend/crates/frank-server ──> frank-orchestrator, frank-store, frank-agent, frank-app, frank-protocol, frank-safeio, frank-toolchain, frank-runner
 backend/crates/frank-client ──> frank-protocol
 backend/crates/frank-agent-mcp ──> frank-client, frank-protocol
 backend/crates/frank-update ──> (leaves)
@@ -81,20 +83,41 @@ deduplication, measured-only hard budgets, approval decisions, and take-control
 leases.  It creates the mission and task branch names but keeps all Git writes
 in the daemon workflow.
 
-`frank-agent` owns one structured OpenRouter session runtime. It validates the
-credential, model catalog, streaming frames, usage telemetry, and durable
-transcript resume path. Missing credentials or an unavailable endpoint are
-reported through the doctor diagnostic; no local provider executable is probed.
+`frank-agent` owns structured OpenRouter and native OpenAI session runtimes. It
+validates provider credentials and model catalogs, parses streaming frames,
+records usage telemetry, and resumes durable transcripts. Canonical model slugs
+use the `openai/` namespace for native OpenAI, while unqualified legacy slugs
+remain OpenRouter selections. Missing credentials or unavailable endpoints are
+reported through doctor diagnostics; no local provider executable is probed.
 
 `frank-agent-mcp` is a local stdio JSON-RPC bridge with a short-lived
 agent/task capability.  Its tool list covers task, broker message, artifact,
 memory proposal, and approval reads; it cannot update another profile, change
 budgets, approve itself, or invoke Git delivery.
 
+`frank-toolchain` owns versioned, closed manifests for host SDKs. It detects
+project requirements, creates immutable install previews (source, version,
+size, SHA-256, path, and checks), and emits argv-based check plans. `frankd`
+only resolves these manifests and records their projections; it does not probe
+or install language SDKs inside Docker.
+
+`frank-runner` is the least-privilege host service. It pairs with a one-time
+token, reconnects with a runner credential, canonicalizes daemon-to-host path
+mappings, and executes only allowlisted argv checks or exact artifacts as a
+normal user. It has no Docker socket, sudo path, shell-string execution, or
+credential-agent access. Durable runner jobs, installations, and check output
+are projected into the owner-only Journal with bounded, sanitized output.
+
+The Journal is a read-only owner projection of the durable SQLite event log at
+`GET /v2/journal`; WebSocket events only invalidate the client cache. Its
+entries retain sequence, actor, event kind, outcome, summary, and optional
+project/mission/task/agent/check references. Task grants bind approval to one
+task, agent, canonical worktree, effect, expiry, and revocation state.
+
 `frank-tool-catalog` is the single source for tool IDs, real JSON schemas,
 transport exposure, execution owner, effect, network requirement, approval
-rule, and Organization permission. OpenRouter and MCP both render from this
-catalog and route mutations through the same daemon policy gate.
+rule, and Organization permission. Provider runtimes and MCP both render from
+this catalog and route mutations through the same daemon policy gate.
 
 `apps/frank_desktop` owns the client-side shell. Its `FrankGateway` abstraction
 keeps fixtures and the future `frank-client` transport interchangeable. The

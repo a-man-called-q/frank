@@ -7,7 +7,7 @@
 use frank_protocol::*;
 
 use crate::reduce::append_task_feed;
-use crate::{Orchestrator, OrchestratorError, Result};
+use crate::{Orchestrator, OrchestratorError, Result, validate_task_view};
 
 mod agent;
 mod board_work_items;
@@ -143,6 +143,16 @@ async fn create_work_item(
                 "child work items cannot have grandchildren".into(),
             ));
         }
+        if matches!(parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
+            return Err(OrchestratorError::Validation(
+                "cannot add children to a final parent task".into(),
+            ));
+        }
+        if matches!(parent.status, TaskStatus::Running | TaskStatus::Review) {
+            return Err(OrchestratorError::Validation(
+                "cannot add children while the parent task is active".into(),
+            ));
+        }
         if let Some(mission_id) = spec.mission_id
             && mission_id != parent.mission_id
         {
@@ -190,7 +200,7 @@ async fn create_work_item(
         ));
     }
     let id = TaskId::new();
-    Ok(TaskView {
+    let task = TaskView {
         id,
         mission_id,
         title: spec.title.trim().to_owned(),
@@ -226,7 +236,9 @@ async fn create_work_item(
             spec.rework_limit
         },
         rework_count: 0,
-    })
+    };
+    validate_task_view(&task, &snapshot.tasks)?;
+    Ok(task)
 }
 
 fn validate_board_name(name: &str) -> Result<()> {
@@ -355,22 +367,15 @@ mod tests {
             role_id: None,
             role_revision: 0,
             display_name: "Worker".into(),
-            template: AgentTemplate::Builder,
             model: None,
             effective_model: None,
             model_source: ModelSource::Role,
             model_override: None,
             pending_model_override: None,
             pending_model_change: false,
-            pack_id: None,
-            pack_level: None,
             instructions: String::new(),
             policy: AgentPolicy::default(),
             budget: Budget::unlimited(),
-            avatar: AvatarSpec {
-                palette: "worker".into(),
-                seed: 1,
-            },
             status: AgentStatus::Idle,
             provider_session_id: None,
             last_claimed_at: None,

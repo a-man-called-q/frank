@@ -32,9 +32,7 @@ impl Orchestrator {
             self.revoke_agent_capability(&capability).await;
         }
         if let Some(agent_id) = task.assigned_agent {
-            let _ = self
-                .clear_agent_session(agent_id, AgentStatus::Paused)
-                .await;
+            let _ = self.clear_agent_session(agent_id, AgentStatus::Idle).await;
         }
         Ok(())
     }
@@ -163,7 +161,11 @@ impl Orchestrator {
                 task.objective, agent.instructions
             ),
             policy: agent.policy.clone(),
-            model: agent.model.clone(),
+            model: agent
+                .model
+                .clone()
+                .or_else(|| agent.effective_model.clone())
+                .or_else(|| Some(crate::DEFAULT_LUNA_MODEL.into())),
             resume_session_id: agent.provider_session_id.clone(),
             server_url,
             server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
@@ -176,6 +178,7 @@ impl Orchestrator {
                     )
                     .await?,
             ),
+            reasoning_effort: Some(ReasoningEffort::Max),
         };
         let session = match if request.resume_session_id.is_some() {
             self.runtime
@@ -435,7 +438,7 @@ impl Orchestrator {
                     id: AttemptId::new(),
                     scope: BudgetScope::Task,
                     scope_id: task_id.to_string(),
-                    provider: UsageProviderId::openrouter(),
+                    provider: UsageProviderId::for_model(model.as_deref()),
                     model,
                     measured_input_tokens: usage.measured_input_tokens,
                     measured_output_tokens: usage.measured_output_tokens,
@@ -494,9 +497,13 @@ impl Orchestrator {
                             )
                             .await;
                     }
-                    self.clear_agent_session(agent_id, AgentStatus::Paused)
+                    self.clear_agent_session(agent_id, AgentStatus::Idle)
                         .await?;
                 }
+            }
+            RuntimeEvent::TurnCompleted { .. } => {
+                self.finalize_completed_task_session(task_id, agent_id)
+                    .await?;
             }
             RuntimeEvent::Stopped { code } => {
                 // Error/budget paths remove the live session before killing
@@ -512,22 +519,8 @@ impl Orchestrator {
                     .await?;
                     return Ok(());
                 }
-                self.clear_pending_tool_approvals(task_id).await;
-                self.scheduler.lock().await.finish(task_id);
-                let _ = self.transition_task(task_id, TaskStatus::Review).await;
-                self.clear_agent_session(agent_id, AgentStatus::Idle)
+                self.finalize_completed_task_session(task_id, agent_id)
                     .await?;
-                self.sessions.lock().await.remove(&task_id);
-                if let Some(capability) = self
-                    .agent_capabilities
-                    .lock()
-                    .await
-                    .iter()
-                    .find(|(_, capability)| capability.task_id == task_id)
-                    .map(|(token, _)| token.clone())
-                {
-                    self.revoke_agent_capability(&capability).await;
-                }
             }
             RuntimeEvent::Error { message } => {
                 self.fail_runtime_task(task_id, agent_id, message).await?;
@@ -577,6 +570,50 @@ impl Orchestrator {
                 }
             }
             RuntimeEvent::Raw(_) => {}
+        }
+        Ok(())
+    }
+
+    /// Idempotent cleanup boundary shared by a provider's explicit
+    /// TurnCompleted event and its later EOF/Stopped event. Keeping this in
+    /// one function prevents an otherwise reusable agent from being left in
+    /// Working when a provider keeps its transport open after a final answer.
+    async fn finalize_completed_task_session(
+        &self,
+        task_id: TaskId,
+        agent_id: AgentId,
+    ) -> Result<()> {
+        let session = self.sessions.lock().await.get(&task_id).cloned();
+        if let Some(session) = session {
+            let _ = session.graceful_stop().await;
+        }
+        self.clear_pending_tool_approvals(task_id).await;
+        self.scheduler.lock().await.finish(task_id);
+        let current_status = self
+            .store
+            .snapshot()
+            .await?
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .map(|task| task.status);
+        if current_status == Some(TaskStatus::Running) {
+            // Review creation is itself idempotent at the task reducer; an
+            // already-created review from a duplicate frame is harmless.
+            let _ = self.transition_task(task_id, TaskStatus::Review).await;
+        }
+        self.clear_agent_session(agent_id, AgentStatus::Idle)
+            .await?;
+        self.sessions.lock().await.remove(&task_id);
+        let capability = self
+            .agent_capabilities
+            .lock()
+            .await
+            .iter()
+            .find(|(_, capability)| capability.task_id == task_id)
+            .map(|(token, _)| token.clone());
+        if let Some(capability) = capability {
+            self.revoke_agent_capability(&capability).await;
         }
         Ok(())
     }
@@ -770,6 +807,7 @@ impl Orchestrator {
                 return Ok(());
             }
             mission.status = MissionStatus::Blocked;
+            mission.last_error = Some(sanitize_mission_error(&reason));
             mission.updated_at = timestamp_now();
             match self
                 .store
@@ -804,7 +842,7 @@ impl Orchestrator {
     ) -> Result<()> {
         self.clear_pending_tool_approvals(task_id).await;
         self.scheduler.lock().await.finish(task_id);
-        let status = 'commit: {
+        let _status = 'commit: {
             for _ in 0..4 {
                 let mut snapshot = self.store.snapshot().await?;
                 let expected_revision = snapshot.revision;
@@ -847,15 +885,10 @@ impl Orchestrator {
                 current: self.store.current_revision().await?,
             }));
         };
-        // Keep a worker reusable when the retry policy returns the task to
-        // Ready. Once attempts are exhausted, surface Failed and leave the
-        // task Blocked for explicit intervention.
-        let agent_status = if status == TaskStatus::Blocked {
-            AgentStatus::Failed
-        } else {
-            AgentStatus::Idle
-        };
-        let _ = self.clear_agent_session(agent_id, agent_status).await;
+        // Agent health is independent from the failed task's retry outcome.
+        // A provider error must not permanently poison the roster; the task
+        // retains its retry/blocked status and can be inspected or retried.
+        let _ = self.clear_agent_session(agent_id, AgentStatus::Idle).await;
         let _ = self
             .execute(
                 CommandEnvelope {
@@ -967,4 +1000,21 @@ impl Orchestrator {
         }
         CommandResponse::failed(command_id, revision, api)
     }
+}
+
+/// Provider and Git errors can contain local executable paths, URLs, or
+/// implementation details that do not belong in a desktop snapshot. Keep a
+/// short, actionable category for the owner instead.
+fn sanitize_mission_error(reason: &str) -> String {
+    let lower = reason.to_ascii_lowercase();
+    if lower.contains("model") || lower.contains("openrouter") || lower.contains("provider") {
+        return "Planning could not reach the selected supervisor model.".into();
+    }
+    if lower.contains("repository") || lower.contains("git") {
+        return "Planning could not validate the project repository.".into();
+    }
+    if lower.contains("timeout") || lower.contains("timed out") {
+        return "Planning timed out. Retry planning to try again.".into();
+    }
+    "Planning failed. Retry planning after checking the mission readiness items.".into()
 }

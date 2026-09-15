@@ -33,6 +33,14 @@ abstract final class FrankUiTokens {
   static const selectedInkOpacity = 0.08;
   static const borderWidth = 1.0;
   static const inset = 12.0;
+  static const panelPadding = 16.0;
+  static const drawerPadding = 16.0;
+  static const dialogBodyPadding = 24.0;
+  static const footerVerticalPadding = 16.0;
+  static const footerHorizontalPadding = 24.0;
+  static const rowHorizontalPadding = 16.0;
+  static const rowVerticalPadding = 12.0;
+  static const actionGap = 8.0;
   static const pageGutter = 24.0;
   static const compactPageGutter = 16.0;
   static const motionFast = Duration(milliseconds: 120);
@@ -50,7 +58,7 @@ FThemeData buildFrankTheme() {
   final colors = base.colors.copyWith(
     background: FrankColors.canvas,
     foreground: FrankColors.ink,
-    primary: FrankColors.primaryAction,
+    primary: FrankColors.brandPrimary,
     primaryForeground: FrankColors.canvas,
     secondary: FrankColors.panelRaised,
     secondaryForeground: FrankColors.ink,
@@ -136,7 +144,7 @@ abstract final class FrankColors {
   // Semantic action/text/boundary tokens. Keep these names stable so feature
   // surfaces do not encode the current hue directly and so contrast checks
   // can audit one palette in isolation.
-  static const primaryAction = Color(0xFFA8C97E);
+  static const brandPrimary = Color(0xFF7A3D68);
   static const secondaryAction = panelRaised;
   static const textPrimary = Color(0xFFF2F1EB);
   static const textMuted = Color(0xFFA4A8A3);
@@ -155,7 +163,7 @@ abstract final class FrankColors {
   static const sidebarSolid = Color(0xFF17191C);
   static const tooltipPanel = Color(0xE61D1724);
   static const border = panelBorder;
-  static const green = primaryAction;
+  static const statusSuccess = Color(0xFFA8C97E);
   static const blue = Color(0xFF82B7E8);
   static const failure = Color(0xFFE47B7B);
 }

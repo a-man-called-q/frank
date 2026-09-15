@@ -57,13 +57,16 @@ use routes::commands::*;
 use routes::devices::*;
 use routes::diagnostics::*;
 use routes::events::*;
+use routes::journal::*;
 use routes::pair::*;
+use routes::runners::*;
 use routes::terminals::*;
+use routes::toolchains::*;
 
 pub use auth::{AuthError, AuthManager, normalize_username, validate_password};
 pub use connectors::ConnectorCredentialStore;
 pub use pairing::{DeviceAuth, PairingManager, PairingSecret, PairingTicket};
-pub use provider::OpenRouterCredentialStore;
+pub use provider::{OpenAiCredentialStore, OpenRouterCredentialStore};
 pub use tls::TlsIdentity;
 use tls::{install_crypto_provider, load_or_create_local_identity};
 
@@ -120,9 +123,11 @@ pub struct ServerState {
     pub pairing: PairingManager,
     pub config: ServerConfig,
     pub openrouter_credentials: Arc<OpenRouterCredentialStore>,
+    pub openai_credentials: Arc<OpenAiCredentialStore>,
     pub connector_credentials: Arc<ConnectorCredentialStore>,
     pub(crate) google_oauth_pending: connectors::GoogleOAuthPendingStore,
     pub openrouter_adapter: Arc<frank_agent::OpenRouterAdapter>,
+    pub openai_adapter: Arc<frank_agent::OpenAiAdapter>,
     pub terminal_sessions: Arc<Mutex<HashMap<TerminalSessionId, Arc<Mutex<PtySession>>>>>,
     /// Daemon-owned wakeups for event viewers. SQLite remains the replay
     /// authority; this channel only removes idle polling from each socket.
@@ -131,6 +136,22 @@ pub struct ServerState {
     /// stream.  Viewers may disconnect without consuming output; the pump
     /// still appends every chunk to the durable transcript for replay.
     pub terminal_streams: Arc<Mutex<HashMap<TerminalSessionId, broadcast::Sender<TerminalFrame>>>>,
+    /// Runner credentials and live channels are intentionally process-local.
+    /// The database stores the non-secret runner projection; one-time pairing
+    /// tokens and job channels must never become recoverable credentials.
+    pub(crate) runner_registry: Arc<Mutex<RunnerRegistryState>>,
+}
+
+pub(crate) struct RunnerRegistryState {
+    pub pending: HashMap<String, RunnerRegistration>,
+    pub connections: HashMap<RunnerId, tokio::sync::mpsc::Sender<frank_runner::RunnerFrame>>,
+    pub pending_jobs: HashMap<String, tokio::sync::oneshot::Sender<frank_runner::RunnerFrame>>,
+}
+
+pub(crate) struct RunnerRegistration {
+    pub id: RunnerId,
+    pub name: String,
+    pub mappings: Vec<RunnerPathMapping>,
 }
 
 impl ServerState {
@@ -154,7 +175,9 @@ impl ServerState {
             .database_path()
             .and_then(|path| path.parent().map(|parent| parent.join("credentials")))
             .unwrap_or_else(|| std::path::PathBuf::from("credentials"));
-        let openrouter_credentials = Arc::new(OpenRouterCredentialStore::new(credential_root));
+        let openrouter_credentials =
+            Arc::new(OpenRouterCredentialStore::new(credential_root.clone()));
+        let openai_credentials = Arc::new(OpenAiCredentialStore::new(credential_root.clone()));
         let connector_credentials = Arc::new(ConnectorCredentialStore::new(
             store
                 .database_path()
@@ -174,11 +197,29 @@ impl ServerState {
                 },
             )?,
         );
-        let runtime =
-            frank_agent::RuntimeManager::with_openrouter_adapter(openrouter_adapter.clone());
+        let openai_adapter = Arc::new(
+            frank_agent::OpenAiAdapter::new(openai_credentials.clone()).map_err(|error| {
+                ServerError::Orchestrator(
+                    frank_orchestrator::OrchestratorError::ProviderUnavailable(error.to_string()),
+                )
+            })?,
+        );
+        let runtime = frank_agent::RuntimeManager::with_provider_adapters(
+            openrouter_adapter.clone(),
+            Some(openai_adapter.clone()),
+        );
+        let runner_registry = Arc::new(Mutex::new(RunnerRegistryState {
+            pending: HashMap::new(),
+            connections: HashMap::new(),
+            pending_jobs: HashMap::new(),
+        }));
         let orchestrator = Arc::new(
             frank_orchestrator::Orchestrator::with_runtime(store.clone(), runtime)
-                .with_connector_secrets(connector_credentials.clone()),
+                .with_connector_secrets(connector_credentials.clone())
+                .with_host_check_executor(Arc::new(HostRunnerCheckExecutor::new(
+                    store.clone(),
+                    runner_registry.clone(),
+                ))),
         );
         orchestrator.ensure_builtin_role().await?;
         orchestrator.ensure_builtin_supervisor().await?;
@@ -201,12 +242,15 @@ impl ServerState {
             pairing,
             config,
             openrouter_credentials,
+            openai_credentials,
             connector_credentials,
             google_oauth_pending,
             openrouter_adapter,
+            openai_adapter,
             terminal_sessions: Arc::new(Mutex::new(HashMap::new())),
             event_wakeups,
             terminal_streams: Arc::new(Mutex::new(HashMap::new())),
+            runner_registry,
         })
     }
 }
@@ -238,6 +282,16 @@ pub fn build_router(state: ServerState) -> Router {
         .route(&api_path("/devices"), get(devices))
         .route(&api_path("/devices/{id}/revoke"), post(revoke_device))
         .route(&api_path("/events"), get(events))
+        .route(&api_path("/journal"), get(journal))
+        .route(&api_path("/runners"), get(runners))
+        .route(&api_path("/runners/pair"), post(pair_runner))
+        .route(&api_path("/runners/connect"), get(runner_connect))
+        .route(&api_path("/runners/{runner_id}/checks"), post(run_check))
+        .route(
+            &api_path("/runners/{runner_id}/toolchains/install"),
+            post(install_toolchain),
+        )
+        .route(&api_path("/toolchains"), get(toolchains))
         .route(&api_path("/terminals/{session_id}"), get(terminals))
         // Command and pairing JSON is deliberately much smaller than the
         // artifact retention cap. Large outputs should be published through

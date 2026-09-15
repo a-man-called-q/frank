@@ -645,10 +645,9 @@ impl Orchestrator {
                     .collect(),
             )
             .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-            let checks = workflow
-                .run_checks(Path::new(&worktree))
-                .await
-                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
+            let checks = self
+                .run_project_checks(&workflow, Path::new(&worktree), Some(task_id))
+                .await?;
             if checks.iter().any(|check| !check.success) {
                 return Err(OrchestratorError::Validation(
                     "required project checks failed".into(),
@@ -708,10 +707,9 @@ impl Orchestrator {
                     .collect(),
             )
             .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-            let checks = workflow
-                .run_checks(Path::new(&worktree))
-                .await
-                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
+            let checks = self
+                .run_project_checks(&workflow, Path::new(&worktree), Some(task_id))
+                .await?;
             if checks.iter().any(|check| !check.success) {
                 return Err(OrchestratorError::Validation(
                     "required project checks failed; task remains in review".into(),
@@ -762,10 +760,9 @@ impl Orchestrator {
             // committed just before a crash. Re-run checks and the idempotent
             // squash step regardless, so a restart cannot mark a task done
             // while its commit is still stranded on the task branch.
-            let post_commit_checks = workflow
-                .run_checks(Path::new(&worktree))
-                .await
-                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
+            let post_commit_checks = self
+                .run_project_checks(&workflow, Path::new(&worktree), Some(task_id))
+                .await?;
             if post_commit_checks.iter().any(|check| !check.success) {
                 return Err(OrchestratorError::Validation(
                     "required project checks failed after the daemon commit".into(),

@@ -270,7 +270,7 @@ class _LedgerMetricCard extends StatelessWidget {
                 width: 6,
                 height: 6,
                 decoration: const BoxDecoration(
-                  color: FrankColors.green,
+                  color: FrankColors.statusSuccess,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -405,7 +405,7 @@ class _LedgerChartLegend extends StatelessWidget {
       runSpacing: 6,
       children: const [
         _LedgerLegendItem(
-          color: FrankColors.green,
+          color: FrankColors.statusSuccess,
           label: 'Measured output',
           line: true,
         ),

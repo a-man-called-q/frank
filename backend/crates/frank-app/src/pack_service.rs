@@ -623,4 +623,38 @@ rules = "levels/full.md"
         assert!(first.plan_id.starts_with("frank-pack-plan-"));
         assert_ne!(first.plan_id, second.plan_id);
     }
+
+    #[test]
+    fn pack_or_builtin_falls_back_when_the_selected_pack_is_corrupt() {
+        let tmp = tempdir().unwrap();
+        let p = paths(tmp.path());
+        let source = tmp.path().join("broken-after-install");
+        write_pack(&source, "broken");
+        let service = FrankService::new(p.clone());
+        service.add_local_pack(&source, None).unwrap();
+        service.use_pack("broken").unwrap();
+
+        let installed = p.data_root.join("packs/broken@1.0.0/levels/full.md");
+        fs::write(installed, "[invalid compiled prompt").unwrap();
+
+        assert_eq!(service.pack_or_builtin().id, builtin::PACK_ID);
+        assert_eq!(service.pack_or_builtin().version, builtin::PACK_VERSION);
+    }
+
+    #[test]
+    fn preview_pack_source_requires_a_directory_and_rejects_reserved_id() {
+        let tmp = tempdir().unwrap();
+        let service = FrankService::new(paths(tmp.path()));
+        assert!(matches!(
+            service.preview_pack_source(&tmp.path().join("missing"), None),
+            Err(AppError::InvalidPackSource)
+        ));
+
+        let source = tmp.path().join("reserved");
+        write_pack(&source, builtin::PACK_ID);
+        assert!(matches!(
+            service.preview_pack_source(&source, None),
+            Err(AppError::Config { .. })
+        ));
+    }
 }

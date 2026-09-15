@@ -2,8 +2,12 @@ import 'package:flutter/widgets.dart';
 import 'package:forui/forui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frank_desktop/app/frank_app.dart';
+import 'package:frank_desktop/core/auth/auth_models.dart';
+import 'package:frank_desktop/core/auth/auth_repository.dart';
 import 'package:frank_desktop/core/fixtures/fixture_workspace.dart';
+import 'package:frank_desktop/core/models/connection_models.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
+import 'package:frank_desktop/core/transport/frank_transport.dart';
 
 import '../support/fake_gateway.dart';
 
@@ -224,6 +228,28 @@ void main() {
     expect(find.byType(SingleChildScrollView), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'restored session enters the shell without waiting for capability preflight',
+    (tester) async {
+      _setWindow(tester);
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: FrankApp(
+            gateway: _UnavailablePreflightGateway(),
+            authRepository: _RestoringAuthRepository(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.bySemanticsLabel('Frank login'), findsNothing);
+      expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
 
 Future<void> _enterCredentials(WidgetTester tester) async {
@@ -250,6 +276,78 @@ class _DelayedGateway extends FakeGateway {
     await Future<void>.delayed(delay);
     return super.loadWorkspace();
   }
+}
+
+class _UnavailablePreflightGateway extends FakeGateway {
+  @override
+  Future<FrankServerCapabilities?> preflightCapabilities({
+    bool refresh = false,
+  }) => Future<FrankServerCapabilities?>.error(StateError('offline'));
+}
+
+class _RestoringAuthRepository implements AuthRepository {
+  _RestoringAuthRepository()
+    : _session = AuthSession(
+        accessToken: 'restored-token',
+        expiresAt: DateTime.now().toUtc().add(const Duration(hours: 1)),
+        serverId: 'restored-server',
+        owner: const AuthOwner(id: 'owner-1', username: 'owner'),
+      );
+
+  final AuthSession _session;
+  final AuthSessionState _sessionState = AuthSessionState();
+
+  @override
+  String get serverUrl => 'https://frank.test:37465';
+
+  @override
+  AuthSession? get currentSession => _sessionState.activeSession;
+
+  @override
+  AuthSessionState get sessionState => _sessionState;
+
+  @override
+  FrankTransport? get transport => null;
+
+  @override
+  String? get storageWarning => null;
+
+  @override
+  Future<AuthStatus> status() async => const AuthStatus(
+    configured: true,
+    authMethod: 'local-password',
+    serverId: 'restored-server',
+  );
+
+  @override
+  Future<AuthSession?> restore() async {
+    _sessionState.activate(_session);
+    return _session;
+  }
+
+  @override
+  Future<AuthSession> login({
+    required String username,
+    required String password,
+  }) async {
+    _sessionState.activate(_session);
+    return _session;
+  }
+
+  @override
+  Future<void> logout() async => _sessionState.clear();
+
+  @override
+  Future<void> logoutAll() async => _sessionState.clear();
+
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async => _sessionState.clear();
+
+  @override
+  void dispose() => _sessionState.dispose();
 }
 
 void _setWindow(WidgetTester tester) {

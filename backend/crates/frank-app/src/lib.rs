@@ -405,6 +405,28 @@ mod tests {
         assert_eq!(fs::read(p.user_config_path()).unwrap(), [0xff, 0xfe]);
     }
 
+    #[test]
+    fn frank_paths_keep_v1_roots_and_allow_the_binary_override() {
+        let root = tempdir().unwrap();
+        let p = paths(root.path());
+        assert_eq!(p.user_config_dir(), root.path().join("config"));
+        assert_eq!(p.user_config_path(), root.path().join("config/config.toml"));
+        assert_eq!(p.v1_data_root(), root.path().join("data/v1"));
+        assert_eq!(p.v1_config_root(), root.path().join("config/v1"));
+        assert_eq!(
+            p.server_database_path(),
+            root.path().join("data/v1/frank.sqlite3")
+        );
+        assert_eq!(
+            p.server_audit_path(),
+            root.path().join("data/v1/audit.jsonl")
+        );
+        assert_eq!(
+            p.with_frank_bin(root.path().join("bin/frank")).frank_bin,
+            root.path().join("bin/frank")
+        );
+    }
+
     proptest! {
         #[test]
         fn settings_patch_preserves_boolean_invariants(launch in any::<bool>(), tray in any::<bool>()) {

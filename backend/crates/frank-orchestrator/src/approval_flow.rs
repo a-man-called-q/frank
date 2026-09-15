@@ -23,7 +23,10 @@ impl Orchestrator {
         if let Some(pending) = pending {
             let allowed = matches!(
                 (approval.status, decision),
-                (ApprovalStatus::Approved, ApprovalDecision::AllowOnce)
+                (
+                    ApprovalStatus::Approved,
+                    ApprovalDecision::AllowOnce | ApprovalDecision::AllowForTask
+                )
             );
             let session = self.sessions.lock().await.get(&pending.task_id).cloned();
             if let Some(session) = session {
@@ -77,8 +80,10 @@ impl Orchestrator {
         }
         if !matches!(
             (approval.status, decision),
-            (ApprovalStatus::Approved, ApprovalDecision::AllowOnce)
-                | (ApprovalStatus::Denied, ApprovalDecision::DenyOnce)
+            (
+                ApprovalStatus::Approved,
+                ApprovalDecision::AllowOnce | ApprovalDecision::AllowForTask
+            ) | (ApprovalStatus::Denied, ApprovalDecision::DenyOnce)
         ) {
             return;
         }
@@ -193,7 +198,9 @@ impl Orchestrator {
                 }),
             )
             .await?;
+        let grant_allows = task_grant_allows(&snapshot, task_id, agent_id, &workspace_root, &name);
         if let Some(reason) = openrouter_tools::tool_requires_approval(&agent.policy, &name, &input)
+            && !grant_allows
         {
             let denied = reason.starts_with("denied:")
                 || (agent.policy.approval != ApprovalPolicy::Ask
@@ -395,9 +402,7 @@ impl Orchestrator {
                 {
                     self.revoke_agent_capability(&capability).await;
                 }
-                let _ = self
-                    .clear_agent_session(agent_id, AgentStatus::Paused)
-                    .await;
+                let _ = self.clear_agent_session(agent_id, AgentStatus::Idle).await;
             }
             let _ = self.transition_task(task_id, TaskStatus::Blocked).await;
         }
@@ -573,6 +578,7 @@ impl Orchestrator {
             }
             Command::CreateMission { .. }
             | Command::SetMissionStatus { .. }
+            | Command::RetryMissionPlan { .. }
             | Command::PauseMission { .. }
             | Command::ResumeMission { .. }
             | Command::DeliverMission { .. }
@@ -595,6 +601,8 @@ impl Orchestrator {
             }
             Command::RequestApproval(..)
             | Command::DecideApproval { .. }
+            | Command::GrantTaskAccess { .. }
+            | Command::RevokeTaskGrant { .. }
             | Command::AdjustBudget { .. } => self.reduce_approval(snapshot, command, actor).await,
             Command::ProposeMemory { .. } | Command::ReadMemory { .. } => {
                 self.reduce_memory(snapshot, command, actor).await
@@ -644,4 +652,52 @@ impl Orchestrator {
             CommandResult::Accepted,
         ))
     }
+}
+
+fn task_grant_allows(
+    snapshot: &Snapshot,
+    task_id: TaskId,
+    agent_id: AgentId,
+    worktree: &str,
+    tool_name: &str,
+) -> bool {
+    let required_effect = match tool_name {
+        "workspace_apply_patch" => TaskGrantEffect::WorkspaceWrite,
+        "run_check" | "toolchain_check" | "runner_check" => TaskGrantEffect::Check,
+        _ => return false,
+    };
+    let Some(task) = snapshot.tasks.iter().find(|task| task.id == task_id) else {
+        return false;
+    };
+    if task.assigned_agent != Some(agent_id)
+        || !matches!(task.status, TaskStatus::Running | TaskStatus::Review)
+    {
+        return false;
+    }
+    let Ok(worktree) = std::fs::canonicalize(worktree) else {
+        return false;
+    };
+    let Ok(task_worktree) = task
+        .worktree
+        .as_deref()
+        .ok_or(())
+        .and_then(|path| std::fs::canonicalize(path).map_err(|_| ()))
+    else {
+        return false;
+    };
+    if worktree != task_worktree {
+        return false;
+    }
+    let now = epoch_seconds() as u128;
+    snapshot.task_grants.iter().any(|grant| {
+        grant.task_id == task_id
+            && grant.agent_id == agent_id
+            && !grant.revoked
+            && grant
+                .expires_at
+                .parse::<u128>()
+                .is_ok_and(|expires_at| expires_at > now)
+            && grant.effect == required_effect
+            && std::fs::canonicalize(&grant.worktree).is_ok_and(|root| root == task_worktree)
+    })
 }

@@ -54,7 +54,6 @@ class TeamAgentProfile {
     this.roleRevision = 0,
     required this.name,
     required this.role,
-    this.specialization,
     required this.initials,
     required this.status,
     required this.accentColor,
@@ -69,13 +68,9 @@ class TeamAgentProfile {
     this.pendingModelOverride,
     this.pendingModelChange = false,
     this.revision = 0,
-    required this.promptPack,
-    required this.level,
-    required this.traits,
+    this.archived = false,
     required this.capabilities,
     required this.activity,
-    this.avatarPalette,
-    this.avatarSeed,
   });
 
   final String employeeId;
@@ -91,8 +86,6 @@ class TeamAgentProfile {
   final String name;
   final String role;
 
-  /// A persona or focus label, kept separate from the workspace role.
-  final String? specialization;
   final String initials;
   final TeamAgentStatus status;
   final int accentColor;
@@ -107,13 +100,9 @@ class TeamAgentProfile {
   final String? pendingModelOverride;
   final bool pendingModelChange;
   final int revision;
-  final String promptPack;
-  final String level;
-  final List<String> traits;
+  final bool archived;
   final List<TeamCapability> capabilities;
   final List<TeamActivityEvent> activity;
-  final String? avatarPalette;
-  final int? avatarSeed;
 
   TeamAgentProfile copyWith({
     String? model,
@@ -124,6 +113,7 @@ class TeamAgentProfile {
     Object? pendingModelOverride = _unset,
     bool? pendingModelChange,
     int? revision,
+    bool? archived,
   }) {
     final nextOverride = clearModelOverride
         ? null
@@ -137,7 +127,6 @@ class TeamAgentProfile {
       roleRevision: roleRevision,
       name: name,
       role: role,
-      specialization: specialization,
       initials: initials,
       status: status,
       accentColor: accentColor,
@@ -152,13 +141,9 @@ class TeamAgentProfile {
       pendingModelOverride: nextPendingModelOverride,
       pendingModelChange: pendingModelChange ?? this.pendingModelChange,
       revision: revision ?? this.revision,
-      promptPack: promptPack,
-      level: level,
-      traits: traits,
+      archived: archived ?? this.archived,
       capabilities: capabilities,
       activity: activity,
-      avatarPalette: avatarPalette,
-      avatarSeed: avatarSeed,
     );
   }
 
@@ -171,7 +156,10 @@ class TeamAgentProfile {
     if (modelLabel.isEmpty || modelLabel.toLowerCase() == 'unconfigured') {
       return 'Unconfigured';
     }
-    return 'OpenRouter · $modelLabel';
+    final nativeOpenAi = modelLabel.startsWith('openai/');
+    return nativeOpenAi
+        ? 'OpenAI · ${modelLabel.substring('openai/'.length)}'
+        : 'OpenRouter · $modelLabel';
   }
 }
 
@@ -179,32 +167,20 @@ class TeamRoleSummary {
   const TeamRoleSummary({
     required this.id,
     required this.name,
-    this.description = '',
-    this.template = 'generalist',
     this.defaultModel,
-    this.packId,
-    this.packLevel,
     this.instructions = '',
     this.policy = const <String, Object?>{},
     this.budget = const <String, Object?>{},
-    this.avatarPalette = 'default',
-    this.avatarSeed = 1,
     this.revision = 0,
     this.archived = false,
   });
 
   final String id;
   final String name;
-  final String description;
-  final String template;
   final String? defaultModel;
-  final String? packId;
-  final String? packLevel;
   final String instructions;
   final Map<String, Object?> policy;
   final Map<String, Object?> budget;
-  final String avatarPalette;
-  final int avatarSeed;
   final int revision;
   final bool archived;
 }
@@ -256,15 +232,6 @@ class TeamPatchField<T> {
   bool get isCleared => state == TeamPatchFieldState.clear;
 }
 
-class TeamAvatarSpec {
-  const TeamAvatarSpec({required this.palette, required this.seed});
-
-  final String palette;
-  final int seed;
-
-  Map<String, Object?> toJson() => {'palette': palette, 'seed': seed};
-}
-
 void _writeTeamPatchField<T>(
   Map<String, Object?> json,
   String key,
@@ -292,24 +259,18 @@ class TeamAgentPatch extends MapBase<String, Object?> {
     this.displayName = const TeamPatchField<String>.unset(),
     this.model = const TeamPatchField<String>.unset(),
     this.modelOverride = const TeamPatchField<String>.unset(),
-    this.packId = const TeamPatchField<String>.unset(),
-    this.packLevel = const TeamPatchField<String>.unset(),
     this.instructions = const TeamPatchField<String>.unset(),
     this.policy = const TeamPatchField<Map<String, Object?>>.unset(),
     this.budget = const TeamPatchField<Map<String, Object?>>.unset(),
-    this.avatar = const TeamPatchField<TeamAvatarSpec>.unset(),
   });
 
   final TeamPatchField<String> roleId;
   final TeamPatchField<String> displayName;
   final TeamPatchField<String> model;
   final TeamPatchField<String> modelOverride;
-  final TeamPatchField<String> packId;
-  final TeamPatchField<String> packLevel;
   final TeamPatchField<String> instructions;
   final TeamPatchField<Map<String, Object?>> policy;
   final TeamPatchField<Map<String, Object?>> budget;
-  final TeamPatchField<TeamAvatarSpec> avatar;
 
   Map<String, Object?> toJson() {
     final json = <String, Object?>{};
@@ -322,17 +283,9 @@ class TeamAgentPatch extends MapBase<String, Object?> {
       modelOverride,
       clearKey: 'clear_model_override',
     );
-    _writeTeamPatchField(json, 'pack_id', packId);
-    _writeTeamPatchField(json, 'pack_level', packLevel);
     _writeTeamPatchField(json, 'instructions', instructions);
     _writeTeamPatchField(json, 'policy', policy);
     _writeTeamPatchField(json, 'budget', budget);
-    _writeTeamPatchField(
-      json,
-      'avatar',
-      avatar,
-      encode: (value) => value.toJson(),
-    );
     return json;
   }
 
@@ -361,50 +314,30 @@ class TeamAgentPatch extends MapBase<String, Object?> {
 class TeamRolePatch extends MapBase<String, Object?> {
   const TeamRolePatch({
     this.name = const TeamPatchField<String>.unset(),
-    this.description = const TeamPatchField<String>.unset(),
-    this.template = const TeamPatchField<String>.unset(),
     this.defaultModel = const TeamPatchField<String>.unset(),
-    this.packId = const TeamPatchField<String>.unset(),
-    this.packLevel = const TeamPatchField<String>.unset(),
     this.instructions = const TeamPatchField<String>.unset(),
     this.policy = const TeamPatchField<Map<String, Object?>>.unset(),
     this.budget = const TeamPatchField<Map<String, Object?>>.unset(),
-    this.avatar = const TeamPatchField<TeamAvatarSpec>.unset(),
   });
 
   final TeamPatchField<String> name;
-  final TeamPatchField<String> description;
-  final TeamPatchField<String> template;
   final TeamPatchField<String> defaultModel;
-  final TeamPatchField<String> packId;
-  final TeamPatchField<String> packLevel;
   final TeamPatchField<String> instructions;
   final TeamPatchField<Map<String, Object?>> policy;
   final TeamPatchField<Map<String, Object?>> budget;
-  final TeamPatchField<TeamAvatarSpec> avatar;
 
   Map<String, Object?> toJson() {
     final json = <String, Object?>{};
     _writeTeamPatchField(json, 'name', name);
-    _writeTeamPatchField(json, 'description', description);
-    _writeTeamPatchField(json, 'template', template);
     _writeTeamPatchField(
       json,
       'default_model',
       defaultModel,
       clearKey: 'clear_model',
     );
-    _writeTeamPatchField(json, 'pack_id', packId);
-    _writeTeamPatchField(json, 'pack_level', packLevel);
     _writeTeamPatchField(json, 'instructions', instructions);
     _writeTeamPatchField(json, 'policy', policy);
     _writeTeamPatchField(json, 'budget', budget);
-    _writeTeamPatchField(
-      json,
-      'avatar',
-      avatar,
-      encode: (value) => value.toJson(),
-    );
     return json;
   }
 
@@ -432,11 +365,7 @@ class TeamRolePatch extends MapBase<String, Object?> {
 class TeamRoleDraft {
   const TeamRoleDraft({
     required this.name,
-    this.description = '',
-    this.template = 'generalist',
     this.defaultModel,
-    this.packId = 'caveman',
-    this.packLevel = 'full',
     this.instructions = '',
     this.policy = const <String, Object?>{
       'filesystem': 'workspace-write',
@@ -450,33 +379,20 @@ class TeamRoleDraft {
       'measured_tokens': null,
       'cost_micros': null,
     },
-    this.avatarPalette = 'default',
-    this.avatarSeed = 1,
   });
 
   final String name;
-  final String description;
-  final String template;
   final String? defaultModel;
-  final String? packId;
-  final String? packLevel;
   final String instructions;
   final Map<String, Object?> policy;
   final Map<String, Object?> budget;
-  final String avatarPalette;
-  final int avatarSeed;
 
   Map<String, Object?> toJson() => {
     'name': name,
-    'description': description,
-    'template': template,
     'default_model': defaultModel,
-    'pack_id': packId,
-    'pack_level': packLevel,
     'instructions': instructions,
     'policy': policy,
     'budget': budget,
-    'avatar': {'palette': avatarPalette, 'seed': avatarSeed},
   };
 }
 

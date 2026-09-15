@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use frank_protocol::FilesystemPolicy;
 use serde_json::{Value, json};
 
-use super::{ToolExecutionContext, required_string};
+use super::{ToolExecutionContext, required_string, required_text};
 use crate::helpers::canonicalize_allow_missing;
 
 pub(crate) const WORKSPACE_READ_CAP: usize = 256 * 1024;
@@ -27,7 +27,17 @@ pub(crate) async fn dispatch(
             list_workspace(&directory)?
         }
         "workspace_read" => {
-            let path = required_string(input, "path")?;
+            // Older model sessions used the catalog's former `id` field. Keep
+            // that alias readable while advertising the canonical `path` key.
+            let path = input
+                .get("path")
+                .and_then(Value::as_str)
+                .or_else(|| input.get("id").and_then(Value::as_str))
+                .ok_or_else(|| "path is required".to_string())?;
+            if path.trim().is_empty() || path.chars().any(char::is_control) {
+                return Err("path is empty or invalid".into());
+            }
+            let path = path.to_owned();
             let file = confined_path(root, &path, false)?;
             let metadata = std::fs::symlink_metadata(&file)
                 .map_err(|error| format!("cannot inspect file: {error}"))?;
@@ -57,10 +67,13 @@ pub(crate) async fn dispatch(
             let path = required_string(input, "path")?;
             let file = confined_path(root, &path, true)?;
             let content = if let Some(content) = input.get("content").and_then(Value::as_str) {
+                if content.contains('\0') {
+                    return Err("content is empty or invalid".into());
+                }
                 content.to_owned()
             } else {
-                let old = required_string(input, "old")?;
-                let new = required_string(input, "new")?;
+                let old = required_text(input, "old")?;
+                let new = required_text(input, "new")?;
                 let existing = frank_safeio::read_text_capped(&file, WORKSPACE_READ_CAP)
                     .map_err(|error| error.to_string())?;
                 if !existing.contains(&old) {

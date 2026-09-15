@@ -17,6 +17,7 @@ class FrankApp extends StatelessWidget {
     this.sidebarEffectBuilder,
     this.showLogin = true,
     this.withToaster = true,
+    this.disableAnimations = false,
     super.key,
   });
 
@@ -27,6 +28,9 @@ class FrankApp extends StatelessWidget {
   /// Allows widget tests that exercise transient overlays to isolate their
   /// semantics tree; production always leaves the ForUI toaster enabled.
   final bool withToaster;
+  /// Lets native smoke tests and reduced-motion hosts avoid waiting for shell
+  /// transitions while the retained GPU scene is being exercised.
+  final bool disableAnimations;
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +47,7 @@ class FrankApp extends StatelessWidget {
       supportedLocales: FLocalizations.supportedLocales,
       localizationsDelegates: FLocalizations.localizationsDelegates,
       builder: (context, child) {
-        return FTheme(
+        final themed = FTheme(
           data: buildFrankTheme(),
           platform: FPlatformVariant.macOS,
           child: withToaster
@@ -53,6 +57,13 @@ class FrankApp extends StatelessWidget {
                   ),
                 )
               : FTooltipGroup(child: child ?? const SizedBox.shrink()),
+        );
+        if (!disableAnimations) return themed;
+        final media =
+            MediaQuery.maybeOf(context) ?? const MediaQueryData();
+        return MediaQuery(
+          data: media.copyWith(disableAnimations: true),
+          child: themed,
         );
       },
       home: Builder(

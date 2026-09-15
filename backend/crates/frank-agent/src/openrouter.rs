@@ -28,7 +28,7 @@ const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[async_trait]
 pub trait CredentialResolver: Send + Sync {
-    async fn openrouter_api_key(&self) -> Result<Option<String>>;
+    async fn api_key(&self) -> Result<Option<String>>;
 
     fn credential_source(&self) -> Option<String>;
 }
@@ -38,7 +38,7 @@ pub struct EnvironmentCredentialResolver;
 
 #[async_trait]
 impl CredentialResolver for EnvironmentCredentialResolver {
-    async fn openrouter_api_key(&self) -> Result<Option<String>> {
+    async fn api_key(&self) -> Result<Option<String>> {
         Ok(std::env::var("OPENROUTER_API_KEY")
             .ok()
             .filter(|value| !value.trim().is_empty()))
@@ -52,11 +52,34 @@ impl CredentialResolver for EnvironmentCredentialResolver {
     }
 }
 
+/// Environment-backed resolver for the native OpenAI adapter.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EnvironmentOpenAiCredentialResolver;
+
+#[async_trait]
+impl CredentialResolver for EnvironmentOpenAiCredentialResolver {
+    async fn api_key(&self) -> Result<Option<String>> {
+        Ok(std::env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty()))
+    }
+
+    fn credential_source(&self) -> Option<String> {
+        std::env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|_| "environment".to_string())
+    }
+}
+
 #[derive(Clone)]
 pub struct OpenRouterAdapter {
     pub base_url: String,
     pub client: Client,
     pub credentials: Arc<dyn CredentialResolver>,
+    pub provider_name: String,
+    catalog_requires_tools: bool,
+    model_namespace: Option<String>,
     catalog: Arc<RwLock<Option<CatalogCache>>>,
 }
 
@@ -87,6 +110,9 @@ impl OpenRouterAdapter {
             base_url: DEFAULT_BASE_URL.to_string(),
             client,
             credentials,
+            provider_name: "OpenRouter".to_string(),
+            catalog_requires_tools: true,
+            model_namespace: None,
             catalog: Arc::new(RwLock::new(None)),
         })
     }
@@ -96,30 +122,53 @@ impl OpenRouterAdapter {
         self
     }
 
+    pub fn with_provider_name(mut self, provider_name: impl Into<String>) -> Self {
+        self.provider_name = provider_name.into();
+        self
+    }
+
+    pub fn with_catalog_requires_tools(mut self, required: bool) -> Self {
+        self.catalog_requires_tools = required;
+        self
+    }
+
+    pub fn with_model_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.model_namespace = Some(namespace.into());
+        self
+    }
+
     async fn key(&self) -> Result<String> {
         self.credentials
-            .openrouter_api_key()
+            .api_key()
             .await?
             .filter(|key| !key.trim().is_empty())
             .ok_or_else(|| {
-                ProviderError::Unavailable("OpenRouter API key is not configured".into())
+                ProviderError::Unavailable(format!(
+                    "{} API key is not configured",
+                    self.provider_name
+                ))
             })
     }
 
     pub async fn connection(&self) -> OpenRouterConnectionView {
-        let key = self.credentials.openrouter_api_key().await.ok().flatten();
+        let key = self.credentials.api_key().await.ok().flatten();
         let Some(key) = key.filter(|key| !key.trim().is_empty()) else {
             return OpenRouterConnectionView {
                 configured: false,
                 credential_source: self.credentials.credential_source(),
                 checked_at: Some(frank_protocol::timestamp_now()),
                 catalog_refreshed_at: self.catalog_refreshed_at().await,
-                diagnostic: Some("OpenRouter API key is not configured".into()),
+                diagnostic: Some(format!("{} API key is not configured", self.provider_name)),
             };
+        };
+        let models_url = if self.catalog_requires_tools {
+            format!("{}/models?limit=1", self.base_url)
+        } else {
+            format!("{}/models", self.base_url)
         };
         let response = self
             .client
-            .get(format!("{}/models?limit=1", self.base_url))
+            .get(models_url)
             .timeout(CONTROL_REQUEST_TIMEOUT)
             .bearer_auth(&key)
             .send()
@@ -127,7 +176,8 @@ impl OpenRouterAdapter {
         let diagnostic = match response {
             Ok(response) if response.status().is_success() => None,
             Ok(response) => Some(
-                http_error(
+                http_error_for(
+                    &self.provider_name,
                     response.status(),
                     response.text().await.unwrap_or_default(),
                     Some(&key),
@@ -164,12 +214,17 @@ impl OpenRouterAdapter {
             ));
         }
         let key = self.key().await?;
-        let response = self
-            .client
-            .get(format!(
+        let models_url = if self.catalog_requires_tools {
+            format!(
                 "{}/models?output_modalities=text&supported_parameters=tools",
                 self.base_url
-            ))
+            )
+        } else {
+            format!("{}/models", self.base_url)
+        };
+        let response = self
+            .client
+            .get(models_url)
             .timeout(CONTROL_REQUEST_TIMEOUT)
             .bearer_auth(&key)
             .send()
@@ -188,7 +243,8 @@ impl OpenRouterAdapter {
         };
         let status = response.status();
         if !status.is_success() {
-            let error = http_error(
+            let error = http_error_for(
+                &self.provider_name,
                 status,
                 response.text().await.unwrap_or_default(),
                 Some(&key),
@@ -218,21 +274,23 @@ impl OpenRouterAdapter {
         let models = match payload.get("data").and_then(Value::as_array) {
             Some(data) => data
                 .iter()
-                .filter_map(model_descriptor)
+                .filter_map(|value| model_descriptor(value, self.model_namespace.as_deref()))
                 .filter(|model| {
-                    model
-                        .supported_parameters
-                        .iter()
-                        .any(|parameter| parameter == "tools")
+                    model_is_eligible(
+                        model,
+                        self.catalog_requires_tools,
+                        self.model_namespace.as_deref(),
+                    )
                 })
                 .collect::<Vec<_>>(),
             None => {
                 if let Some(cache) = self.catalog.read().await.as_ref() {
                     return Ok((cache.models.clone(), Some(cache.refreshed_at.clone()), true));
                 }
-                return Err(ProviderError::Malformed(
-                    "OpenRouter model response has no data".into(),
-                ));
+                return Err(ProviderError::Malformed(format!(
+                    "{} model response has no data",
+                    self.provider_name
+                )));
             }
         };
         let refreshed_at = frank_protocol::timestamp_now();
@@ -256,30 +314,37 @@ impl OpenRouterAdapter {
 #[async_trait]
 impl RuntimeAdapter for OpenRouterAdapter {
     async fn probe(&self) -> RuntimeProbe {
-        let configured = self.credentials.openrouter_api_key().await.ok().flatten();
+        let configured = self.credentials.api_key().await.ok().flatten();
         let Some(key) = configured.filter(|key| !key.trim().is_empty()) else {
             return RuntimeProbe {
+                provider: self.provider_name.clone(),
                 capability: OpenRouterCapability {
                     configured: false,
                     version: None,
                     logged_in: false,
                     available: false,
                     capabilities: Vec::new(),
-                    diagnostic: Some("OpenRouter API key is not configured".into()),
+                    diagnostic: Some(format!("{} API key is not configured", self.provider_name)),
                     credential_source: self.credentials.credential_source(),
                     catalog_refreshed_at: self.catalog_refreshed_at().await,
                 },
             };
         };
+        let models_url = if self.catalog_requires_tools {
+            format!("{}/models?limit=1", self.base_url)
+        } else {
+            format!("{}/models", self.base_url)
+        };
         let response = self
             .client
-            .get(format!("{}/models?limit=1", self.base_url))
+            .get(models_url)
             .timeout(CONTROL_REQUEST_TIMEOUT)
             .bearer_auth(&key)
             .send()
             .await;
         match response {
             Ok(response) if response.status().is_success() => RuntimeProbe {
+                provider: self.provider_name.clone(),
                 capability: OpenRouterCapability {
                     configured: true,
                     version: None,
@@ -298,6 +363,7 @@ impl RuntimeAdapter for OpenRouterAdapter {
                 },
             },
             Ok(response) => RuntimeProbe {
+                provider: self.provider_name.clone(),
                 capability: OpenRouterCapability {
                     configured: true,
                     version: None,
@@ -305,7 +371,8 @@ impl RuntimeAdapter for OpenRouterAdapter {
                     available: false,
                     capabilities: Vec::new(),
                     diagnostic: Some(
-                        http_error(
+                        http_error_for(
+                            &self.provider_name,
                             response.status(),
                             response.text().await.unwrap_or_default(),
                             Some(&key),
@@ -317,6 +384,7 @@ impl RuntimeAdapter for OpenRouterAdapter {
                 },
             },
             Err(error) => RuntimeProbe {
+                provider: self.provider_name.clone(),
                 capability: OpenRouterCapability {
                     configured: true,
                     version: None,
@@ -335,27 +403,44 @@ impl RuntimeAdapter for OpenRouterAdapter {
         let key = self.key().await?;
         let requested_model = request.model.as_deref().filter(|model| !model.is_empty());
         if requested_model.is_none() {
-            return Err(ProviderError::Unavailable(
-                "an OpenRouter model must be selected before starting an agent".into(),
-            ));
+            return Err(ProviderError::Unavailable(format!(
+                "a {} model must be selected before starting an agent",
+                self.provider_name
+            )));
         }
         let (models, _, _) = self.models_with_status(false).await?;
         if !models.iter().any(|model| {
             model.canonical_slug.as_deref().unwrap_or(model.id.as_str()) == requested_model.unwrap()
         }) {
             return Err(ProviderError::Unavailable(format!(
-                "OpenRouter model '{}' is not in the current tool-capable catalog",
+                "{} model '{}' is not in the current tool-capable catalog",
+                self.provider_name,
                 requested_model.unwrap()
             )));
         }
+        let provider_model = self
+            .model_namespace
+            .as_deref()
+            .and_then(|namespace| {
+                requested_model
+                    .unwrap()
+                    .strip_prefix(&format!("{namespace}/"))
+            })
+            .unwrap_or(requested_model.unwrap())
+            .to_string();
+        let mut request = request;
+        request.model = Some(provider_model);
         // Chat Completions has no provider-side resumable thread. The UUID is
         // Frank's durable transcript key; reuse it across daemon restarts and
         // rebuild the request from provider_session_items instead of inventing
         // a second conversation.
-        let session_id = request
-            .resume_session_id
-            .clone()
-            .unwrap_or_else(|| format!("openrouter-{}", uuid::Uuid::new_v4()));
+        let session_id = request.resume_session_id.clone().unwrap_or_else(|| {
+            format!(
+                "{}-{}",
+                self.provider_name.to_ascii_lowercase(),
+                uuid::Uuid::new_v4()
+            )
+        });
         let (command_tx, command_rx) = mpsc::channel(32);
         let (events, _) = tokio::sync::broadcast::channel(256);
         let provider_session_id = Arc::new(tokio::sync::Mutex::new(Some(session_id.clone())));
@@ -367,8 +452,18 @@ impl RuntimeAdapter for OpenRouterAdapter {
         let base_url = self.base_url.clone();
         let output_events = events.clone();
         let session_request = request.clone();
+        let provider_name = self.provider_name.clone();
         tokio::spawn(async move {
-            run_session(client, base_url, key, request, command_rx, output_events).await;
+            run_session(
+                client,
+                base_url,
+                key,
+                request,
+                command_rx,
+                output_events,
+                provider_name,
+            )
+            .await;
         });
         Ok(RuntimeSession::new_openrouter(
             session_id,
@@ -391,6 +486,7 @@ async fn run_session(
     request: StartRequest,
     mut commands: mpsc::Receiver<OpenRouterCommand>,
     events: tokio::sync::broadcast::Sender<RuntimeEvent>,
+    provider_name: String,
 ) {
     let mut messages = vec![json!({
         "role": "system",
@@ -415,7 +511,9 @@ async fn run_session(
             OpenRouterCommand::Message(message) => {
                 if !pending_tool_calls.is_empty() {
                     let _ = events.send(RuntimeEvent::Error {
-                        message: "OpenRouter is waiting for tool results before accepting another message".into(),
+                        message: format!(
+                            "{provider_name} is waiting for tool results before accepting another message"
+                        ),
                     });
                     continue;
                 }
@@ -431,6 +529,7 @@ async fn run_session(
                     &mut messages,
                     &tools,
                     &events,
+                    &provider_name,
                 )
                 .await
                 {
@@ -452,7 +551,7 @@ async fn run_session(
                 if !pending_tool_calls.remove(&call_id) {
                     let _ = events.send(RuntimeEvent::Error {
                         message: format!(
-                            "OpenRouter received an unexpected tool result for {call_id}"
+                            "{provider_name} received an unexpected tool result for {call_id}"
                         ),
                     });
                     continue;
@@ -474,6 +573,7 @@ async fn run_session(
                     &mut messages,
                     &tools,
                     &events,
+                    &provider_name,
                 )
                 .await
                 {
@@ -513,6 +613,7 @@ struct TurnFailure {
     retryable: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn complete_turn(
     client: &Client,
     base_url: &str,
@@ -521,9 +622,21 @@ async fn complete_turn(
     messages: &mut Vec<Value>,
     tools: &[Value],
     events: &tokio::sync::broadcast::Sender<RuntimeEvent>,
+    provider_name: &str,
 ) -> Result<()> {
     for attempt in 0..MAX_TURN_ATTEMPTS {
-        match complete_turn_once(client, base_url, key, model, messages, tools, events).await {
+        match complete_turn_once(
+            client,
+            base_url,
+            key,
+            model,
+            messages,
+            tools,
+            events,
+            provider_name,
+        )
+        .await
+        {
             Ok(()) => return Ok(()),
             Err(failure) if failure.retryable && attempt + 1 < MAX_TURN_ATTEMPTS => {
                 let delay = Duration::from_millis(250 * 2_u64.saturating_pow(attempt as u32));
@@ -532,11 +645,12 @@ async fn complete_turn(
             Err(failure) => return Err(failure.error),
         }
     }
-    Err(ProviderError::Process(
-        "OpenRouter request exhausted its retry budget".into(),
-    ))
+    Err(ProviderError::Process(format!(
+        "{provider_name} request exhausted its retry budget"
+    )))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn complete_turn_once(
     client: &Client,
     base_url: &str,
@@ -545,14 +659,22 @@ async fn complete_turn_once(
     messages: &mut Vec<Value>,
     tools: &[Value],
     events: &tokio::sync::broadcast::Sender<RuntimeEvent>,
+    provider_name: &str,
 ) -> std::result::Result<(), TurnFailure> {
-    let body = json!({
+    let mut body = json!({
         "model": model,
         "messages": messages,
         "stream": true,
         "stream_options": {"include_usage": true},
         "tools": tools,
     });
+    // OpenAI's reasoning models reject function tools at their default
+    // reasoning effort on the Chat Completions endpoint.  Keep the native
+    // OpenAI Luna path on the same stable streaming/tool protocol as the
+    // OpenRouter adapter, while explicitly selecting the supported effort.
+    if provider_name == "OpenAI" {
+        body["reasoning_effort"] = json!("none");
+    }
     let response = client
         .post(format!("{base_url}/chat/completions"))
         .bearer_auth(key)
@@ -569,7 +691,12 @@ async fn complete_turn_once(
     if !status.is_success() {
         return Err(TurnFailure {
             retryable: status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error(),
-            error: http_error(status, response.text().await.unwrap_or_default(), Some(key)),
+            error: http_error_for(
+                provider_name,
+                status,
+                response.text().await.unwrap_or_default(),
+                Some(key),
+            ),
         });
     }
     let mut stream = response.bytes_stream();
@@ -597,13 +724,15 @@ async fn complete_turn_once(
             buffer.extend_from_slice(&chunk);
             while let Some(index) = buffer.iter().position(|byte| *byte == b'\n') {
                 if index.saturating_add(1) > MAX_SSE_FRAME_BYTES {
-                    return Err(ProviderError::Malformed(
-                        "OpenRouter SSE frame exceeds the configured size cap".into(),
-                    ));
+                    return Err(ProviderError::Malformed(format!(
+                        "{provider_name} SSE frame exceeds the configured size cap"
+                    )));
                 }
                 let line = buffer.drain(..=index).collect::<Vec<_>>();
                 let line = std::str::from_utf8(&line)
-                    .map_err(|_| ProviderError::Malformed("OpenRouter SSE is not UTF-8".into()))?
+                    .map_err(|_| {
+                        ProviderError::Malformed(format!("{provider_name} SSE is not UTF-8"))
+                    })?
                     .trim();
                 if let Some(data) = line.strip_prefix("data:") {
                     let data = data.trim();
@@ -619,7 +748,9 @@ async fn complete_turn_once(
                             frame
                                 .get("error")
                                 .map(|value| sanitize_error(&value.to_string(), Some(key)))
-                                .unwrap_or_else(|| "OpenRouter returned a stream error".into()),
+                                .unwrap_or_else(|| {
+                                    format!("{provider_name} returned a stream error")
+                                }),
                         ));
                     }
                     if frame
@@ -642,7 +773,14 @@ async fn complete_turn_once(
                     {
                         received_output = true;
                     }
-                    parse_chunk(&frame, &mut text, &mut tool_calls, &mut usage, events)?;
+                    parse_chunk(
+                        &frame,
+                        &mut text,
+                        &mut tool_calls,
+                        &mut usage,
+                        events,
+                        provider_name,
+                    )?;
                 }
             }
             // Drain complete SSE lines before applying the cap. One network
@@ -650,15 +788,15 @@ async fn complete_turn_once(
             // incomplete frame retained between chunks, not to the aggregate
             // size of already-consumed lines.
             if buffer.len() > MAX_SSE_FRAME_BYTES {
-                return Err(ProviderError::Malformed(
-                    "OpenRouter SSE frame exceeds the configured size cap".into(),
-                ));
+                return Err(ProviderError::Malformed(format!(
+                    "{provider_name} SSE frame exceeds the configured size cap"
+                )));
             }
         }
         if !buffer.is_empty() {
-            return Err(ProviderError::Malformed(
-                "OpenRouter stream ended mid-frame".into(),
-            ));
+            return Err(ProviderError::Malformed(format!(
+                "{provider_name} stream ended mid-frame"
+            )));
         }
         let mut runtime_calls = Vec::new();
         let mut serialized_calls = Vec::new();
@@ -667,9 +805,9 @@ async fn complete_turn_once(
             calls.sort_by_key(|(index, _)| *index);
             for (_, call) in calls {
                 if call.id.trim().is_empty() || call.name.trim().is_empty() {
-                    return Err(ProviderError::Malformed(
-                        "OpenRouter tool call is missing an id or function name".into(),
-                    ));
+                    return Err(ProviderError::Malformed(format!(
+                        "{provider_name} tool call is missing an id or function name"
+                    )));
                 }
                 let input = serde_json::from_str::<Value>(&call.arguments)
                     .unwrap_or_else(|_| json!({"raw_arguments": call.arguments}));
@@ -685,6 +823,7 @@ async fn complete_turn_once(
                 }));
             }
         }
+        let mut turn_id = None;
         if !text.is_empty() || !runtime_calls.is_empty() {
             let mut assistant = json!({
                 "role": "assistant",
@@ -696,26 +835,51 @@ async fn complete_turn_once(
             if serde_json::to_vec(&assistant)
                 .is_ok_and(|value| value.len() > frank_protocol::MAX_MESSAGE_BODY_BYTES)
             {
-                return Err(ProviderError::Malformed(
-                    "OpenRouter assistant turn exceeds the configured size cap".into(),
-                ));
+                return Err(ProviderError::Malformed(format!(
+                    "{provider_name} assistant turn exceeds the configured size cap"
+                )));
             }
             messages.push(assistant);
+            let current_turn_id = uuid::Uuid::new_v4().to_string();
+            turn_id = Some(current_turn_id.clone());
             let _ = events.send(RuntimeEvent::AssistantMessage {
-                turn_id: uuid::Uuid::new_v4().to_string(),
+                turn_id: current_turn_id,
                 content: text.clone(),
                 tool_calls: runtime_calls.clone(),
             });
-            for call in runtime_calls {
+            for call in &runtime_calls {
                 let _ = events.send(RuntimeEvent::ToolCall {
-                    call_id: call.call_id,
-                    name: call.name,
-                    input: call.input,
+                    call_id: call.call_id.clone(),
+                    name: call.name.clone(),
+                    input: call.input.clone(),
                 });
             }
         }
+        if runtime_calls.is_empty() && turn_id.is_none() {
+            // A successful provider response may contain no visible text
+            // (for example a filtered/empty answer) while still being a
+            // complete turn. Emit the same terminal boundary so the agent
+            // cannot remain Working forever waiting for a token that never
+            // arrives.
+            let current_turn_id = uuid::Uuid::new_v4().to_string();
+            turn_id = Some(current_turn_id.clone());
+            let _ = events.send(RuntimeEvent::AssistantMessage {
+                turn_id: current_turn_id,
+                content: String::new(),
+                tool_calls: Vec::new(),
+            });
+        }
         if let Some(usage) = usage.clone() {
             let _ = events.send(RuntimeEvent::Usage(usage));
+        }
+        // TurnCompleted causes the orchestrator to finalize and remove the
+        // live session. Emit usage first so the final turn is still recorded
+        // and budgeted instead of being treated as a stale post-finalization
+        // frame.
+        if runtime_calls.is_empty()
+            && let Some(turn_id) = turn_id
+        {
+            let _ = events.send(RuntimeEvent::TurnCompleted { turn_id });
         }
         Ok(())
     }
@@ -754,6 +918,7 @@ fn parse_chunk(
     tool_calls: &mut HashMap<usize, ToolAccumulator>,
     usage: &mut Option<UsageTelemetry>,
     events: &tokio::sync::broadcast::Sender<RuntimeEvent>,
+    provider_name: &str,
 ) -> Result<()> {
     if let Some(value) = frame.get("usage") {
         let input = value.get("prompt_tokens").and_then(Value::as_u64);
@@ -787,9 +952,9 @@ fn parse_chunk(
     let delta = choice.get("delta").cloned().unwrap_or(Value::Null);
     if let Some(value) = delta.get("content").and_then(Value::as_str) {
         if text.len().saturating_add(value.len()) > frank_protocol::MAX_MESSAGE_BODY_BYTES {
-            return Err(ProviderError::Malformed(
-                "OpenRouter assistant content exceeds the configured size cap".into(),
-            ));
+            return Err(ProviderError::Malformed(format!(
+                "{provider_name} assistant content exceeds the configured size cap"
+            )));
         }
         text.push_str(value);
         let _ = events.send(RuntimeEvent::Text { text: value.into() });
@@ -803,9 +968,9 @@ fn parse_chunk(
             let accumulator = tool_calls.entry(index).or_default();
             if let Some(id) = call.get("id").and_then(Value::as_str) {
                 if id.len() > frank_protocol::MAX_MESSAGE_BODY_BYTES {
-                    return Err(ProviderError::Malformed(
-                        "OpenRouter tool call id exceeds the configured size cap".into(),
-                    ));
+                    return Err(ProviderError::Malformed(format!(
+                        "{provider_name} tool call id exceeds the configured size cap"
+                    )));
                 }
                 accumulator.id = id.to_string();
             }
@@ -814,9 +979,9 @@ fn parse_chunk(
                     if accumulator.name.len().saturating_add(name.len())
                         > frank_protocol::MAX_MESSAGE_BODY_BYTES
                     {
-                        return Err(ProviderError::Malformed(
-                            "OpenRouter tool name exceeds the configured size cap".into(),
-                        ));
+                        return Err(ProviderError::Malformed(format!(
+                            "{provider_name} tool name exceeds the configured size cap"
+                        )));
                     }
                     accumulator.name.push_str(name);
                 }
@@ -824,9 +989,9 @@ fn parse_chunk(
                     if accumulator.arguments.len().saturating_add(arguments.len())
                         > frank_protocol::MAX_MESSAGE_BODY_BYTES
                     {
-                        return Err(ProviderError::Malformed(
-                            "OpenRouter tool arguments exceed the configured size cap".into(),
-                        ));
+                        return Err(ProviderError::Malformed(format!(
+                            "{provider_name} tool arguments exceed the configured size cap"
+                        )));
                     }
                     accumulator.arguments.push_str(arguments);
                 }
@@ -840,15 +1005,44 @@ pub fn tool_definitions() -> Vec<Value> {
     frank_tool_catalog::openrouter_definitions()
 }
 
-fn model_descriptor(value: &Value) -> Option<ModelDescriptor> {
+fn model_is_eligible(
+    model: &ModelDescriptor,
+    catalog_requires_tools: bool,
+    namespace: Option<&str>,
+) -> bool {
+    if catalog_requires_tools {
+        return model
+            .supported_parameters
+            .iter()
+            .any(|parameter| parameter == "tools");
+    }
+    if namespace == Some("openai") {
+        // OpenAI's `/models` response does not expose `supported_parameters`.
+        // Keep only known chat/tool families so embeddings, image, and audio
+        // models do not appear as runnable worker choices.
+        return openai_model_supports_tools(&model.id);
+    }
+    true
+}
+
+fn model_descriptor(value: &Value, namespace: Option<&str>) -> Option<ModelDescriptor> {
     let id = value.get("id")?.as_str()?.to_string();
-    let canonical_slug = value
+    let provider_canonical_slug = value
         .get("canonical_slug")
         .and_then(Value::as_str)
-        .unwrap_or(id.as_str())
-        .to_string();
+        .map(str::to_string);
+    // OpenRouter currently gives paid and `:free` variants the same dated
+    // canonical slug.  Keeping that slug would collapse the two entries in
+    // the desktop picker and could silently send a Free selection through a
+    // paid route.  The provider id is the only unambiguous invocation key for
+    // free variants, so preserve it as Frank's canonical selection value.
+    let canonical_slug = if id.ends_with(":free") {
+        id.clone()
+    } else {
+        provider_canonical_slug.unwrap_or_else(|| id.clone())
+    };
     let pricing = value.get("pricing");
-    let supported_parameters = value
+    let mut supported_parameters: Vec<String> = value
         .get("supported_parameters")
         .and_then(Value::as_array)
         .map(|values| {
@@ -859,6 +1053,20 @@ fn model_descriptor(value: &Value) -> Option<ModelDescriptor> {
                 .collect()
         })
         .unwrap_or_default();
+    if namespace == Some("openai")
+        && openai_model_supports_tools(&id)
+        && !supported_parameters
+            .iter()
+            .any(|parameter| parameter == "tools")
+    {
+        supported_parameters.push("tools".to_string());
+    }
+    let canonical_slug = match namespace {
+        Some(namespace) if !canonical_slug.starts_with(&format!("{namespace}/")) => {
+            format!("{namespace}/{canonical_slug}")
+        }
+        _ => canonical_slug,
+    };
     Some(ModelDescriptor {
         id,
         name: value
@@ -885,7 +1093,22 @@ fn model_descriptor(value: &Value) -> Option<ModelDescriptor> {
     })
 }
 
-fn http_error(status: StatusCode, body: String, secret: Option<&str>) -> ProviderError {
+fn openai_model_supports_tools(id: &str) -> bool {
+    let normalized = id.to_ascii_lowercase();
+    normalized.starts_with("gpt-4")
+        || normalized.starts_with("gpt-5")
+        || normalized.starts_with("o1")
+        || normalized.starts_with("o3")
+        || normalized.starts_with("o4")
+        || normalized.starts_with("chatgpt-")
+}
+
+fn http_error_for(
+    provider: &str,
+    status: StatusCode,
+    body: String,
+    secret: Option<&str>,
+) -> ProviderError {
     let detail = body
         .chars()
         .take(512)
@@ -897,9 +1120,9 @@ fn http_error(status: StatusCode, body: String, secret: Option<&str>) -> Provide
             detail.replace(secret, "[redacted]")
         });
     ProviderError::Process(if detail.trim().is_empty() {
-        format!("OpenRouter returned HTTP {status}")
+        format!("{provider} returned HTTP {status}")
     } else {
-        format!("OpenRouter returned HTTP {status}: {detail}")
+        format!("{provider} returned HTTP {status}: {detail}")
     })
 }
 
@@ -961,7 +1184,7 @@ mod tests {
 
     #[async_trait]
     impl CredentialResolver for FixedCredentials {
-        async fn openrouter_api_key(&self) -> Result<Option<String>> {
+        async fn api_key(&self) -> Result<Option<String>> {
             Ok(Some(TEST_KEY.into()))
         }
 
@@ -1185,6 +1408,7 @@ mod tests {
             &mut messages,
             &tool_definitions(),
             &events,
+            "OpenRouter",
         )
         .await;
         let mut seen = Vec::new();
@@ -1302,6 +1526,7 @@ mod tests {
             server_certificate_fingerprint: None,
             session_capability: None,
             initial_transcript: Vec::new(),
+            reasoning_effort: Some(frank_protocol::ReasoningEffort::Max),
         };
         let session = adapter(&server).start(request).await.unwrap();
         let mut events = session.events().await.unwrap();
@@ -1447,6 +1672,7 @@ mod tests {
             &mut messages,
             &tool_definitions(),
             &events,
+            "OpenRouter",
         )
         .await;
         assert!(result.is_err());
@@ -1499,8 +1725,52 @@ mod tests {
         }));
         let descriptor = model_descriptor(
             &json!({"id": "provider/name", "name": "Name", "supported_parameters": ["tools"]}),
+            None,
         )
         .unwrap();
         assert_eq!(descriptor.canonical_slug.as_deref(), Some("provider/name"));
+
+        let free_descriptor = model_descriptor(
+            &json!({
+                "id": "provider/name:free",
+                "canonical_slug": "provider/name-20260914",
+                "name": "Name (free)",
+                "pricing": {"prompt": "0", "completion": "0"},
+                "supported_parameters": ["tools"],
+            }),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            free_descriptor.canonical_slug.as_deref(),
+            Some("provider/name:free")
+        );
+
+        let openai_descriptor = model_descriptor(
+            &json!({"id": "gpt-4o-mini", "name": "GPT-4o mini"}),
+            Some("openai"),
+        )
+        .unwrap();
+        assert_eq!(
+            openai_descriptor.canonical_slug.as_deref(),
+            Some("openai/gpt-4o-mini")
+        );
+        assert!(
+            openai_descriptor
+                .supported_parameters
+                .iter()
+                .any(|parameter| parameter == "tools")
+        );
+        assert!(model_is_eligible(&openai_descriptor, false, Some("openai")));
+        let embedding_descriptor = model_descriptor(
+            &json!({"id": "text-embedding-3-small", "name": "Embedding"}),
+            Some("openai"),
+        )
+        .unwrap();
+        assert!(!model_is_eligible(
+            &embedding_descriptor,
+            false,
+            Some("openai")
+        ));
     }
 }

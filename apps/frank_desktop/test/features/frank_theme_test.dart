@@ -8,7 +8,7 @@ void main() {
 
     expect(theme.colors.background, FrankColors.canvas);
     expect(theme.colors.foreground, FrankColors.ink);
-    expect(theme.colors.primary, FrankColors.primaryAction);
+    expect(theme.colors.primary, FrankColors.brandPrimary);
     expect(theme.colors.primaryForeground, FrankColors.canvas);
     expect(theme.colors.secondary, FrankColors.panelRaised);
     expect(theme.colors.mutedForeground, FrankColors.muted);

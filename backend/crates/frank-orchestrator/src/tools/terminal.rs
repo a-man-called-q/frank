@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command as AsyncCommand;
 
-use super::{ToolExecutionContext, required_string};
+use super::{ToolExecutionContext, required_text};
 use crate::{safe_terminal_environment, validate_terminal_command};
 
 const SHELL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -19,7 +19,7 @@ pub(crate) async fn dispatch(
     name: &str,
     input: &Value,
 ) -> Result<Option<Value>, String> {
-    let command = required_string(input, "command")?;
+    let command = required_text(input, "command")?;
     let result = match name {
         "shell_exec" => execute_shell(&command, context.workspace_root).await?,
         "terminal_execute" => {

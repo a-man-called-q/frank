@@ -23,6 +23,11 @@ pub struct MissionView {
     pub supervisor_session_id: Option<String>,
     pub branch: String,
     pub budget: Budget,
+    /// A sanitized, user-facing diagnostic from the last failed planning
+    /// attempt.  Older snapshots do not contain this field and deserialize
+    /// with no error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -44,7 +49,7 @@ impl MissionStatus {
         use MissionStatus::*;
         matches!(
             (self, next),
-            (Draft, Active | Cancelled)
+            (Draft, Active | Blocked | Cancelled)
                 | (Active, Paused | Blocked | Completed | Failed | Cancelled)
                 | (Paused, Active | Cancelled)
                 | (Blocked, Active | Cancelled)
@@ -90,6 +95,24 @@ pub struct TaskPatch {
     pub priority: Option<i32>,
     pub assigned_agent: Option<Option<AgentId>>,
     pub budget: Option<Budget>,
+}
+
+/// Typed completion intent accepted by worker-facing `task_update`. A worker
+/// can submit completion, but the reducer opens Review; only the configured
+/// reviewer can later promote it to Done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskCompletionIntent {
+    Completed,
+    Rework,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskUpdateInput {
+    #[serde(default)]
+    pub status: Option<TaskCompletionIntent>,
+    #[serde(flatten)]
+    pub patch: TaskPatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

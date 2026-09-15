@@ -27,6 +27,45 @@ void showFrankToast(BuildContext context, String message) {
   );
 }
 
+/// Canonical dialog body scaffold. Feature dialogs should supply content only
+/// through this helper so body and footer padding cannot drift or be nested.
+class FrankDialogScaffold extends StatelessWidget {
+  const FrankDialogScaffold({
+    required this.title,
+    required this.content,
+    required this.actions,
+    super.key,
+  });
+
+  final Widget title;
+  final Widget content;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(FrankUiTokens.dialogBodyPadding),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        title,
+        const SizedBox(height: 16),
+        content,
+        const SizedBox(height: FrankUiTokens.footerVerticalPadding),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            for (var index = 0; index < actions.length; index++) ...[
+              if (index > 0) const SizedBox(width: FrankUiTokens.actionGap),
+              actions[index],
+            ],
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
 /// Shared status tones used by the Office surfaces. The label remains part of
 /// the control so status is never communicated by color alone.
 enum FrankStatusTone { neutral, success, working, attention, failure }
@@ -34,7 +73,7 @@ enum FrankStatusTone { neutral, success, working, attention, failure }
 extension FrankStatusToneMetadata on FrankStatusTone {
   Color get color => switch (this) {
     FrankStatusTone.neutral => FrankColors.muted,
-    FrankStatusTone.success => FrankColors.green,
+    FrankStatusTone.success => FrankColors.statusSuccess,
     FrankStatusTone.working => FrankColors.blue,
     FrankStatusTone.attention => FrankColors.warningAmber,
     FrankStatusTone.failure => FrankColors.failure,
@@ -163,7 +202,7 @@ bool frankIsUnsupportedError(Object? error) {
 class FrankPanel extends StatelessWidget {
   const FrankPanel({
     required this.child,
-    this.padding = const EdgeInsets.all(FrankUiTokens.inset),
+    this.padding = const EdgeInsets.all(FrankUiTokens.panelPadding),
     this.raised = false,
     this.header,
     super.key,
@@ -413,34 +452,61 @@ class FrankSegmentedControl<T> extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       );
+                      final responsiveText =
+                          MediaQuery.textScalerOf(context).scale(1) >= 1.5
+                          ? FittedBox(fit: BoxFit.scaleDown, child: text)
+                          : text;
                       final child = itemWidth == null
                           ? ConstrainedBox(
                               constraints: BoxConstraints(
                                 maxWidth: textMaxWidth,
                               ),
-                              child: text,
+                              child: responsiveText,
                             )
-                          : Flexible(child: text);
+                          : Expanded(child: responsiveText);
+                      final standardButton = FButton(
+                        key: itemKeyBuilder?.call(item.$1),
+                        onPress: enabled ? () => onChanged(item.$1) : null,
+                        variant: selected
+                            ? FButtonVariant.secondary
+                            : FButtonVariant.ghost,
+                        size: FButtonSizeVariant.sm,
+                        mainAxisSize: itemWidth == null
+                            ? MainAxisSize.min
+                            : MainAxisSize.max,
+                        prefix: item.$3 == null
+                            ? null
+                            : Icon(item.$3, size: FrankUiTokens.iconSize),
+                        child: child,
+                      );
+                      final largeTextButton = FButton.raw(
+                        key: itemKeyBuilder?.call(item.$1),
+                        onPress: enabled ? () => onChanged(item.$1) : null,
+                        variant: selected
+                            ? FButtonVariant.secondary
+                            : FButtonVariant.ghost,
+                        size: FButtonSizeVariant.sm,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          child: itemWidth == null
+                              ? Center(child: responsiveText)
+                              : SizedBox(
+                                  width: double.infinity,
+                                  child: Center(child: responsiveText),
+                                ),
+                        ),
+                      );
                       final button = Semantics(
                         button: true,
                         selected: selected,
                         enabled: enabled,
                         label: item.$2,
-                        child: FButton(
-                          key: itemKeyBuilder?.call(item.$1),
-                          onPress: enabled ? () => onChanged(item.$1) : null,
-                          variant: selected
-                              ? FButtonVariant.secondary
-                              : FButtonVariant.ghost,
-                          size: FButtonSizeVariant.sm,
-                          mainAxisSize: itemWidth == null
-                              ? MainAxisSize.min
-                              : MainAxisSize.max,
-                          prefix: item.$3 == null
-                              ? null
-                              : Icon(item.$3, size: FrankUiTokens.iconSize),
-                          child: child,
-                        ),
+                        child: MediaQuery.textScalerOf(context).scale(1) >= 1.5
+                            ? largeTextButton
+                            : standardButton,
                       );
                       return itemWidth == null
                           ? button
@@ -659,7 +725,7 @@ class FrankInlineNotice extends StatelessWidget {
   }
 }
 
-/// Frank's primary action treatment: green surface, dark ink, and immediate
+/// Frank's primary action treatment: aubergine surface, dark ink, and immediate
 /// pointer feedback without Material's splash animation.
 class FrankPrimaryAction extends StatelessWidget {
   const FrankPrimaryAction({
@@ -697,7 +763,7 @@ class FrankMetricCard extends StatelessWidget {
     required this.label,
     required this.value,
     this.detail,
-    this.accent = FrankColors.primaryAction,
+    this.accent = FrankColors.brandPrimary,
     super.key,
   });
 

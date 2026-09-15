@@ -81,8 +81,6 @@ impl TaskSnapshotProjector {
                 agent.model_override = None;
                 agent.pending_model_override = None;
                 agent.pending_model_change = false;
-                agent.pack_id = None;
-                agent.pack_level = None;
                 agent.instructions.clear();
                 agent.policy = AgentPolicy::default();
                 agent.budget = Budget::unlimited();
@@ -242,6 +240,7 @@ mod tests {
                 measured_tokens: Some(3),
                 cost_micros: Some(4),
             },
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         }];
@@ -311,22 +310,15 @@ mod tests {
                 role_id: None,
                 role_revision: 1,
                 display_name: "Caller".into(),
-                template: AgentTemplate::Builder,
                 model: Some("model".into()),
                 effective_model: Some("model".into()),
                 model_source: ModelSource::Agent,
                 model_override: None,
                 pending_model_override: None,
                 pending_model_change: false,
-                pack_id: None,
-                pack_level: None,
                 instructions: "instructions".into(),
                 policy: AgentPolicy::default(),
                 budget: Budget::unlimited(),
-                avatar: AvatarSpec {
-                    palette: "blue".into(),
-                    seed: 1,
-                },
                 status: AgentStatus::Working,
                 provider_session_id: Some("caller-provider-secret".into()),
                 last_claimed_at: None,
@@ -337,22 +329,15 @@ mod tests {
                 role_id: None,
                 role_revision: 1,
                 display_name: "Sibling".into(),
-                template: AgentTemplate::Builder,
                 model: None,
                 effective_model: None,
                 model_source: ModelSource::Role,
                 model_override: None,
                 pending_model_override: None,
                 pending_model_change: false,
-                pack_id: None,
-                pack_level: None,
                 instructions: "sibling secret".into(),
                 policy: AgentPolicy::default(),
                 budget: Budget::unlimited(),
-                avatar: AvatarSpec {
-                    palette: "red".into(),
-                    seed: 2,
-                },
                 status: AgentStatus::Idle,
                 provider_session_id: None,
                 last_claimed_at: None,
@@ -363,22 +348,15 @@ mod tests {
                 role_id: None,
                 role_revision: 1,
                 display_name: "Frank supervisor".into(),
-                template: AgentTemplate::Generalist,
                 model: None,
                 effective_model: None,
                 model_source: ModelSource::Role,
                 model_override: None,
                 pending_model_override: None,
                 pending_model_change: false,
-                pack_id: None,
-                pack_level: None,
                 instructions: "supervisor".into(),
                 policy: AgentPolicy::default(),
                 budget: Budget::unlimited(),
-                avatar: AvatarSpec {
-                    palette: "frank".into(),
-                    seed: 3,
-                },
                 status: AgentStatus::Idle,
                 provider_session_id: None,
                 last_claimed_at: None,

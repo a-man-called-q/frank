@@ -150,7 +150,11 @@ class _TeamAgentCardState extends State<_TeamAgentCard> {
                 ),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: _ViewMemberButton(onPressed: widget.onSelected),
+                  child: _ViewMemberButton(
+                    key: ValueKey('team-member-view-${profile.employeeId}'),
+                    label: 'View ${profile.name}',
+                    onPressed: widget.onSelected,
+                  ),
                 ),
               ],
             )
@@ -178,7 +182,11 @@ class _TeamAgentCardState extends State<_TeamAgentCard> {
                     ),
                   ),
                 ),
-                _ViewMemberButton(onPressed: widget.onSelected),
+                _ViewMemberButton(
+                  key: ValueKey('team-member-view-${profile.employeeId}'),
+                  label: 'View ${profile.name}',
+                  onPressed: widget.onSelected,
+                ),
               ],
             ),
     );
@@ -217,13 +225,17 @@ class _TeamAgentCardState extends State<_TeamAgentCard> {
 }
 
 class _ViewMemberButton extends StatelessWidget {
-  const _ViewMemberButton({required this.onPressed});
+  const _ViewMemberButton({required this.onPressed, required this.label, super.key});
 
   final VoidCallback onPressed;
+  final String label;
 
   @override
   Widget build(BuildContext context) => FButton(
+    key: key,
     onPress: onPressed,
+    semanticsLabel: label,
+    semanticsTooltip: 'Open member details',
     variant: FButtonVariant.ghost,
     size: FButtonSizeVariant.sm,
     child: const Text('View'),
@@ -314,15 +326,6 @@ class _CardDetails extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(color: profile.accent, fontSize: 12),
           ),
-          if (profile.specialization != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              profile.specialization!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: profile.accent, fontSize: 11),
-            ),
-          ],
           const SizedBox(height: 9),
           Text(
             profile.assignment,
@@ -671,17 +674,6 @@ class _ProfileHeroDetails extends StatelessWidget {
             fontWeight: FontWeight.w500,
           ),
         ),
-        if (profile.specialization != null) ...[
-          const SizedBox(height: 3),
-          Text(
-            profile.specialization!,
-            style: TextStyle(
-              color: profile.accent,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
         if (profile.tagline.trim().isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
@@ -696,98 +688,25 @@ class _ProfileHeroDetails extends StatelessWidget {
         const SizedBox(height: 12),
         _AssignmentPanel(profile: profile),
         const SizedBox(height: 12),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final textScale =
-                MediaQuery.maybeOf(context)?.textScaler.scale(1) ?? 1;
-            final compact =
-                textScale > 1 ||
-                (constraints.hasBoundedWidth && constraints.maxWidth < 680);
-            final runtimePack = [
-              profile.promptPack.trim(),
-              profile.level.trim(),
-            ].where((value) => value.isNotEmpty).join(' · ');
-            final runtimePackLabel = runtimePack.isEmpty
-                ? 'Role runtime not reported'
-                : runtimePack;
-            final modelSummary = Row(
-              children: [
-                const Icon(
-                  FrankIcons.memoryOutlined,
-                  size: 15,
+        Row(
+          children: [
+            const Icon(
+              FrankIcons.memoryOutlined,
+              size: 15,
+              color: FrankColors.muted,
+            ),
+            const SizedBox(width: 7),
+            Flexible(
+              child: Text(
+                profile.modelSummary,
+                softWrap: true,
+                style: const TextStyle(
                   color: FrankColors.muted,
+                  fontSize: 12,
                 ),
-                const SizedBox(width: 7),
-                Flexible(
-                  child: Text(
-                    profile.modelSummary,
-                    softWrap: true,
-                    style: const TextStyle(
-                      color: FrankColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            );
-            final pack = Row(
-              children: [
-                const Icon(
-                  FrankIcons.autoAwesomeOutlined,
-                  size: 14,
-                  color: FrankColors.muted,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    runtimePackLabel,
-                    softWrap: true,
-                    style: const TextStyle(
-                      color: FrankColors.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              ],
-            );
-            if (compact) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [modelSummary, const SizedBox(height: 8), pack],
-              );
-            }
-            return Row(
-              children: [
-                const Icon(
-                  FrankIcons.memoryOutlined,
-                  size: 15,
-                  color: FrankColors.muted,
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  profile.modelSummary,
-                  style: const TextStyle(
-                    color: FrankColors.muted,
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                const Icon(
-                  FrankIcons.autoAwesomeOutlined,
-                  size: 14,
-                  color: FrankColors.muted,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  runtimePackLabel,
-                  style: const TextStyle(
-                    color: FrankColors.muted,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            );
-          },
+              ),
+            ),
+          ],
         ),
       ],
     );
@@ -1068,8 +987,6 @@ class _OverviewPanel extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        _TraitSection(profile: profile),
       ],
     );
   }
@@ -1106,7 +1023,7 @@ class _IdentityPanel extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _DetailRow(label: 'Role template', value: profile.role),
+                child: _DetailRow(label: 'Role', value: profile.role),
               ),
               if (onUpdateAgent != null)
                 FButton(
@@ -1122,40 +1039,25 @@ class _IdentityPanel extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 15),
-          _DetailRow(
-            label: 'Prompt pack',
-            value: profile.promptPack.trim().isEmpty
-                ? 'Not reported'
-                : profile.promptPack,
-          ),
-          const SizedBox(height: 22),
-          const Text(
-            'ROLE MARKERS',
-            style: TextStyle(
-              color: FrankColors.muted,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _TraitChips(profile: profile),
         ],
       ),
     );
   }
 
   Future<void> _edit(BuildContext context) async {
-    await showFrankDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _AgentEditDialog(
-        profile: profile,
-        roles: roles,
-        onSave: (patch) async {
-          await onUpdateAgent!(profile.employeeId, patch);
-        },
+    await Navigator.of(context).push<void>(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, _, _) => _TeamFormPage(
+          form: _AgentEditDialog(
+            profile: profile,
+            roles: roles,
+            onSave: (patch) async {
+              await onUpdateAgent!(profile.employeeId, patch);
+            },
+          ),
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
     );
   }

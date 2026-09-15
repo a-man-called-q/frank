@@ -82,9 +82,14 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let root = repo_root()?;
 
-    match cli.command {
-        Command::Status => status(&root),
-        Command::Verify => verify(&root),
+    dispatch(cli.command, &root)
+}
+
+#[inline(never)]
+fn dispatch(command: Command, root: &Path) -> Result<()> {
+    match command {
+        Command::Status => status(root),
+        Command::Verify => verify(root),
         Command::Bump {
             target,
             publish,
@@ -92,21 +97,21 @@ fn main() -> Result<()> {
             no_push,
         } => {
             if publish {
-                publish_release(&root, target.as_deref(), dry_run, no_push)
+                publish_release(root, target.as_deref(), dry_run, no_push)
             } else {
                 if dry_run || no_push {
                     bail!("--dry-run and --no-push require --publish");
                 }
                 let target = target.context("bump requires a target unless --publish is used")?;
-                bump(&root, &target)
+                bump(root, &target)
             }
         }
         Command::Tag {
             allow_dirty,
             dry_run,
             push,
-        } => tag(&root, allow_dirty, dry_run, push),
-        Command::Checksums => checksums(&root),
+        } => tag(root, allow_dirty, dry_run, push),
+        Command::Checksums => checksums(root),
         Command::SignManifest {
             manifest,
             private_key,

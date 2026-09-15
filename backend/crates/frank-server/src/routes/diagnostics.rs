@@ -147,7 +147,7 @@ pub(crate) async fn diagnostics(
                 )
             };
             RuntimeDoctorCheck {
-                component: "openrouter".to_string(),
+                component: probe.provider.to_ascii_lowercase(),
                 status,
                 version: probe.capability.version,
                 detail,
@@ -252,6 +252,11 @@ pub(crate) async fn capability_document(state: &ServerState) -> Capabilities {
             "durable-operations".into(),
             "signed-updates".into(),
             "audit-jsonl".into(),
+            "runners".into(),
+            "toolchains".into(),
+            "journal-v1".into(),
+            "task-grants".into(),
+            "openai-responses".into(),
         ]);
     }
     Capabilities {

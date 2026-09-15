@@ -235,14 +235,14 @@ class MainSidebar extends StatelessWidget {
                 MissionSelected(projectId: projectId, missionId: missionId),
               );
             },
-            onCreateMission: (projectId) => _createMission(
-              context,
-              projectsState,
-              projectId,
-            ),
-            onAddProject: connection.canMutate ? () => _addProject(context) : null,
+            onCreateMission: (projectId) =>
+                _createMission(context, projectsState, projectId),
+            onAddProject: connection.canMutate
+                ? () => _addProject(context)
+                : null,
             canMutate: connection.canMutate,
-            mutationDisabledReason: connection.status.detail ??
+            mutationDisabledReason:
+                connection.status.detail ??
                 '${connection.status.label}: changes are paused.',
             mutationStatus: projectsState.mutationStatus,
             mutationError: projectsState.mutationError,
@@ -321,12 +321,16 @@ class MainSidebar extends StatelessWidget {
   }
 
   Future<void> _addProject(BuildContext context) async {
-    final result = await showFrankDialog<ProjectSetupResult>(
-      context: context,
-      builder: (_) => AddProjectDialog(
-        browseDirectories: context
-            .read<FrankGateway>()
-            .browseProjectDirectories,
+    final result = await Navigator.of(context).push<ProjectSetupResult>(
+      PageRouteBuilder<ProjectSetupResult>(
+        pageBuilder: (_, _, _) => AddProjectDialog(
+          asPage: true,
+          browseDirectories: context
+              .read<FrankGateway>()
+              .browseProjectDirectories,
+        ),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
       ),
     );
     if (!context.mounted || result == null) return;
@@ -346,6 +350,35 @@ class MainSidebar extends StatelessWidget {
   ) async {
     final project = state.projectById(projectId);
     if (project == null) return;
+    final gateway = context.read<FrankGateway>();
+    final blockers = await _missionReadiness(gateway);
+    if (!context.mounted) return;
+    if (blockers.isNotEmpty) {
+      final destination = await showFrankDialog<_MissionReadinessDestination>(
+        context: context,
+        builder: (_) => _MissionReadinessDialog(blockers: blockers),
+      );
+      if (!context.mounted || destination == null) return;
+      switch (destination) {
+        case _MissionReadinessDestination.models:
+          context.read<ShellBloc>().add(
+            const ShellViewSelected(WorkspaceView.settings),
+          );
+          context.read<ShellBloc>().add(
+            const ShellSettingsSectionSelected(SettingsSection.models),
+          );
+        case _MissionReadinessDestination.team:
+          context.read<ShellBloc>().add(
+            const ShellViewSelected(WorkspaceView.settings),
+          );
+          context.read<ShellBloc>().add(
+            const ShellSettingsSectionSelected(SettingsSection.team),
+          );
+        case _MissionReadinessDestination.project:
+          await _addProject(context);
+      }
+      return;
+    }
     final objective = await showFrankDialog<String>(
       context: context,
       builder: (_) => CreateMissionDialog(projectName: project.name),
@@ -354,6 +387,74 @@ class MainSidebar extends StatelessWidget {
     context.read<ProjectsBloc>().add(
       MissionCreationSubmitted(projectId: projectId, objective: objective),
     );
+  }
+
+  Future<List<_MissionReadinessIssue>> _missionReadiness(
+    FrankGateway gateway,
+  ) async {
+    try {
+      var connection = await gateway.loadOpenRouterConnection();
+      final openAiGateway = gateway is OpenAiGateway
+          ? gateway as OpenAiGateway
+          : null;
+      if ((!connection.configured || connection.diagnostic != null) &&
+          openAiGateway != null) {
+        try {
+          final openAi = await openAiGateway.loadOpenAiConnection();
+          if (openAi.configured && openAi.diagnostic == null) {
+            connection = openAi;
+          }
+        } on Object {
+          // Keep the OpenRouter diagnostic when neither provider is usable.
+        }
+      }
+      final catalog = await gateway.loadOpenRouterModels();
+      final supervisorModel = gateway.cachedSupervisorModel?.trim();
+      final issues = <_MissionReadinessIssue>[];
+      if (!connection.configured || connection.diagnostic != null) {
+        issues.add(
+          const _MissionReadinessIssue(
+            label: 'Connect a model provider before creating a mission.',
+            destination: _MissionReadinessDestination.models,
+          ),
+        );
+      }
+      if (supervisorModel == null ||
+          supervisorModel.isEmpty ||
+          !catalog.models.any(
+            (model) => model.canonicalSlug == supervisorModel,
+          )) {
+        issues.add(
+          const _MissionReadinessIssue(
+            label: 'Choose a supervisor model from the available catalog.',
+            destination: _MissionReadinessDestination.models,
+          ),
+        );
+      }
+      final profiles = await gateway.loadTeamProfiles();
+      final hasWorker = profiles.any(
+        (profile) =>
+            profile.name.trim().toLowerCase() != 'frank supervisor' &&
+            profile.model.trim().isNotEmpty &&
+            profile.model.trim().toLowerCase() != 'unconfigured',
+      );
+      if (!hasWorker) {
+        issues.add(
+          const _MissionReadinessIssue(
+            label: 'Add a worker with an effective model before starting.',
+            destination: _MissionReadinessDestination.team,
+          ),
+        );
+      }
+      return issues;
+    } on Object catch (_) {
+      return const [
+        _MissionReadinessIssue(
+          label: 'Frank could not verify mission readiness. Check Models.',
+          destination: _MissionReadinessDestination.models,
+        ),
+      ];
+    }
   }
 
   Future<void> _renameMission(
@@ -440,5 +541,79 @@ class MainSidebar extends StatelessWidget {
     );
     if (!context.mounted || confirmed != true) return;
     context.read<ProjectsBloc>().add(ProjectRemoveConfirmed(projectId));
+  }
+}
+
+enum _MissionReadinessDestination { models, team, project }
+
+class _MissionReadinessIssue {
+  const _MissionReadinessIssue({
+    required this.label,
+    required this.destination,
+  });
+
+  final String label;
+  final _MissionReadinessDestination destination;
+}
+
+class _MissionReadinessDialog extends StatelessWidget {
+  const _MissionReadinessDialog({required this.blockers});
+
+  final List<_MissionReadinessIssue> blockers;
+
+  @override
+  Widget build(BuildContext context) {
+    return FDialog(
+      builder: (context, style) => FrankDialogScaffold(
+        title: Text('Mission not ready', style: style.titleTextStyle),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Resolve these setup items before describing work for Frank to build.',
+              style: TextStyle(color: FrankColors.muted),
+            ),
+            const SizedBox(height: 16),
+            for (final blocker in blockers) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(
+                      FrankIcons.errorOutline,
+                      size: FrankUiTokens.iconSize,
+                      color: FrankColors.warningAmber,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(blocker.label)),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+          ],
+        ),
+        actions: [
+          FButton(
+            onPress: () => Navigator.of(context).pop(),
+            variant: FButtonVariant.ghost,
+            child: const Text('Close'),
+          ),
+          for (final destination in {
+            for (final blocker in blockers) blocker.destination,
+          })
+            FButton(
+              onPress: () => Navigator.of(context).pop(destination),
+              child: Text(switch (destination) {
+                _MissionReadinessDestination.models => 'Open Models',
+                _MissionReadinessDestination.team => 'Open Team',
+                _MissionReadinessDestination.project => 'Add project',
+              }),
+            ),
+        ],
+      ),
+    );
   }
 }

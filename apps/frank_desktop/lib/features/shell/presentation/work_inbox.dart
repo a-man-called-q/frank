@@ -132,53 +132,118 @@ class _WorkInboxPaneState extends State<WorkInboxPane> {
                 onClear: _clearSearch,
               ),
               const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _ScopeSelector(
-                      projects: widget.workspace.projects,
-                      selectedProjectId: widget.projectScope,
-                      onChanged: widget.onProjectScopeChanged,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  FButton(
-                    onPress: scopeProject == null || !widget.canMutate
-                        ? null
-                        : () => widget.onCreateMission(scopeProject.id),
-                    semanticsLabel: !widget.canMutate
-                        ? widget.mutationDisabledReason ??
-                              'New mission unavailable while the server is offline'
-                        : scopeProject == null
-                        ? 'Select a project to enable New mission'
-                        : 'New mission',
-                    semanticsTooltip: !widget.canMutate
-                        ? widget.mutationDisabledReason ??
-                              'Reconnect before creating a mission'
-                        : scopeProject == null
-                        ? 'Select a project to enable New mission'
-                        : 'New mission',
-                    size: FButtonSizeVariant.sm,
-                    prefix: const Icon(FrankIcons.plus, size: 15),
-                    child: const Text('New mission'),
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact = constraints.maxWidth < 320;
+                  final largeText =
+                      MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+                  final scopeSelector = _ScopeSelector(
+                    projects: widget.workspace.projects,
+                    selectedProjectId: widget.projectScope,
+                    onChanged: widget.onProjectScopeChanged,
+                  );
+                  final newMissionLabel = compact ? 'New' : 'New mission';
+                  final newMissionSemantics = !widget.canMutate
+                      ? widget.mutationDisabledReason ??
+                            'New mission unavailable while the server is offline'
+                      : scopeProject == null
+                      ? 'Select a project to enable New mission'
+                      : 'New mission';
+                  final newMission = largeText
+                      ? FButton.raw(
+                          onPress: scopeProject == null || !widget.canMutate
+                              ? null
+                              : () => widget.onCreateMission(scopeProject.id),
+                          semanticsLabel: newMissionSemantics,
+                          semanticsTooltip: newMissionSemantics,
+                          size: FButtonSizeVariant.sm,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: Center(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(newMissionLabel),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : FButton(
+                          onPress: scopeProject == null || !widget.canMutate
+                              ? null
+                              : () => widget.onCreateMission(scopeProject.id),
+                          semanticsLabel: newMissionSemantics,
+                          semanticsTooltip: newMissionSemantics,
+                          size: FButtonSizeVariant.sm,
+                          prefix: const Icon(FrankIcons.plus, size: 15),
+                          child: Text(newMissionLabel),
+                        );
+                  return Row(
+                    children: [
+                      Expanded(child: scopeSelector),
+                      const SizedBox(width: 6),
+                      Flexible(child: newMission),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 8),
-              FButton(
-                key: const ValueKey('sidebar-add-project'),
-                onPress: widget.canMutate ? widget.onAddProject : null,
-                semanticsLabel: widget.canMutate
-                    ? 'Add project'
-                    : widget.mutationDisabledReason ??
-                          'Add project unavailable',
-                semanticsTooltip: widget.canMutate
-                    ? 'Add project'
-                    : widget.mutationDisabledReason ??
-                          'Reconnect before adding a project',
-                variant: FButtonVariant.outline,
-                prefix: const Icon(FrankIcons.plus, size: 15),
-                child: const Text('Add project'),
+              Builder(
+                builder: (context) {
+                  final semanticsLabel = widget.canMutate
+                      ? 'Add project'
+                      : widget.mutationDisabledReason ??
+                            'Add project unavailable';
+                  final largeText =
+                      MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+                  return largeText
+                      ? FButton.raw(
+                          key: const ValueKey('sidebar-add-project'),
+                          onPress: widget.canMutate
+                              ? widget.onAddProject
+                              : null,
+                          semanticsLabel: semanticsLabel,
+                          semanticsTooltip: widget.canMutate
+                              ? 'Add project'
+                              : widget.mutationDisabledReason ??
+                                    'Reconnect before adding a project',
+                          variant: FButtonVariant.outline,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: Center(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: const Text('Add project'),
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : FButton(
+                          key: const ValueKey('sidebar-add-project'),
+                          onPress: widget.canMutate
+                              ? widget.onAddProject
+                              : null,
+                          semanticsLabel: semanticsLabel,
+                          semanticsTooltip: widget.canMutate
+                              ? 'Add project'
+                              : widget.mutationDisabledReason ??
+                                    'Reconnect before adding a project',
+                          variant: FButtonVariant.outline,
+                          prefix: const Icon(FrankIcons.plus, size: 15),
+                          child: const Text('Add project'),
+                        );
+                },
               ),
               if (widget.mutationStatus != ProjectsMutationStatus.idle) ...[
                 const SizedBox(height: 10),

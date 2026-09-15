@@ -49,9 +49,6 @@ impl Orchestrator {
                     role_id: Some(role_id),
                     role_revision,
                     display_name: spec.display_name,
-                    template: role
-                        .as_ref()
-                        .map_or(AgentTemplate::Generalist, |role| role.template),
                     model: spec
                         .model_override
                         .clone()
@@ -68,8 +65,6 @@ impl Orchestrator {
                     model_override: spec.model_override.clone(),
                     pending_model_override: None,
                     pending_model_change: false,
-                    pack_id: role.as_ref().and_then(|role| role.pack_id.clone()),
-                    pack_level: role.as_ref().and_then(|role| role.pack_level.clone()),
                     instructions: role
                         .as_ref()
                         .map_or_else(String::new, |role| role.instructions.clone()),
@@ -79,15 +74,6 @@ impl Orchestrator {
                     budget: role
                         .as_ref()
                         .map_or_else(Budget::unlimited, |role| role.budget.clone()),
-                    avatar: role.as_ref().map_or_else(
-                        || {
-                            spec.avatar.clone().unwrap_or(AvatarSpec {
-                                palette: "default".into(),
-                                seed: 0,
-                            })
-                        },
-                        |role| spec.avatar.clone().unwrap_or_else(|| role.avatar.clone()),
-                    ),
                     status: AgentStatus::Offline,
                     provider_session_id: None,
                     last_claimed_at: None,

@@ -12,6 +12,7 @@ class OpenRouterState {
     this.connectionPhase = OpenRouterConnectionPhase.loading,
     this.catalogPhase = OpenRouterCatalogPhase.idle,
     this.connection,
+    this.openAiConnection,
     this.catalog,
     this.catalogRefreshedAt,
     this.supervisorModel,
@@ -25,6 +26,7 @@ class OpenRouterState {
   final OpenRouterConnectionPhase connectionPhase;
   final OpenRouterCatalogPhase catalogPhase;
   final OpenRouterConnection? connection;
+  final OpenRouterConnection? openAiConnection;
   final OpenRouterCatalog? catalog;
   final DateTime? catalogRefreshedAt;
   final String? supervisorModel;
@@ -38,6 +40,7 @@ class OpenRouterState {
     OpenRouterConnectionPhase? connectionPhase,
     OpenRouterCatalogPhase? catalogPhase,
     Object? connection = _unset,
+    Object? openAiConnection = _unset,
     Object? catalog = _unset,
     Object? catalogRefreshedAt = _unset,
     Object? supervisorModel = _unset,
@@ -50,6 +53,9 @@ class OpenRouterState {
     connection: identical(connection, _unset)
         ? this.connection
         : connection as OpenRouterConnection?,
+    openAiConnection: identical(openAiConnection, _unset)
+        ? this.openAiConnection
+        : openAiConnection as OpenRouterConnection?,
     catalog: identical(catalog, _unset)
         ? this.catalog
         : catalog as OpenRouterCatalog?,
@@ -147,14 +153,31 @@ class OpenRouterBloc extends Bloc<OpenRouterEvent, OpenRouterState> {
 
   Future<void> _loadConnection(Emitter<OpenRouterState> emit) async {
     try {
-      final connection = await _gateway.loadOpenRouterConnection();
+      var connection = await _gateway.loadOpenRouterConnection();
+      OpenRouterConnection? openAiConnection;
+      final openAiGateway = _gateway is OpenAiGateway
+          ? _gateway as OpenAiGateway
+          : null;
+      if (openAiGateway != null) {
+        try {
+          openAiConnection = await openAiGateway.loadOpenAiConnection();
+        } on Object {
+          // OpenAI is optional; preserve the OpenRouter status when absent.
+        }
+      }
+      final effectiveConnection =
+          connection.configured && connection.diagnostic == null
+          ? connection
+          : openAiConnection ?? connection;
       if (isClosed) return;
       emit(
         state.copyWith(
           connection: connection,
-          connectionPhase: _connectionPhase(connection),
+          openAiConnection: openAiConnection,
+          connectionPhase: _connectionPhase(effectiveConnection),
           catalogRefreshedAt:
-              connection.catalogRefreshedAt ?? state.catalogRefreshedAt,
+              effectiveConnection.catalogRefreshedAt ??
+              state.catalogRefreshedAt,
           supervisorModel: _gateway.cachedSupervisorModel,
           actionError: null,
         ),

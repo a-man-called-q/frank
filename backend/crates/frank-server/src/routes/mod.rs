@@ -7,5 +7,8 @@ pub(crate) mod commands;
 pub(crate) mod devices;
 pub(crate) mod diagnostics;
 pub(crate) mod events;
+pub(crate) mod journal;
 pub(crate) mod pair;
+pub(crate) mod runners;
 pub(crate) mod terminals;
+pub(crate) mod toolchains;

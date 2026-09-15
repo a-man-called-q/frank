@@ -87,6 +87,33 @@ pub struct Capabilities {
     pub limits: CapabilityLimits,
 }
 
+/// Provider reasoning effort accepted by Frank's runtime configuration.  The
+/// value is serialized in the same snake_case vocabulary used by the OpenAI
+/// Responses API, while `None` means the provider default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningEffort {
+    None,
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+}
+
+impl ReasoningEffort {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilityLimits {
     pub max_message_bytes: usize,
@@ -202,9 +229,10 @@ pub struct DiagnosticSnapshot {
 
 /// Opaque provider identifier stored on usage/audit records.
 ///
-/// Runtime configuration is OpenRouter-only, but old ledger rows may still
-/// carry `codex` or `claude`. Keeping this as a string prevents historical
-/// telemetry from being rewritten or accidentally becoming a runtime choice.
+/// Runtime configuration supports the native OpenRouter and OpenAI adapters,
+/// while old ledger rows may still carry `codex` or `claude`. Keeping this as
+/// a string prevents historical telemetry from being rewritten or
+/// accidentally becoming a runtime choice.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct UsageProviderId(pub String);
@@ -212,6 +240,18 @@ pub struct UsageProviderId(pub String);
 impl UsageProviderId {
     pub fn openrouter() -> Self {
         Self("openrouter".to_string())
+    }
+
+    pub fn openai() -> Self {
+        Self("openai".to_string())
+    }
+
+    pub fn for_model(model: Option<&str>) -> Self {
+        if model.is_some_and(|model| model.starts_with("openai/")) {
+            Self::openai()
+        } else {
+            Self::openrouter()
+        }
     }
 }
 

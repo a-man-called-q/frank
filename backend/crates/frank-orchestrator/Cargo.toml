@@ -13,6 +13,7 @@ frank-safeio.workspace = true
 frank-store.workspace = true
 frank-update.workspace = true
 frank-tool-catalog.workspace = true
+frank-toolchain.workspace = true
 base64.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true

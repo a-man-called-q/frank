@@ -219,46 +219,62 @@ impl Orchestrator {
         } else {
             task.reviewer_agent
         };
+        if matches!(
+            status,
+            TaskStatus::Review | TaskStatus::Done | TaskStatus::Cancelled
+        ) {
+            // Grants are scoped to one worker attempt. Revoke them before the
+            // review handoff so a later assignment cannot reuse the old
+            // approval.
+            for grant in &mut snapshot.task_grants {
+                if grant.task_id == task_id {
+                    grant.revoked = true;
+                }
+            }
+        }
         let task_value = task.clone();
         let review_event = if status == TaskStatus::Review {
-            let Some(source_agent) = assigned_agent else {
-                return Err(OrchestratorError::Validation(
-                    "a review task must retain its source staff agent".into(),
-                ));
-            };
-            let Some(reviewer_agent) = review_target else {
-                return Err(OrchestratorError::Validation(
-                    "a published review task must have a reviewer".into(),
-                ));
-            };
-            match organization_review_contract(&snapshot, source_agent, reviewer_agent) {
-                Some((relation_id, contract)) => {
-                    let now = timestamp_now();
-                    let review = ReviewWorkItemView {
-                        id: ReviewWorkItemId::new(),
-                        mission_id: task_value.mission_id,
-                        source_task_id: task_id,
-                        source_agent,
-                        reviewer_agent,
-                        relation_id,
-                        contract,
-                        status: ReviewWorkItemStatus::Pending,
-                        decision_reason: None,
-                        created_at: now.clone(),
-                        updated_at: now,
-                    };
-                    snapshot.review_items.push(review.clone());
-                    Some(review)
-                }
-                // Legacy mode has no published graph and therefore
-                // intentionally keeps the pre-Organization status
-                // event. A published graph must always materialize a
-                // concrete, auditable review relation.
-                None if snapshot.organization.published.is_none() => None,
-                None => {
+            // Legacy missions predate the Organization review graph. They
+            // still use the durable Review lane, but without a synthetic
+            // reviewer work item; only published graphs require a concrete
+            // review relation.
+            if snapshot.organization.published.is_none() {
+                None
+            } else {
+                let Some(source_agent) = assigned_agent else {
                     return Err(OrchestratorError::Validation(
-                        "published review relation is missing its contract".into(),
+                        "a review task must retain its source staff agent".into(),
                     ));
+                };
+                let Some(reviewer_agent) = review_target else {
+                    return Err(OrchestratorError::Validation(
+                        "a published review task must have a reviewer".into(),
+                    ));
+                };
+                match organization_review_contract(&snapshot, source_agent, reviewer_agent) {
+                    Some((relation_id, contract)) => {
+                        let now = timestamp_now();
+                        let review = ReviewWorkItemView {
+                            id: ReviewWorkItemId::new(),
+                            mission_id: task_value.mission_id,
+                            source_task_id: task_id,
+                            source_agent,
+                            reviewer_agent,
+                            relation_id,
+                            contract,
+                            status: ReviewWorkItemStatus::Pending,
+                            decision_reason: None,
+                            created_at: now.clone(),
+                            updated_at: now,
+                        };
+                        snapshot.review_items.push(review.clone());
+                        Some(review)
+                    }
+                    None => {
+                        return Err(OrchestratorError::Validation(
+                            "published review relation is missing its contract".into(),
+                        ));
+                    }
                 }
             }
         } else if current_status == TaskStatus::Review {

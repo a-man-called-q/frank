@@ -12,7 +12,7 @@ class _LedgerEvidenceCard extends StatelessWidget {
     final verdict = data.verdict;
     final verdictColor = verdict == LedgerVerdict.insufficientEvidence
         ? FrankColors.warningAmber
-        : FrankColors.green;
+        : FrankColors.statusSuccess;
     final verdictContent = Container(
       key: const ValueKey('ledger-verdict'),
       padding: const EdgeInsets.all(20),

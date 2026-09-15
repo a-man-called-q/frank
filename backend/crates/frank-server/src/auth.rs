@@ -694,6 +694,9 @@ pub(crate) async fn agent_command_is_scoped(
                     .assigned_agent
                     .is_none_or(|assigned| assigned == agent_id)
                 && spec
+                    .parent_task_id
+                    .is_none_or(|parent| parent == task_id || task_is_owned(parent))
+                && spec
                     .dependencies
                     .iter()
                     .all(|dependency| *dependency == task_id || task_is_owned(*dependency))

@@ -338,7 +338,7 @@ class _LedgerOperationalMetrics extends StatelessWidget {
         label: 'Measured output',
         value: _formatSummary(data.measuredOutput),
         detail: _coverageLabel(data.measuredOutput),
-        color: FrankColors.green,
+        color: FrankColors.statusSuccess,
       ),
       _LedgerOperationalMetricCard(
         key: const ValueKey('ledger-operational-cost'),
@@ -628,7 +628,7 @@ class _LedgerOperationalGroupRow extends StatelessWidget {
             decoration: BoxDecoration(
               color: group.excluded
                   ? FrankColors.warningAmber
-                  : FrankColors.green,
+                  : FrankColors.statusSuccess,
               shape: BoxShape.circle,
             ),
           ),

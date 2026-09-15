@@ -58,6 +58,10 @@ pub struct Snapshot {
     pub organization_runtime: OrganizationRuntimeView,
     #[serde(default)]
     pub organization_relocations: Vec<OrganizationRelocationView>,
+    /// Task-scoped host permissions. Grants are intentionally separate from
+    /// one-shot approval rows so they can be revoked and audited directly.
+    #[serde(default)]
+    pub task_grants: Vec<TaskGrantView>,
 }
 
 impl Snapshot {
@@ -88,6 +92,7 @@ impl Snapshot {
             human_inputs: Vec::new(),
             organization_runtime: OrganizationRuntimeView::default(),
             organization_relocations: Vec::new(),
+            task_grants: Vec::new(),
         }
     }
 }
@@ -532,8 +537,6 @@ pub struct AgentSpec {
     pub display_name: String,
     #[serde(default)]
     pub model_override: Option<String>,
-    #[serde(default)]
-    pub avatar: Option<AvatarSpec>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -548,22 +551,6 @@ pub struct AgentPatch {
     /// override without making model selection stringly typed.
     #[serde(default)]
     pub clear_model_override: bool,
-    pub avatar: Option<AvatarSpec>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AgentTemplate {
-    Generalist,
-    Researcher,
-    Builder,
-    Reviewer,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AvatarSpec {
-    pub palette: String,
-    pub seed: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -626,7 +613,6 @@ pub struct AgentView {
     #[serde(default)]
     pub role_revision: u64,
     pub display_name: String,
-    pub template: AgentTemplate,
     pub model: Option<String>,
     #[serde(default)]
     pub effective_model: Option<String>,
@@ -638,12 +624,9 @@ pub struct AgentView {
     pub pending_model_override: Option<Option<String>>,
     #[serde(default)]
     pub pending_model_change: bool,
-    pub pack_id: Option<String>,
-    pub pack_level: Option<String>,
     pub instructions: String,
     pub policy: AgentPolicy,
     pub budget: Budget,
-    pub avatar: AvatarSpec,
     pub status: AgentStatus,
     pub provider_session_id: Option<String>,
     #[serde(default)]
@@ -656,49 +639,34 @@ pub struct AgentView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleSpec {
     pub name: String,
-    pub description: String,
-    pub template: AgentTemplate,
     #[serde(rename = "default_model", alias = "model")]
     pub model: Option<String>,
-    pub pack_id: Option<String>,
-    pub pack_level: Option<String>,
     pub instructions: String,
     pub policy: AgentPolicy,
     pub budget: Budget,
-    pub avatar: AvatarSpec,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RolePatch {
     pub name: Option<String>,
-    pub description: Option<String>,
-    pub template: Option<AgentTemplate>,
     #[serde(rename = "default_model", alias = "model")]
     pub model: Option<Option<String>>,
     #[serde(default)]
     pub clear_model: bool,
-    pub pack_id: Option<Option<String>>,
-    pub pack_level: Option<Option<String>>,
     pub instructions: Option<String>,
     pub policy: Option<AgentPolicy>,
     pub budget: Option<Budget>,
-    pub avatar: Option<AvatarSpec>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RoleView {
     pub id: RoleId,
     pub name: String,
-    pub description: String,
-    pub template: AgentTemplate,
     #[serde(rename = "default_model", alias = "model")]
     pub model: Option<String>,
-    pub pack_id: Option<String>,
-    pub pack_level: Option<String>,
     pub instructions: String,
     pub policy: AgentPolicy,
     pub budget: Budget,
-    pub avatar: AvatarSpec,
     pub revision: u64,
     pub archived: bool,
 }

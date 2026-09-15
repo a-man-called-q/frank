@@ -69,6 +69,13 @@ void main() {
     addTearDown(auth.dispose);
 
     await _pumpShell(tester, authRepository: auth);
+    await tester.runAsync(
+      () => precacheImage(
+        const AssetImage('assets/branding/frank-logo.png'),
+        tester.element(find.byType(FrankApp)),
+      ),
+    );
+    await tester.pump();
     await tester.tap(find.byKey(const ValueKey('sidebar-user-button')));
     await tester.pump(const Duration(milliseconds: 220));
     expect(find.text('Change password'), findsOneWidget);

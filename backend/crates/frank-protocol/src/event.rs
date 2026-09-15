@@ -188,6 +188,12 @@ pub enum Event {
     ApprovalExpired {
         approval_id: ApprovalId,
     },
+    TaskGrantCreated {
+        grant: TaskGrantView,
+    },
+    TaskGrantRevoked {
+        grant_id: String,
+    },
     BudgetPaused {
         scope: BudgetScope,
         reason: String,
@@ -238,5 +244,22 @@ pub enum Event {
     },
     UpdateStateChanged {
         update: UpdateView,
+    },
+    /// Host-runner/toolchain events are kept in the same ordered log so the
+    /// Journal can correlate installs and checks with task activity.
+    ToolchainInstallationRecorded {
+        manifest_id: String,
+        version: String,
+        runner_id: RunnerId,
+        status: ToolchainRequirementStatus,
+        #[serde(default)]
+        project_id: Option<ProjectId>,
+        #[serde(default)]
+        task_id: Option<TaskId>,
+        #[serde(default)]
+        install_path: Option<String>,
+    },
+    CheckRunRecorded {
+        check: CheckRunView,
     },
 }

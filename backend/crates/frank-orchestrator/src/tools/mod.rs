@@ -69,6 +69,12 @@ pub(crate) async fn dispatch(
     if name.starts_with("taskboard_") || name.starts_with("work_item_") {
         return taskboard::dispatch(context, name, input).await;
     }
+    // Both terminal tools execute through the terminal boundary.  `shell_exec`
+    // is retained as the legacy name used by existing sessions, even though
+    // the catalog groups it under the Workspace domain for transport policy.
+    if matches!(name, "shell_exec" | "terminal_execute") {
+        return terminal::dispatch(context, name, input).await;
+    }
     match route.descriptor.domain {
         ToolDomain::Coordination => coordination::dispatch(context, name, input).await,
         ToolDomain::Workspace => workspace::dispatch(context, name, input).await,
@@ -85,6 +91,21 @@ pub(crate) fn required_string(input: &Value, key: &str) -> Result<String, String
         .and_then(Value::as_str)
         .ok_or_else(|| format!("{key} is required"))?;
     if value.trim().is_empty() || value.chars().any(char::is_control) {
+        return Err(format!("{key} is empty or invalid"));
+    }
+    Ok(value.to_owned())
+}
+
+/// Read a user/model-provided text payload. Unlike identifiers, commands, and
+/// paths, file contents and replacement blocks are allowed to contain normal
+/// newlines and tabs. NUL remains rejected because it cannot be represented
+/// safely by the downstream filesystem/process boundaries.
+pub(crate) fn required_text(input: &Value, key: &str) -> Result<String, String> {
+    let value = input
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{key} is required"))?;
+    if value.trim().is_empty() || value.contains('\0') {
         return Err(format!("{key} is empty or invalid"));
     }
     Ok(value.to_owned())

@@ -14,7 +14,9 @@ void main() {
   testWidgets('macOS renders the scene and survives sidebar changes', (
     tester,
   ) async {
-    await tester.pumpWidget(const FrankApp(showLogin: false));
+    await tester.pumpWidget(
+      const FrankApp(showLogin: false, disableAnimations: true),
+    );
 
     // GPU shader compilation is asynchronous on a real host. Give the scene
     // a bounded window to reveal; a failed initialization must surface in the
@@ -265,7 +267,7 @@ void main() {
       closeTo(initialProjectionScale, 1e-6),
     );
     expect(tester.takeException(), isNull);
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 
   testWidgets('login uses an empty scene and fades into the office', (
     tester,
@@ -298,7 +300,7 @@ void main() {
     expect(find.byKey(const ValueKey('login-scene-stage')), findsNothing);
     expect(find.byKey(const ValueKey('global-nav-office')), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }
 
 double _distanceBetween(vm.Vector3 first, vm.Vector3 second) {

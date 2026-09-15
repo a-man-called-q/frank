@@ -269,13 +269,13 @@ class LedgerAxisTrendPainter extends CustomPainter {
     canvas.drawPath(
       measured,
       Paint()
-        ..color = FrankColors.green
+        ..color = FrankColors.statusSuccess
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
-    final pointPaint = Paint()..color = FrankColors.green;
+    final pointPaint = Paint()..color = FrankColors.statusSuccess;
     for (var index = 0; index < points.length; index++) {
       canvas.drawCircle(
         Offset(x(index), y(points[index].measuredOutputTokens.toDouble())),

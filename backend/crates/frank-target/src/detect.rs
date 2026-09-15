@@ -308,7 +308,9 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::write(&command, "#!/bin/sh\nsleep 1\nprintf 'frank 1.2.3\\n'\n").unwrap();
+            // Keep this probe comfortably below the two-second production
+            // timeout even when the full nextest suite is CPU-bound.
+            fs::write(&command, "#!/bin/sh\nsleep 0.1\nprintf 'frank 1.2.3\\n'\n").unwrap();
             let mut permissions = fs::metadata(&command).unwrap().permissions();
             permissions.set_mode(0o755);
             fs::set_permissions(&command, permissions).unwrap();

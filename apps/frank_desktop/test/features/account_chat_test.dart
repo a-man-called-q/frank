@@ -474,24 +474,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('empty-state suggestions remain interactive outside the log', (
+  testWidgets('empty state keeps suggestions out of the composer', (
     tester,
   ) async {
-    String? sent;
     await _pumpChat(
       tester,
       executive: executive,
       project: project,
       messages: const [],
-      onSend: (value) => sent = value,
     );
 
-    final suggestion = find.text('Turn a rough idea into a project brief');
-    expect(suggestion, findsOneWidget);
-    await tester.tap(suggestion);
-    await tester.pump();
-
-    expect(sent, 'Help me turn this rough idea into a project brief.');
+    expect(find.byType(FlowSuggestionGroup), findsNothing);
+    expect(find.text('Turn a rough idea into a project brief'), findsNothing);
+    expect(find.text('Suggest a team for my next project'), findsNothing);
+    expect(find.byKey(const ValueKey('composer-surface')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

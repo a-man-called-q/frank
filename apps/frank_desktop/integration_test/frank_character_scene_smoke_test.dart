@@ -73,5 +73,5 @@ void main() {
     await qaFile.writeAsBytes(png!.buffer.asUint8List());
     debugPrint('FRANK_QA_SCREENSHOT=${qaFile.path}');
     image.dispose();
-  });
+  }, timeout: const Timeout(Duration(minutes: 2)));
 }

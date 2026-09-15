@@ -108,3 +108,5 @@ id_type!(HumanInputId);
 id_type!(WorkflowId);
 // Stable id for a board relocation entry during an Organization upgrade.
 id_type!(RelocationId);
+// Stable identity for a host-side runner paired with frankd.
+id_type!(RunnerId);

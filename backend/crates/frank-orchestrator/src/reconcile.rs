@@ -12,6 +12,7 @@ impl Orchestrator {
         // never depend on the lifetime of the HTTP request that created them.
         self.deliver_queued_messages(&snapshot).await?;
         self.expire_approvals(&snapshot).await?;
+        self.expire_task_grants(&snapshot).await?;
         self.expire_terminal_leases(&snapshot).await?;
         self.expire_pending_messages(&snapshot).await?;
         // Time limits are independent of provider telemetry.  A provider can
@@ -19,6 +20,8 @@ impl Orchestrator {
         // SQLite clock must still stop work when its deadline elapses.
         self.enforce_time_budgets().await?;
         // Time-budget enforcement may commit task and mission transitions.
+        snapshot = self.store.snapshot().await?;
+        self.repair_legacy_parent_dependencies(&snapshot).await?;
         snapshot = self.store.snapshot().await?;
         self.recover_running_worktree_intents(&snapshot).await?;
         self.reconcile_operations().await?;
@@ -161,15 +164,23 @@ impl Orchestrator {
             snapshot = self.store.snapshot().await?;
         }
 
-        let ready_task_ids = snapshot
+        let mut ready_task_ids = snapshot
             .tasks
             .iter()
             .filter(|task| {
                 task.status == TaskStatus::Ready && active_missions.contains(&task.mission_id)
             })
-            .map(|task| task.id)
+            .map(|task| (task.priority, task.id))
             .collect::<Vec<_>>();
-        for task_id in ready_task_ids {
+        // Stable priority ordering makes fan-out scheduling reproducible and
+        // ensures a high-value card is not delayed by snapshot iteration order.
+        ready_task_ids.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.to_string().cmp(&right.1.to_string()))
+        });
+        for (_, task_id) in ready_task_ids {
             let (task, claimed) = match self.ensure_task_assignment(&snapshot, task_id).await {
                 Ok(Some(task)) => task,
                 Ok(None) => continue,
@@ -221,6 +232,89 @@ impl Orchestrator {
                 // Startup may persist Starting, retry, or failure state.
                 snapshot = self.store.snapshot().await?;
             }
+        }
+        Ok(())
+    }
+
+    /// Task grants are capabilities in their own right. Expiry must be a
+    /// durable revocation event rather than a UI-only check, so a restarted
+    /// daemon cannot accidentally honor an old approval.
+    async fn expire_task_grants(&self, snapshot: &Snapshot) -> Result<()> {
+        let now = epoch_seconds() as u128;
+        let expired = snapshot
+            .task_grants
+            .iter()
+            .filter(|grant| {
+                !grant.revoked
+                    && grant
+                        .expires_at
+                        .parse::<u128>()
+                        .is_ok_and(|expires_at| expires_at <= now)
+            })
+            .map(|grant| grant.id.clone())
+            .collect::<Vec<_>>();
+        for grant_id in expired {
+            let response = self
+                .execute(
+                    CommandEnvelope {
+                        protocol_version: PROTOCOL_VERSION,
+                        command_id: CommandId::new(),
+                        expected_revision: None,
+                        command: Command::RevokeTaskGrant { grant_id },
+                    },
+                    ActorRef::system(),
+                    DeviceRole::Owner,
+                )
+                .await;
+            if let Some(error) = response.error
+                && !matches!(error.code, ErrorCode::Conflict | ErrorCode::StaleRevision)
+            {
+                return Err(OrchestratorError::Validation(error.message));
+            }
+        }
+        Ok(())
+    }
+
+    /// Development snapshots created before parent/child joins were
+    /// structural added the parent as a normal dependency. Remove only that
+    /// known-invalid edge; the normal UpdateTask reducer records the repair
+    /// in the event log, feed, audit JSONL, and Journal projection.
+    async fn repair_legacy_parent_dependencies(&self, snapshot: &Snapshot) -> Result<()> {
+        let repairs = snapshot
+            .tasks
+            .iter()
+            .filter_map(|task| {
+                let parent_id = task.parent_task_id?;
+                task.dependencies.contains(&parent_id).then(|| {
+                    let dependencies = task
+                        .dependencies
+                        .iter()
+                        .copied()
+                        .filter(|dependency| *dependency != parent_id)
+                        .collect::<Vec<_>>();
+                    (task.id, dependencies)
+                })
+            })
+            .collect::<Vec<_>>();
+        for (task_id, dependencies) in repairs {
+            let _ = self
+                .execute(
+                    CommandEnvelope {
+                        protocol_version: PROTOCOL_VERSION,
+                        command_id: CommandId::new(),
+                        expected_revision: None,
+                        command: Command::UpdateTask {
+                            task_id,
+                            patch: TaskPatch {
+                                dependencies: Some(dependencies),
+                                ..TaskPatch::default()
+                            },
+                        },
+                    },
+                    ActorRef::system(),
+                    DeviceRole::Owner,
+                )
+                .await;
         }
         Ok(())
     }

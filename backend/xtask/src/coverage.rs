@@ -400,7 +400,8 @@ pub fn check(report_path: &Path, policy_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        check, check_values, nonnegative_integer, package_for_filename, uncovered_details,
+        Metric, check, check_values, limits, nonnegative_integer, number, package_for_filename,
+        uncovered_details,
     };
     use serde_json::json;
     use std::fs;
@@ -640,5 +641,182 @@ target_lines = 95
         )
         .unwrap();
         assert!(check(&report, &policy_path).is_err());
+    }
+
+    #[test]
+    fn metric_validation_rejects_invalid_shapes_and_overcoverage() {
+        assert!(Metric::from_json(&json!({}), "demo", "lines").is_err());
+        assert!(Metric::from_json(&json!({"count": 1}), "demo", "lines").is_err());
+        assert!(Metric::from_json(&json!({"count": 1, "covered": 2}), "demo", "lines").is_err());
+        let metric =
+            Metric::from_json(&json!({"count": 0, "covered": 0}), "demo", "lines").unwrap();
+        assert_eq!(metric.uncovered(), 0);
+        assert_eq!(metric.percent(), 100.0);
+    }
+
+    #[test]
+    fn report_metrics_accepts_multiple_entries_and_rejects_missing_shapes() {
+        let report = json!({
+            "data": [
+                {"files": [{"filename": "/repo/crates/demo/src/a.rs", "summary": {
+                    "regions": {"count": 2, "covered": 1},
+                    "functions": {"count": 1, "covered": 1},
+                    "lines": {"count": 3, "covered": 2}
+                }}]},
+                {"files": [{"filename": "\\repo\\crates\\demo\\src\\b.rs", "summary": {
+                    "regions": {"count": 1, "covered": 1},
+                    "functions": {"count": 2, "covered": 1},
+                    "lines": {"count": 1, "covered": 1}
+                }}]}
+            ]
+        });
+        let summary = check_values(&report, &policy(50, 5)).unwrap();
+        assert!(summary.contains("demo regions: 66.67% (2/3)"));
+
+        assert!(check_values(&json!({}), &policy(0, 5)).is_err());
+        assert!(check_values(&json!({"data": [{"files": []}]}), &policy(0, 5)).is_err());
+        assert!(
+            check_values(
+                &json!({"data": [{"files": [{"summary": {}}]}]}),
+                &policy(0, 5),
+            )
+            .is_err()
+        );
+        assert!(
+            check_values(
+                &json!({"data": [{"files": [{"filename": "/repo/other/lib.rs", "summary": {}}]}]}),
+                &policy(0, 5),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn policy_and_report_boundary_errors_are_explicit() {
+        let report = report(10, 10);
+        let missing_package: toml::Value = toml::from_str(
+            r#"version = 1
+[packages.other]
+min_regions = 0
+min_functions = 0
+min_lines = 0
+max_uncovered_regions = 0
+max_uncovered_functions = 0
+max_uncovered_lines = 0
+target_regions = 90
+target_functions = 90
+target_lines = 95
+"#,
+        )
+        .unwrap();
+        assert!(check_values(&report, &missing_package).is_err());
+        assert!(
+            check_values(
+                &report,
+                &toml::from_str::<toml::Value>("version = 1").unwrap(),
+            )
+            .is_err()
+        );
+
+        let bad_number: toml::Value = toml::from_str(
+            r#"version = 1
+[packages.demo]
+min_regions = "many"
+min_functions = 0
+min_lines = 0
+max_uncovered_regions = 0
+max_uncovered_functions = 0
+max_uncovered_lines = 0
+target_regions = 90
+target_functions = 90
+target_lines = 95
+"#,
+        )
+        .unwrap();
+        assert!(check_values(&report, &bad_number).is_err());
+
+        let empty_packages: toml::Value = toml::from_str("version = 1\n[packages]\n").unwrap();
+        assert!(check_values(&report, &empty_packages).is_err());
+        let package_table =
+            toml::from_str::<toml::Value>("[packages.demo]\nmin_regions = 0\n").unwrap();
+        let table = package_table["packages"]["demo"].as_table().unwrap();
+        assert!(number(table, "missing").is_err());
+        assert!(nonnegative_integer(table, "missing").is_err());
+        assert!(
+            limits(
+                &toml::from_str::<toml::Value>("version = 1").unwrap(),
+                "demo"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn check_reads_and_validates_both_files() {
+        let tmp = tempdir().unwrap();
+        let report_path = tmp.path().join("report.json");
+        let policy_path = tmp.path().join("coverage.toml");
+        fs::write(&report_path, serde_json::to_vec(&report(10, 10)).unwrap()).unwrap();
+        fs::write(
+            &policy_path,
+            r#"version = 1
+[packages.demo]
+min_regions = 0
+min_functions = 0
+min_lines = 100
+max_uncovered_regions = 10
+max_uncovered_functions = 10
+max_uncovered_lines = 0
+target_regions = 90
+target_functions = 90
+target_lines = 100
+"#,
+        )
+        .unwrap();
+        check(&report_path, &policy_path).unwrap();
+
+        fs::write(&policy_path, "not valid = [").unwrap();
+        assert!(check(&report_path, &policy_path).is_err());
+        assert!(check(&tmp.path().join("missing"), &policy_path).is_err());
+        assert!(check(&report_path, &tmp.path().join("missing-policy")).is_err());
+    }
+
+    #[test]
+    fn uncovered_details_handles_long_symbols_and_malformed_function_entries() {
+        let long_name = "x".repeat(200);
+        let report = json!({
+            "data": [{"functions": [
+                {"count": 1, "filenames": ["/repo/crates/demo/src/covered.rs"], "name": "covered"},
+                {"count": 0, "filenames": [], "name": "ignored"},
+                {"count": 0, "filenames": ["/repo/crates/demo/src/lib.rs"], "name": long_name},
+                {"count": 0, "filenames": ["/repo/crates/demo/src/lib.rs"], "name": long_name},
+                {"count": 0, "filenames": ["/repo/crates/demo/src/other.rs"]}
+            ]}]
+        });
+        let details = uncovered_details(&report, "demo");
+        assert_eq!(details.len(), 2);
+        assert!(details[0].contains("..."));
+        assert!(details[1].contains("other.rs"));
+        assert!(uncovered_details(&json!({}), "demo").is_empty());
+        assert!(uncovered_details(&json!({"data": [{"files": []}]}), "demo").is_empty());
+
+        let diagnostic_report = json!({
+            "data": [{
+                "files": [{"filename": "/repo/crates/demo/src/lib.rs", "summary": {
+                    "regions": {"count": 1, "covered": 0},
+                    "functions": {"count": 1, "covered": 0},
+                    "lines": {"count": 1, "covered": 0}
+                }}],
+                "functions": [{
+                    "count": 0,
+                    "filenames": ["/repo/crates/demo/src/lib.rs"],
+                    "name": "missing",
+                    "regions": [[7, 1, 7, 2, 0, 0, 0, 0]]
+                }]
+            }]
+        });
+        let diagnostic_policy = policy(100, 0);
+        let error = check_values(&diagnostic_report, &diagnostic_policy).unwrap_err();
+        assert!(error.to_string().contains("uncovered function"));
     }
 }

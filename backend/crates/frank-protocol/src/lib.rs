@@ -17,6 +17,7 @@ mod operations_artifacts_terminal;
 mod settings_capabilities;
 mod snapshot_scope;
 mod team;
+mod toolchain;
 mod usage;
 mod validation;
 mod version;
@@ -32,6 +33,7 @@ pub use operations_artifacts_terminal::*;
 pub use settings_capabilities::*;
 pub use snapshot_scope::*;
 pub use team::*;
+pub use toolchain::*;
 pub use usage::*;
 pub use validation::*;
 pub use version::*;
@@ -213,5 +215,206 @@ mod tests {
         let encoded = serde_json::to_vec(&state).unwrap();
         let decoded: OrganizationStateView = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded, state);
+    }
+
+    #[test]
+    fn runner_toolchain_and_journal_dtos_round_trip_with_defaults() {
+        let runner_id = RunnerId::new();
+        let project_id = ProjectId::new();
+        let task_id = TaskId::new();
+        let artifact = ToolchainArtifact {
+            platform: "macos-arm64".into(),
+            source: ToolchainArtifactSource::Host {
+                executable: "flutter".into(),
+            },
+            sha256: "0".repeat(64),
+            size_bytes: 1,
+            archive: None,
+        };
+        let runner = RunnerView {
+            id: runner_id,
+            name: "build-mac".into(),
+            host: "macbook.local".into(),
+            status: RunnerStatus::Idle,
+            last_seen_at: Some("2026-09-15T00:00:00Z".into()),
+            toolchains: vec!["flutter@3.47.1".into()],
+            path_mappings: vec![RunnerPathMapping {
+                daemon_root: "/worktrees".into(),
+                host_root: "/Users/builder/worktrees".into(),
+                project_id: Some(project_id),
+            }],
+        };
+        let check = CheckRunView {
+            id: "check-1".into(),
+            runner_id,
+            project_id,
+            task_id: Some(task_id),
+            check_id: "rust-test".into(),
+            status: CheckRunStatus::Passed,
+            exit_code: Some(0),
+            stdout: "ok".into(),
+            stderr: String::new(),
+            duration_ms: 42,
+            started_at: "2026-09-15T00:00:00Z".into(),
+            finished_at: Some("2026-09-15T00:00:01Z".into()),
+        };
+        let job = RunnerJobView {
+            id: "job-1".into(),
+            runner_id,
+            project_id,
+            task_id: Some(task_id),
+            check_id: "rust-test".into(),
+            kind: RunnerJobKind::Check,
+            status: RunnerJobStatus::Passed,
+            created_at: "2026-09-15T00:00:00Z".into(),
+            updated_at: "2026-09-15T00:00:01Z".into(),
+            result: Some(check),
+            install_result: None,
+        };
+        let plan = ToolchainInstallPlan {
+            manifest_id: "flutter".into(),
+            version: "3.47.1".into(),
+            source: "host:flutter".into(),
+            sha256: "0".repeat(64),
+            size_bytes: 1,
+            install_path: "/Users/builder/.frank/toolchains/flutter".into(),
+            checks: vec!["flutter --version".into()],
+            approval_scope: "host-tool".into(),
+            artifact: Some(artifact.clone()),
+        };
+        let requirement = ToolchainRequirementView {
+            manifest_id: "flutter".into(),
+            label: "Flutter".into(),
+            required_version: "3.47.1".into(),
+            status: ToolchainRequirementStatus::ManualRequirement,
+            detected_version: Some("3.47.1".into()),
+            diagnostic: None,
+            install_plan: Some(plan),
+        };
+        let install = RunnerInstallJob {
+            id: "install-1".into(),
+            runner_id,
+            project_id,
+            task_id: Some(task_id),
+            daemon_worktree: "/worktrees/project".into(),
+            manifest_id: "flutter".into(),
+            version: "3.47.1".into(),
+            artifact,
+            install_relative_path: "flutter".into(),
+        };
+        let filter = JournalFilter {
+            before_sequence: Some(100),
+            limit: Some(20),
+            project_id: Some(project_id),
+            mission_id: Some(MissionId::new()),
+            task_id: Some(task_id),
+            agent_id: Some(AgentId::new()),
+            kinds: vec![JournalEntryKind::Toolchain, JournalEntryKind::Check],
+            outcomes: vec![JournalOutcome::Success, JournalOutcome::Failure],
+        };
+        let entry = JournalEntryView {
+            sequence: 99,
+            occurred_at: "2026-09-15T00:00:01Z".into(),
+            actor: ActorRef::system(),
+            kind: JournalEntryKind::Check,
+            outcome: JournalOutcome::Success,
+            summary: "rust-test passed".into(),
+            detail: Some(serde_json::json!({"runner": runner_id.to_string()})),
+            project_id: Some(project_id),
+            mission_id: None,
+            task_id: Some(task_id),
+            agent_id: None,
+            check_run_id: Some("check-1".into()),
+        };
+        let payload = serde_json::json!({
+            "runner": runner,
+            "job": job,
+            "requirement": requirement,
+            "install": install,
+            "filter": filter,
+            "page": JournalPage {
+                entries: vec![entry],
+                next_before_sequence: Some(98),
+            },
+        });
+        let decoded: serde_json::Value =
+            serde_json::from_slice(&serde_json::to_vec(&payload).expect("payload should encode"))
+                .expect("payload should decode");
+        assert_eq!(decoded, payload);
+
+        let defaults: JournalFilter = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults, JournalFilter::default());
+        let old_job: RunnerJobView = serde_json::from_str(
+            r#"{"id":"job-legacy","runner_id":"00000000-0000-0000-0000-000000000000","project_id":"00000000-0000-0000-0000-000000000000","check_id":"check","status":"queued","created_at":"now","updated_at":"now"}"#,
+        )
+        .unwrap();
+        assert_eq!(old_job.kind, RunnerJobKind::Check);
+        assert!(old_job.result.is_none());
+        assert!(old_job.install_result.is_none());
+    }
+
+    #[test]
+    fn command_and_event_extensions_keep_their_discriminators() {
+        let runner_id = RunnerId::nil();
+        let project_id = ProjectId::nil();
+        let command = Command::RequestHumanInput {
+            task_id: TaskId::nil(),
+            kind: HumanInputKind::Question,
+            prompt: "choose a runner".into(),
+        };
+        let encoded = serde_json::to_value(&command).unwrap();
+        assert_eq!(encoded["type"], "request_human_input");
+        assert_eq!(encoded["data"]["kind"], "question");
+
+        let event = Event::ToolchainInstallationRecorded {
+            manifest_id: "dotnet".into(),
+            version: "lts-lockfile".into(),
+            runner_id,
+            status: ToolchainRequirementStatus::NeedsApproval,
+            project_id: Some(project_id),
+            task_id: None,
+            install_path: None,
+        };
+        let value = serde_json::to_value(&event).unwrap();
+        assert_eq!(value["type"], "toolchain_installation_recorded");
+        assert_eq!(value["data"]["status"], "needs_approval");
+
+        let check = CheckRunView {
+            id: "check-2".into(),
+            runner_id,
+            project_id,
+            task_id: None,
+            check_id: "dotnet-format".into(),
+            status: CheckRunStatus::Failed,
+            exit_code: Some(1),
+            stdout: String::new(),
+            stderr: "formatting required".into(),
+            duration_ms: 10,
+            started_at: "now".into(),
+            finished_at: Some("later".into()),
+        };
+        let event = Event::CheckRunRecorded {
+            check: check.clone(),
+        };
+        let decoded: Event = serde_json::from_value(serde_json::to_value(event).unwrap()).unwrap();
+        assert_eq!(decoded, Event::CheckRunRecorded { check });
+    }
+
+    #[test]
+    fn strict_dtos_reject_unknown_fields_but_legacy_optional_fields_default() {
+        let unknown = serde_json::from_str::<ToolchainManifest>(
+            r#"{"schema_version":1,"id":"x","label":"X","version":"1","detect":{},"install":{"directory":"x"},"unexpected":true}"#,
+        );
+        assert!(unknown.is_err());
+        let artifact: ToolchainArtifact = serde_json::from_str(
+            r#"{"platform":"macos-arm64","source":{"kind":"host","executable":"flutter"},"sha256":"0000000000000000000000000000000000000000000000000000000000000000","size_bytes":1}"#,
+        )
+        .unwrap();
+        assert_eq!(artifact.archive, None);
+        let check: ToolchainCheck =
+            serde_json::from_str(r#"{"id":"version","program":"flutter"}"#).unwrap();
+        assert_eq!(check.timeout_seconds, 600);
+        assert!(check.args.is_empty());
+        assert!(check.environment.is_empty());
     }
 }

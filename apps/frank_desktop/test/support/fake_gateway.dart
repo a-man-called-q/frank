@@ -7,10 +7,12 @@ import 'package:frank_desktop/core/gateway/frank_gateway.dart';
 import 'package:frank_desktop/core/models/organization_models.dart';
 import 'package:frank_desktop/core/models/connection_models.dart';
 import 'package:frank_desktop/core/models/ledger_models.dart';
+import 'package:frank_desktop/core/models/journal_models.dart';
 import 'package:frank_desktop/core/models/openrouter_models.dart';
 import 'package:frank_desktop/core/models/project_models.dart';
 import 'package:frank_desktop/core/models/taskboard_models.dart';
 import 'package:frank_desktop/core/models/team_models.dart';
+import 'package:frank_desktop/core/models/toolchain_models.dart';
 import 'package:frank_desktop/core/models/workspace_models.dart';
 import 'package:frank_desktop/core/models/workflow_models.dart';
 
@@ -51,6 +53,59 @@ class FakeGateway implements FrankGateway {
 
   @override
   Stream<void> watchTaskboard() => const Stream<void>.empty();
+
+  @override
+  Future<JournalPage> loadJournal({
+    int? beforeSequence,
+    int limit = 50,
+    String? projectId,
+    String? missionId,
+    String? taskId,
+    String? agentId,
+    JournalEntryKind? kind,
+    JournalOutcome? outcome,
+  }) async => const JournalPage(entries: []);
+
+  @override
+  Future<List<ToolchainRequirement>> loadToolchains({
+    String? projectPath,
+  }) async => const <ToolchainRequirement>[];
+
+  @override
+  Future<List<RunnerInfo>> loadRunners() async => const <RunnerInfo>[];
+
+  @override
+  Future<String> requestToolchainApproval({
+    required String agentId,
+    required String taskId,
+    required String operation,
+    required String cwd,
+    required String project,
+    required String reason,
+  }) => Future<String>.error(
+    StateError('Toolchain approvals are unavailable in fake mode.'),
+  );
+
+  @override
+  Future<void> decideToolchainApproval({
+    required String approvalId,
+    required ToolchainApprovalDecision decision,
+  }) => Future<void>.error(
+    StateError('Toolchain approvals are unavailable in fake mode.'),
+  );
+
+  @override
+  Future<ToolchainInstallResult> installToolchain({
+    required String runnerId,
+    required String projectId,
+    required String taskId,
+    required String manifestId,
+    required String version,
+    required String projectPath,
+    required String approvalId,
+  }) => Future<ToolchainInstallResult>.error(
+    StateError('Toolchain installation is unavailable in fake mode.'),
+  );
 
   @override
   Future<List<ProjectDirectoryEntry>> browseProjectDirectories([
@@ -219,8 +274,6 @@ class FakeGateway implements FrankGateway {
           TeamRoleSummary(
             id: profile.roleId!,
             name: profile.role,
-            description: profile.tagline,
-            template: profile.specialization?.toLowerCase() ?? 'generalist',
             defaultModel: profile.roleDefaultModel ?? profile.model,
           ),
     ];
@@ -468,6 +521,15 @@ class FakeGateway implements FrankGateway {
       accountExecutive: current.accountExecutive,
     );
   }
+
+  @override
+  Future<void> setMissionStatus({
+    required String missionId,
+    required MissionStatus status,
+  }) async {}
+
+  @override
+  Future<void> retryMissionPlan(String missionId) async {}
 
   @override
   Stream<void> watchWorkspaceChanges() => const Stream<void>.empty();

@@ -64,7 +64,6 @@ class _LoginGateState extends State<LoginGate>
 
   _LoginPhase _phase = _LoginPhase.form;
   ShellLoadStatus _shellStatus = ShellLoadStatus.loading;
-  bool _passwordVisible = false;
   String? _error;
   FrankConnectionStatus? _compatibilityStatus;
   bool _restoring = true;
@@ -192,6 +191,18 @@ class _LoginGateState extends State<LoginGate>
 
   Future<void> _restoreSession() async {
     try {
+      // A persisted session is the source of truth for whether this client is
+      // already signed in. Restore it before running connection negotiation;
+      // a temporary capabilities/status failure must not turn a valid session
+      // back into a login form. The shell owns the later connection state.
+      final session = await _auth.restore();
+      if (!mounted) return;
+      if (session != null) {
+        setState(() => _restoring = false);
+        await _revealShell();
+        return;
+      }
+
       final capabilities = await widget.gateway.preflightCapabilities();
       if (capabilities != null &&
           !capabilities.isCompatibleWith(FrankApiVersion.current)) {
@@ -214,10 +225,8 @@ class _LoginGateState extends State<LoginGate>
         });
         return;
       }
-      final session = await _auth.restore();
       if (!mounted) return;
       setState(() => _restoring = false);
-      if (session != null) await _revealShell();
     } on AuthFailure catch (error) {
       if (!mounted) return;
       if (error.kind == AuthFailureKind.protocolMismatch) {
@@ -577,39 +586,19 @@ class _LoginGateState extends State<LoginGate>
             container: true,
             label: 'Password',
             child: ExcludeSemantics(
-              child: FTextFormField(
+              child: FTextFormField.password(
                 key: const ValueKey('login-password-field'),
                 control: FTextFieldControl.managed(
                   controller: _passwordController,
                 ),
                 focusNode: _passwordFocusNode,
                 enabled: enabled,
-                obscureText: !_passwordVisible,
                 textInputAction: TextInputAction.done,
                 autofillHints: const [AutofillHints.password],
                 onSubmit: (_) => unawaited(_submit()),
                 validator: _validatePassword,
                 label: const Text('Password'),
                 hint: 'Your workspace password',
-                suffixBuilder: (_, _, _) => FButton.icon(
-                  onPress: !enabled
-                      ? null
-                      : () => setState(
-                          () => _passwordVisible = !_passwordVisible,
-                        ),
-                  semanticsLabel: _passwordVisible
-                      ? 'Hide password'
-                      : 'Show password',
-                  semanticsTooltip: _passwordVisible
-                      ? 'Hide password'
-                      : 'Show password',
-                  child: Icon(
-                    _passwordVisible
-                        ? FrankIcons.visibilityOffOutlined
-                        : FrankIcons.visibilityOutlined,
-                    size: 18,
-                  ),
-                ),
               ),
             ),
           ),

@@ -3,10 +3,12 @@ import '../gateway/frank_gateway.dart';
 import '../models/organization_models.dart';
 import '../models/connection_models.dart';
 import '../models/ledger_models.dart';
+import '../models/journal_models.dart';
 import '../models/openrouter_models.dart';
 import '../models/project_models.dart';
 import '../models/taskboard_models.dart';
 import '../models/team_models.dart';
+import '../models/toolchain_models.dart';
 import '../models/workspace_models.dart';
 import '../models/workflow_models.dart';
 import 'fixture_ledger.dart';
@@ -101,12 +103,11 @@ class FixtureFrankGateway implements FrankGateway {
   bool get isFixture => true;
 
   @override
-  FrankConnectionStatus get connectionStatus =>
-      const FrankConnectionStatus(
-        phase: FrankConnectionPhase.connected,
-        appProtocolVersion: 2,
-        detail: 'Demo data',
-      );
+  FrankConnectionStatus get connectionStatus => const FrankConnectionStatus(
+    phase: FrankConnectionPhase.connected,
+    appProtocolVersion: 2,
+    detail: 'Demo data',
+  );
 
   @override
   Stream<FrankConnectionStatus> watchConnectionStatus() =>
@@ -119,6 +120,59 @@ class FixtureFrankGateway implements FrankGateway {
 
   @override
   Stream<void> watchTaskboard() => const Stream<void>.empty();
+
+  @override
+  Future<JournalPage> loadJournal({
+    int? beforeSequence,
+    int limit = 50,
+    String? projectId,
+    String? missionId,
+    String? taskId,
+    String? agentId,
+    JournalEntryKind? kind,
+    JournalOutcome? outcome,
+  }) async => const JournalPage(entries: []);
+
+  @override
+  Future<List<ToolchainRequirement>> loadToolchains({
+    String? projectPath,
+  }) async => const <ToolchainRequirement>[];
+
+  @override
+  Future<List<RunnerInfo>> loadRunners() async => const <RunnerInfo>[];
+
+  @override
+  Future<String> requestToolchainApproval({
+    required String agentId,
+    required String taskId,
+    required String operation,
+    required String cwd,
+    required String project,
+    required String reason,
+  }) => Future<String>.error(
+    StateError('Toolchain approvals are unavailable in demo mode.'),
+  );
+
+  @override
+  Future<void> decideToolchainApproval({
+    required String approvalId,
+    required ToolchainApprovalDecision decision,
+  }) => Future<void>.error(
+    StateError('Toolchain approvals are unavailable in demo mode.'),
+  );
+
+  @override
+  Future<ToolchainInstallResult> installToolchain({
+    required String runnerId,
+    required String projectId,
+    required String taskId,
+    required String manifestId,
+    required String version,
+    required String projectPath,
+    required String approvalId,
+  }) => Future<ToolchainInstallResult>.error(
+    StateError('Toolchain installation is unavailable in demo mode.'),
+  );
 
   @override
   Future<List<ProjectDirectoryEntry>> browseProjectDirectories([
@@ -181,7 +235,9 @@ class FixtureFrankGateway implements FrankGateway {
   @override
   Future<void> createMission(String projectId, String objective) async {
     final workspace = _workspaceCache ?? await loadWorkspace();
-    final project = workspace.projects.where((value) => value.id == projectId).firstOrNull;
+    final project = workspace.projects
+        .where((value) => value.id == projectId)
+        .firstOrNull;
     if (project == null) throw StateError('Project not found.');
     final mission = OfficeMission(
       id: 'fixture-mission-${project.missions.length + 1}',
@@ -210,6 +266,15 @@ class FixtureFrankGateway implements FrankGateway {
       accountExecutive: workspace.accountExecutive,
     );
   }
+
+  @override
+  Future<void> setMissionStatus({
+    required String missionId,
+    required MissionStatus status,
+  }) async {}
+
+  @override
+  Future<void> retryMissionPlan(String missionId) async {}
 
   @override
   Stream<void> watchWorkspaceChanges() => const Stream<void>.empty();
@@ -408,8 +473,6 @@ class FixtureFrankGateway implements FrankGateway {
           TeamRoleSummary(
             id: profile.roleId!,
             name: profile.role,
-            description: profile.tagline,
-            template: profile.specialization?.toLowerCase() ?? 'generalist',
             defaultModel: profile.roleDefaultModel ?? profile.model,
           ),
     ];

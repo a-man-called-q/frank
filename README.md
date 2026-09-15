@@ -49,8 +49,8 @@ The provider executes work. Frank remains the source of truth.
   durable reviews.
 - **Organization workflows** with draft/publish revisions, board routing,
   connector profiles, draining, relocation, and resume semantics.
-- **OpenRouter runtime** with structured tool calls, streaming usage telemetry,
-  retry boundaries, and resumable session state.
+- **OpenRouter and native OpenAI runtimes** with structured tool calls,
+  streaming usage telemetry, retry boundaries, and resumable session state.
 - **Approvals and budgets** enforced by the daemon rather than left to model
   convention.
 - **Worktrees and Git delivery** with deterministic branch planning, validation,
@@ -68,7 +68,7 @@ configuration is present. It exposes:
 - owner login, secure session restoration, password changes, and logout-all;
 - Office and project conversations;
 - attention, pinned, draft, active, and completed mission shelves;
-- Team, Organization, Taskboard, Ledger, and Models & OpenRouter surfaces;
+- Team, Organization, Taskboard, Ledger, and Models & Providers surfaces;
 - live snapshot/event refresh through the versioned v2 API;
 - a keyboard-aware desktop shell and a stylized `flutter_scene` office floor.
 
@@ -99,7 +99,7 @@ The `frank` CLI still provides the original local engine:
 │ frankd                                                    │
 │                                                          │
 │ auth · snapshots · event streams · policy · approvals    │
-│ supervisor · scheduler · OpenRouter sessions · tools      │
+│ supervisor · scheduler · provider sessions · tools        │
 │ worktrees · Git · PTYs · artifacts · updates             │
 └──────────────┬───────────────────────┬───────────────────┘
                │                       │
@@ -117,7 +117,7 @@ The desktop app never opens the database or project filesystem directly.
 | `frankd` / `frank-server` | Authenticated API, event fan-out, diagnostics, artifacts, terminals, and daemon lifecycle |
 | `frank-orchestrator` | Mission/task state machines, scheduling, approvals, budgets, tools, worktrees, and recovery |
 | `frank-store` | SQLite WAL source of truth, migrations, idempotency, projections, audit export, and retention |
-| `frank-agent` | Structured OpenRouter runtime, streaming, usage telemetry, and PTYs |
+| `frank-agent` | Structured OpenRouter/OpenAI runtimes, streaming, usage telemetry, and PTYs |
 | `frank-protocol` | Versioned command, event, snapshot, capability, and terminal contracts |
 | `frank-client` | Reconnecting Rust client with TLS pinning and snapshot/event recovery |
 | `apps/frank_desktop` | Remote-only Flutter operator interface |
@@ -230,7 +230,13 @@ process.
 - The macOS desktop client is the active native reference build; Windows and
   Linux release/accessibility acceptance is pending.
 - The office floor is a static visual foundation, not a live agent simulation.
-- The Journal surface and some release UX remain incomplete.
+- The Journal projection and desktop timeline are available in v1; the
+  macOS GPU scene smoke test still requires a real interactive render session.
+- Toolchain manifests, host-runner checks, and approval previews are available
+  for the v1 host-runner path. Remote registry/latest-version discovery and
+  archive extraction are intentionally deferred; Flutter is pinned to 3.47.1,
+  while Odin/.NET/LLVM built-ins currently require a host install or an exact
+  project-local artifact manifest.
 - Legacy 0.2.x state is intentionally not migrated into the 1.0 data root.
 
 ## Development

@@ -291,7 +291,14 @@ class _ProjectSelect extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textScaleFactor = MediaQuery.textScalerOf(context).scale(1);
-    final expandedWidth = textScaleFactor > 1.25 ? 250.0 : null;
+    // FSelect's trigger keeps its label at the scaled font size. Give it a
+    // real responsive measure instead of letting the compact 250px default
+    // overflow at 200% accessibility text scaling.
+    final expandedWidth = textScaleFactor >= 1.5
+        ? 360.0
+        : textScaleFactor > 1.25
+        ? 300.0
+        : null;
     return SizedBox(
       width: expandedWidth,
       child: Semantics(
@@ -335,11 +342,38 @@ class _AttentionToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.hasBoundedWidth
             ? constraints.maxWidth
             : 240.0;
+        final textMaxWidth = (maxWidth - (largeText ? 24 : 48)).clamp(
+          40.0,
+          maxWidth,
+        );
+        final label = Text(
+          largeText ? 'Attention · $count' : 'Needs attention  $count',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        );
+        if (largeText) {
+          return FButton.raw(
+            key: const ValueKey('taskboard-attention-filter'),
+            onPress: () => onChanged(!selected),
+            variant: selected ? FButtonVariant.primary : FButtonVariant.outline,
+            size: FButtonSizeVariant.sm,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: textMaxWidth),
+                child: Center(
+                  child: FittedBox(fit: BoxFit.scaleDown, child: label),
+                ),
+              ),
+            ),
+          );
+        }
         return FButton(
           key: const ValueKey('taskboard-attention-filter'),
           onPress: () => onChanged(!selected),
@@ -351,14 +385,8 @@ class _AttentionToggle extends StatelessWidget {
             size: FrankUiTokens.iconSize,
           ),
           child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: (maxWidth - 48).clamp(40.0, maxWidth),
-            ),
-            child: Text(
-              'Needs attention  $count',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+            constraints: BoxConstraints(maxWidth: textMaxWidth),
+            child: label,
           ),
         );
       },
@@ -378,17 +406,20 @@ class _ViewToggle extends StatelessWidget {
   final ValueChanged<TaskboardView> onChanged;
 
   @override
-  Widget build(BuildContext context) => FrankSegmentedControl<TaskboardView>(
-    value: view,
-    items: const [
-      (TaskboardView.board, 'Board', FrankIcons.taskboard),
-      (TaskboardView.list, 'List', FrankIcons.taskList),
-    ],
-    itemKeyBuilder: (item) =>
-        ValueKey('taskboard-view-${item.name.toLowerCase()}'),
-    enabledBuilder: (item) => item == TaskboardView.list || boardEnabled,
-    onChanged: onChanged,
-  );
+  Widget build(BuildContext context) {
+    final largeText = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    return FrankSegmentedControl<TaskboardView>(
+      value: view,
+      items: [
+        (TaskboardView.board, 'Board', largeText ? null : FrankIcons.taskboard),
+        (TaskboardView.list, 'List', largeText ? null : FrankIcons.taskList),
+      ],
+      itemKeyBuilder: (item) =>
+          ValueKey('taskboard-view-${item.name.toLowerCase()}'),
+      enabledBuilder: (item) => item == TaskboardView.list || boardEnabled,
+      onChanged: onChanged,
+    );
+  }
 }
 
 class _TaskboardBoard extends StatelessWidget {
@@ -774,7 +805,7 @@ Color _laneColor(TaskboardLane lane) => switch (lane.canonical) {
   TaskboardLane.running => FrankColors.blue,
   TaskboardLane.blocked => FrankColors.warningAmber,
   TaskboardLane.review => FrankColors.warningAmber,
-  TaskboardLane.done => FrankColors.green,
+  TaskboardLane.done => FrankColors.statusSuccess,
   TaskboardLane.cancelled => FrankColors.failure,
   // canonical is exhaustive above; aliases are normalized by the getter.
   TaskboardLane.queued ||

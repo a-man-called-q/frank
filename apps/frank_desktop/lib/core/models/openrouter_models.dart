@@ -94,6 +94,10 @@ class OpenRouterModel {
   );
   bool get deprecated => deprecatedAt != null;
 
+  bool get isOpenAi => canonicalSlug.startsWith('openai/');
+
+  String get providerLabel => isOpenAi ? 'OpenAI' : 'OpenRouter';
+
   bool get isFree =>
       canonicalSlug.endsWith(':free') ||
       (_price(inputPricePerToken) == 0 && _price(outputPricePerToken) == 0);

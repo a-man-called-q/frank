@@ -207,7 +207,7 @@ target_lines = 80
 # ---------------------------------------------------------------------------
 # Frank 1.0 crates, registered at their first measured baseline.
 #
-# These nine were never in this file. The checker fails closed on any package
+# These thirteen were never in this file. The checker fails closed on any package
 # present in the report without a table ("report contains an unknown workspace
 # package"), so the coverage step could not pass from the moment it was able to
 # run at all -- which, between the stale frank-gui-core entry, the 1.88 toolchain
@@ -234,6 +234,19 @@ target_regions = 90
 target_functions = 90
 target_lines = 95
 
+# Native credential namespace and its file-safe compatibility fallback. This
+# is the first measured baseline for the crate, not a quality target.
+[packages.frank-credential]
+min_regions = 72
+min_functions = 64
+min_lines = 71
+max_uncovered_regions = 168
+max_uncovered_functions = 14
+max_uncovered_lines = 100
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
 # Lowest in the workspace. The task-scoped MCP bridge is exercised end to end by hand and almost not at all by tests.
 [packages.frank-agent-mcp]
 min_regions = 11
@@ -242,6 +255,44 @@ min_lines = 11
 max_uncovered_regions = 627
 max_uncovered_functions = 37
 max_uncovered_lines = 416
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+# Host-runner process boundary. Its first baseline deliberately records the
+# currently untested WebSocket/install orchestration paths for later ratchets.
+[packages.frank-runner]
+min_regions = 45
+min_functions = 40
+min_lines = 40
+max_uncovered_regions = 766
+max_uncovered_functions = 55
+max_uncovered_lines = 554
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+# Canonical tool IDs and schemas. Registered at the first measured baseline.
+[packages.frank-tool-catalog]
+min_regions = 80
+min_functions = 75
+min_lines = 72
+max_uncovered_regions = 59
+max_uncovered_functions = 6
+max_uncovered_lines = 45
+target_regions = 90
+target_functions = 90
+target_lines = 95
+
+# Manifest parsing, detection, and check/install planning. Registered at the
+# first measured baseline; the target remains intentionally much higher.
+[packages.frank-toolchain]
+min_regions = 48
+min_functions = 41
+min_lines = 46
+max_uncovered_regions = 541
+max_uncovered_functions = 40
+max_uncovered_lines = 428
 target_regions = 90
 target_functions = 90
 target_lines = 95

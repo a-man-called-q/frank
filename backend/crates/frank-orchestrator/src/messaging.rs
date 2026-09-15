@@ -272,7 +272,8 @@ impl Orchestrator {
                 .supervisor_model
                 .clone()
                 .or_else(|| supervisor.effective_model.clone())
-                .or(supervisor.model),
+                .or(supervisor.model)
+                .or_else(|| Some(crate::DEFAULT_LUNA_MODEL.into())),
             resume_session_id: mission.supervisor_session_id.clone(),
             server_url: local_server_url(&snapshot.server),
             server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
@@ -285,6 +286,7 @@ impl Orchestrator {
                     )
                     .await?,
             ),
+            reasoning_effort: Some(ReasoningEffort::Max),
         };
         let session = if let Some(provider_session_id) = request.resume_session_id.as_deref() {
             self.runtime
@@ -316,6 +318,7 @@ impl Orchestrator {
                             .await;
                     }
                     RuntimeEvent::Stopped { .. } | RuntimeEvent::Error { .. } => break,
+                    RuntimeEvent::TurnCompleted { .. } => {}
                     _ => {}
                 }
             }
@@ -355,10 +358,9 @@ impl Orchestrator {
             .create_worktree(&mission_plan)
             .await
             .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
-        let checks = workflow
-            .run_checks(&mission_plan.path)
-            .await
-            .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
+        let checks = self
+            .run_project_checks(&workflow, &mission_plan.path, None)
+            .await?;
         if checks.iter().any(|check| !check.success) {
             return Err(OrchestratorError::Validation(
                 "required project checks failed on the mission branch".into(),

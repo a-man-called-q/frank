@@ -79,35 +79,175 @@ impl Orchestrator {
                 approval_id,
                 decision,
             } => {
-                let approval = snapshot
+                let approval_index = snapshot
                     .approvals
-                    .iter_mut()
-                    .find(|approval| approval.id == approval_id)
+                    .iter()
+                    .position(|approval| approval.id == approval_id)
                     .ok_or(OrchestratorError::NotFound)?;
+                let approval = snapshot.approvals[approval_index].clone();
                 if !matches!(approval.status, ApprovalStatus::Pending) {
                     return Err(OrchestratorError::InvalidTransition(
                         "approval is no longer pending".into(),
                     ));
                 }
                 if approval.expires_at.parse::<u128>().unwrap_or_default() <= now_plus_seconds(0) {
-                    approval.status = ApprovalStatus::Expired;
-                    let approval_id = approval.id;
+                    snapshot.approvals[approval_index].status = ApprovalStatus::Expired;
                     return Ok((
                         snapshot,
-                        Event::ApprovalExpired { approval_id },
+                        Event::ApprovalExpired {
+                            approval_id: approval.id,
+                        },
                         CommandResult::Accepted,
                     ));
                 }
-                approval.status = match decision {
-                    ApprovalDecision::AllowOnce => ApprovalStatus::Approved,
+                let status = match decision {
+                    ApprovalDecision::AllowOnce | ApprovalDecision::AllowForTask => {
+                        ApprovalStatus::Approved
+                    }
                     ApprovalDecision::DenyOnce => ApprovalStatus::Denied,
                 };
+                snapshot.approvals[approval_index].status = status;
+                if decision == ApprovalDecision::AllowForTask {
+                    let effect = task_grant_effect(&approval.operation).ok_or_else(|| {
+                        OrchestratorError::Validation(
+                            "only workspace writes and non-network checks can be granted for a task".into(),
+                        )
+                    })?;
+                    let task = snapshot
+                        .tasks
+                        .iter()
+                        .find(|task| task.id == approval.task_id)
+                        .cloned()
+                        .ok_or(OrchestratorError::NotFound)?;
+                    if task.assigned_agent != Some(approval.agent_id)
+                        || !matches!(task.status, TaskStatus::Running | TaskStatus::Review)
+                    {
+                        return Err(OrchestratorError::Validation(
+                            "a task grant must match the active assigned task".into(),
+                        ));
+                    }
+                    let task_worktree = task.worktree.as_deref().ok_or_else(|| {
+                        OrchestratorError::Validation("task has no canonical worktree".into())
+                    })?;
+                    let canonical_task_worktree =
+                        std::fs::canonicalize(task_worktree).map_err(|_| {
+                            OrchestratorError::Validation("task worktree is unavailable".into())
+                        })?;
+                    let canonical_approval_worktree = std::fs::canonicalize(&approval.cwd)
+                        .map_err(|_| {
+                            OrchestratorError::Validation("approval worktree is unavailable".into())
+                        })?;
+                    if canonical_task_worktree != canonical_approval_worktree
+                        || !canonical_task_worktree.is_dir()
+                    {
+                        return Err(OrchestratorError::Validation(
+                            "approval worktree does not match the task worktree".into(),
+                        ));
+                    }
+                    let grant = TaskGrantView {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        task_id: approval.task_id,
+                        agent_id: approval.agent_id,
+                        worktree: canonical_task_worktree.to_string_lossy().into_owned(),
+                        effect,
+                        expires_at: approval.expires_at.clone(),
+                        revoked: false,
+                        source_approval_id: Some(approval.id),
+                    };
+                    snapshot.task_grants.push(grant.clone());
+                    return Ok((
+                        snapshot,
+                        Event::TaskGrantCreated { grant },
+                        CommandResult::Accepted,
+                    ));
+                }
                 Ok((
                     snapshot,
                     Event::ApprovalDecided {
                         approval_id,
                         decision,
                     },
+                    CommandResult::Accepted,
+                ))
+            }
+            Command::GrantTaskAccess {
+                task_id,
+                agent_id,
+                worktree,
+                effect,
+                expires_at,
+            } => {
+                if actor.kind == ActorKind::Agent {
+                    return Err(OrchestratorError::Forbidden);
+                }
+                if !snapshot
+                    .agents
+                    .iter()
+                    .any(|agent| agent.id == agent_id && !agent.archived)
+                {
+                    return Err(OrchestratorError::NotFound);
+                }
+                let task = snapshot
+                    .tasks
+                    .iter()
+                    .find(|task| task.id == task_id)
+                    .ok_or(OrchestratorError::NotFound)?;
+                if task.assigned_agent != Some(agent_id) || worktree.trim().is_empty() {
+                    return Err(OrchestratorError::Validation(
+                        "a task grant must match the assigned agent and a worktree".into(),
+                    ));
+                }
+                if !matches!(task.status, TaskStatus::Running | TaskStatus::Review) {
+                    return Err(OrchestratorError::Validation(
+                        "task grants are valid only for active or review tasks".into(),
+                    ));
+                }
+                let task_worktree = task.worktree.as_deref().ok_or_else(|| {
+                    OrchestratorError::Validation("task has no canonical worktree".into())
+                })?;
+                let canonical_task_worktree =
+                    std::fs::canonicalize(task_worktree).map_err(|_| {
+                        OrchestratorError::Validation("task worktree is unavailable".into())
+                    })?;
+                let canonical_grant_worktree = std::fs::canonicalize(&worktree).map_err(|_| {
+                    OrchestratorError::Validation("grant worktree is unavailable".into())
+                })?;
+                if canonical_grant_worktree != canonical_task_worktree
+                    || !canonical_grant_worktree.is_dir()
+                    || expires_at.parse::<u128>().unwrap_or_default() <= now_plus_seconds(0)
+                {
+                    return Err(OrchestratorError::Validation(
+                        "task grant worktree or expiry is invalid".into(),
+                    ));
+                }
+                let grant = TaskGrantView {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    task_id,
+                    agent_id,
+                    worktree: canonical_grant_worktree.to_string_lossy().into_owned(),
+                    effect,
+                    expires_at,
+                    revoked: false,
+                    source_approval_id: None,
+                };
+                let grant_id = grant.id.clone();
+                snapshot.task_grants.push(grant.clone());
+                Ok((
+                    snapshot,
+                    Event::TaskGrantCreated { grant },
+                    CommandResult::Created { id: grant_id },
+                ))
+            }
+            Command::RevokeTaskGrant { grant_id } => {
+                let grant = snapshot
+                    .task_grants
+                    .iter_mut()
+                    .find(|grant| grant.id == grant_id)
+                    .ok_or(OrchestratorError::NotFound)?;
+                grant.revoked = true;
+                Ok((
+                    snapshot,
+                    Event::TaskGrantRevoked { grant_id },
                     CommandResult::Accepted,
                 ))
             }
@@ -164,5 +304,27 @@ impl Orchestrator {
             }
             _ => super::misrouted(),
         }
+    }
+}
+
+fn task_grant_effect(operation: &str) -> Option<TaskGrantEffect> {
+    let operation = operation.to_ascii_lowercase();
+    if operation.contains("network")
+        || operation.contains("credential")
+        || operation.contains("sudo")
+        || operation.contains("privileged")
+        || operation.contains("external")
+    {
+        return None;
+    }
+    if operation.contains("check") || operation.contains("test") || operation.contains("build") {
+        Some(TaskGrantEffect::Check)
+    } else if operation.contains("workspace")
+        || operation.contains("write")
+        || operation.contains("mcp-tool")
+    {
+        Some(TaskGrantEffect::WorkspaceWrite)
+    } else {
+        None
     }
 }

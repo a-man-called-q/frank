@@ -14,11 +14,15 @@ class ProjectRegistrationDraft {
     required this.name,
     required this.path,
     this.baseBranch = 'main',
+    this.checkCommands = const <String>[],
   });
 
   final String name;
   final String path;
   final String baseBranch;
+  /// One command per line, executed from the registered repository during
+  /// task acceptance. Empty means no project-level checks are configured.
+  final List<String> checkCommands;
 }
 
 class ProjectCloneDraft {

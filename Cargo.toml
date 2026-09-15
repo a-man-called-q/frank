@@ -30,6 +30,8 @@ frank-server = { path = "backend/crates/frank-server", version = "1.0.0" }
 frank-client = { path = "backend/crates/frank-client", version = "1.0.0" }
 frank-agent-mcp = { path = "backend/crates/frank-agent-mcp", version = "1.0.0" }
 frank-tool-catalog = { path = "backend/crates/frank-tool-catalog", version = "1.0.0" }
+frank-toolchain = { path = "backend/crates/frank-toolchain", version = "1.0.0" }
+frank-runner = { path = "backend/crates/frank-runner", version = "1.0.0" }
 frank-update = { path = "backend/crates/frank-update", version = "1.0.0" }
 frank-release-cli = { path = "backend/crates/frank-release-cli", version = "1.0.0" }
 proptest = "1"

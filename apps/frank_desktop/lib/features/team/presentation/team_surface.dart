@@ -36,6 +36,8 @@ typedef TeamAgentUpdate =
 typedef TeamAgentArchive =
     Future<List<TeamAgentProfile>> Function(String agentId);
 
+enum TeamRosterFilter { active, archived, all }
+
 /// The gateway-backed Team surface. Profiles are supplied by the shell
 /// composition root so this widget never silently replaces a failed or missing
 /// load with demo data. Runtime mutations stay behind the gateway while the
@@ -95,6 +97,7 @@ class _TeamSurfaceState extends State<TeamSurface> {
   TeamAgentProfile? _selectedProfile;
   TeamProfileTab _selectedTab = TeamProfileTab.overview;
   TeamRosterTab _selectedRosterTab = TeamRosterTab.members;
+  TeamRosterFilter _rosterFilter = TeamRosterFilter.active;
   bool _reducedMotion = false;
   double _rosterScrollOffset = 0;
   bool _restoreRosterPosition = false;
@@ -106,6 +109,16 @@ class _TeamSurfaceState extends State<TeamSurface> {
   }
 
   List<TeamAgentProfile> get _profiles => widget.profiles ?? const [];
+
+  List<TeamAgentProfile> get _activeProfiles =>
+      _profiles.where((profile) => !profile.archived).toList(growable: false);
+
+  List<TeamAgentProfile> get _visibleProfiles => switch (_rosterFilter) {
+    TeamRosterFilter.active => _activeProfiles,
+    TeamRosterFilter.archived =>
+      _profiles.where((profile) => profile.archived).toList(growable: false),
+    TeamRosterFilter.all => _profiles,
+  };
 
   @override
   void didChangeDependencies() {
@@ -145,8 +158,9 @@ class _TeamSurfaceState extends State<TeamSurface> {
   @override
   Widget build(BuildContext context) {
     final selected = _selectedProfile;
+    final visibleProfiles = _visibleProfiles;
     final header = _TeamHeader(
-      agentCount: _profiles.length,
+      agentCount: _activeProfiles.length,
       isFixture: widget.isFixture,
       roles: widget.roles,
       models: widget.catalog?.models ?? const [],
@@ -156,26 +170,26 @@ class _TeamSurfaceState extends State<TeamSurface> {
       onCreateAgent: widget.onCreateAgent,
       canMutate: widget.canMutate,
       mutationDisabledReason: widget.mutationDisabledReason,
-      workingCount: _profiles
+      workingCount: _activeProfiles
           .where(
             (profile) =>
                 profile.status == TeamAgentStatus.working ||
                 profile.status == TeamAgentStatus.reviewing,
           )
           .length,
-      availableCount: _profiles
+      availableCount: _activeProfiles
           .where((profile) => profile.status == TeamAgentStatus.available)
           .length,
     );
     final rosterContent = _selectedRosterTab == TeamRosterTab.members
         ? _TeamRoster(
-            profiles: _profiles,
+            profiles: visibleProfiles,
             reducedMotion: _reducedMotion,
             onSelect: _openProfile,
           )
         : _TeamRoles(
             roles: widget.roles,
-            profiles: _profiles,
+            profiles: _activeProfiles,
             models: widget.catalog?.models ?? const [],
             onUpdateRole: widget.onUpdateRole,
             onArchiveRole: widget.onArchiveRole,
@@ -235,7 +249,28 @@ class _TeamSurfaceState extends State<TeamSurface> {
       scrollKey: const ValueKey('team-roster-scroll'),
       scrollController: _rosterScrollController,
       header: header,
-      slivers: [content],
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: FrankSegmentedControl<TeamRosterFilter>(
+              key: const ValueKey('team-roster-archive-filter'),
+              value: _rosterFilter,
+              items: const [
+                (TeamRosterFilter.active, 'Active', FrankIcons.peopleOutline),
+                (
+                  TeamRosterFilter.archived,
+                  'Archived',
+                  FrankIcons.archiveOutlined,
+                ),
+                (TeamRosterFilter.all, 'All', FrankIcons.users),
+              ],
+              onChanged: (value) => setState(() => _rosterFilter = value),
+            ),
+          ),
+        ),
+        content,
+      ],
     );
     return Focus(
       focusNode: _surfaceFocusNode,
@@ -300,34 +335,24 @@ class _TeamSurfaceState extends State<TeamSurface> {
   ) async {
     final confirmed = await showFrankDialog<bool>(
       context: context,
-      builder: (dialogContext) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'Archive ${profile.name}?',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      builder: (dialogContext) => FrankDialogScaffold(
+        title: Text(
+          'Archive ${profile.name}?',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        content: const Text(
+          'Archiving keeps the agent and task history available without allowing new assignments.',
+        ),
+        actions: [
+          FButton(
+            onPress: () => Navigator.pop(dialogContext, false),
+            variant: FButtonVariant.ghost,
+            child: const Text('Cancel'),
           ),
-          const SizedBox(height: 10),
-          const Text(
-            'Archiving keeps the agent and task history available without allowing new assignments.',
-          ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              FButton(
-                onPress: () => Navigator.pop(dialogContext, false),
-                variant: FButtonVariant.ghost,
-                child: const Text('Cancel'),
-              ),
-              const SizedBox(width: 8),
-              FButton(
-                onPress: () => Navigator.pop(dialogContext, true),
-                variant: FButtonVariant.destructive,
-                child: const Text('Archive member'),
-              ),
-            ],
+          FButton(
+            onPress: () => Navigator.pop(dialogContext, true),
+            variant: FButtonVariant.destructive,
+            child: const Text('Archive member'),
           ),
         ],
       ),

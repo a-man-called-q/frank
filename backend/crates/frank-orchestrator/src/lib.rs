@@ -60,6 +60,11 @@ use thiserror::Error;
 use tokio::process::Command as AsyncCommand;
 use tokio::sync::Mutex;
 
+/// v1 is intentionally pinned to the native OpenAI Luna runtime. Keeping the
+/// canonical namespace here prevents the coordinator, supervisor, and worker
+/// bootstrap paths from silently selecting different providers.
+pub const DEFAULT_LUNA_MODEL: &str = "openai/gpt-5.6-luna";
+
 fn provider_transcript(items: Vec<frank_store::StoredProviderSessionItem>) -> Vec<Value> {
     let completed_calls = items
         .iter()
@@ -108,6 +113,24 @@ fn provider_transcript(items: Vec<frank_store::StoredProviderSessionItem>) -> Ve
 pub const DEFAULT_MAX_ATTEMPTS: u8 = 2;
 pub const DEFAULT_MESSAGE_HOP_LIMIT: u8 = 6;
 pub const DEFAULT_MAX_CONCURRENCY: usize = 4;
+
+/// A daemon-owned request to execute one structured toolchain check on the
+/// host runner.  The orchestrator deliberately exposes a small async
+/// boundary instead of depending on the HTTP server: frankd can inject the
+/// live runner transport while unit tests can provide a deterministic fake.
+#[derive(Debug, Clone)]
+pub struct HostCheckRequest {
+    pub project_id: ProjectId,
+    pub task_id: Option<TaskId>,
+    pub worktree: PathBuf,
+    pub check: ToolchainCheck,
+}
+
+#[async_trait::async_trait]
+pub trait HostCheckExecutor: Send + Sync {
+    async fn execute(&self, request: HostCheckRequest)
+    -> std::result::Result<CheckRunView, String>;
+}
 
 #[derive(Debug, Error)]
 pub enum OrchestratorError {
@@ -164,6 +187,10 @@ pub struct Orchestrator {
     /// boundary.
     connector_secrets: Option<Arc<dyn ConnectorSecretResolver>>,
     update_source: Arc<dyn frank_update::UpdateSource>,
+    /// Optional host-runner bridge.  Standalone orchestrator users retain the
+    /// legacy project check path; frankd injects the runner-backed executor
+    /// so detected SDK projects never execute inside the daemon container.
+    host_check_executor: Option<Arc<dyn HostCheckExecutor>>,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +224,7 @@ impl Orchestrator {
             tool_approvals: Arc::new(Mutex::new(HashMap::new())),
             connector_secrets: None,
             update_source: Arc::new(frank_update::HttpUpdateSource::default()),
+            host_check_executor: None,
         }
     }
 
@@ -219,11 +247,74 @@ impl Orchestrator {
         self
     }
 
+    pub fn with_host_check_executor(mut self, executor: Arc<dyn HostCheckExecutor>) -> Self {
+        self.host_check_executor = Some(executor);
+        self
+    }
+
     /// Inject the verified update boundary for air-gapped and deterministic
     /// tests. Durable operation state remains owned by the orchestrator.
     pub fn with_update_source(mut self, source: Arc<dyn frank_update::UpdateSource>) -> Self {
         self.update_source = source;
         self
+    }
+
+    /// Run the checks declared by detected toolchain manifests through the
+    /// injected host runner. Projects that still use the v1 string-based
+    /// `check_commands` field keep their compatibility fallback until they
+    /// migrate to a structured manifest.
+    pub(crate) async fn run_project_checks(
+        &self,
+        workflow: &GitWorkflow,
+        worktree: &Path,
+        task_id: Option<TaskId>,
+    ) -> Result<Vec<git::CheckResult>> {
+        let checks = structured_checks_for_project(worktree)?;
+        if checks.is_empty() {
+            return workflow
+                .run_checks(worktree)
+                .await
+                .map_err(|error| OrchestratorError::Validation(error.to_string()));
+        }
+        let Some(executor) = self.host_check_executor.as_ref() else {
+            return Err(OrchestratorError::ProviderUnavailable(
+                "a host runner is required for detected toolchain checks".into(),
+            ));
+        };
+        let worktree = std::fs::canonicalize(worktree).map_err(|error| {
+            OrchestratorError::Validation(format!(
+                "toolchain check worktree is unavailable: {error}"
+            ))
+        })?;
+        if !worktree.is_dir() {
+            return Err(OrchestratorError::Validation(
+                "toolchain check worktree is not a directory".into(),
+            ));
+        }
+        let mut results = Vec::with_capacity(checks.len());
+        for check in checks {
+            let display = display_check_command(&check);
+            let view = executor
+                .execute(HostCheckRequest {
+                    project_id: workflow.project.id,
+                    task_id,
+                    worktree: worktree.clone(),
+                    check,
+                })
+                .await
+                .map_err(OrchestratorError::ProviderUnavailable)?;
+            let success = view.status == CheckRunStatus::Passed;
+            let output = join_check_output(&view.stdout, &view.stderr);
+            results.push(git::CheckResult {
+                command: display,
+                success,
+                output,
+            });
+            if !success {
+                break;
+            }
+        }
+        Ok(results)
     }
 
     pub(crate) async fn connector_secret(
@@ -243,7 +334,7 @@ impl Orchestrator {
         Ok(self.store.snapshot().await?)
     }
 
-    /// Validate an exact OpenRouter canonical model slug against the current
+    /// Validate an exact provider canonical model slug against the current
     /// tool-capable catalog. A missing model is allowed for dormant profiles;
     /// attempting to start one without a model fails at the runtime boundary.
     pub(crate) async fn validate_openrouter_model(&self, model: Option<&str>) -> Result<()> {
@@ -252,7 +343,7 @@ impl Orchestrator {
         };
         if model.trim().is_empty() {
             return Err(OrchestratorError::Validation(
-                "OpenRouter model cannot be empty".into(),
+                "provider model cannot be empty".into(),
             ));
         }
         let catalog = self
@@ -268,7 +359,7 @@ impl Orchestrator {
                 == model
         }) {
             return Err(OrchestratorError::Validation(format!(
-                "OpenRouter model '{model}' is not available in the current catalog"
+                "provider model '{model}' is not available in the current catalog"
             )));
         }
         Ok(())
@@ -276,7 +367,7 @@ impl Orchestrator {
 
     /// Seed the default worker role without probing or starting a provider.
     /// Roles are dormant templates, so first-run bootstrap stays usable even
-    /// before the owner configures an OpenRouter credential and model.
+    /// before the owner configures a provider credential and model.
     pub async fn ensure_builtin_role(&self) -> Result<RoleId> {
         for _ in 0..4 {
             let snapshot = self.store.snapshot().await?;
@@ -290,20 +381,12 @@ impl Orchestrator {
             let role = RoleView {
                 id: RoleId::new(),
                 name: "Generalist".into(),
-                description: "A dependable general-purpose worker role.".into(),
-                template: AgentTemplate::Generalist,
-                model: None,
-                pack_id: Some("caveman".into()),
-                pack_level: Some("full".into()),
+                model: Some(DEFAULT_LUNA_MODEL.into()),
                 instructions:
                     "Complete the assigned task and document every handoff on its taskboard card."
                         .into(),
                 policy: AgentPolicy::default(),
                 budget: Budget::unlimited(),
-                avatar: AvatarSpec {
-                    palette: "frank-generalist".into(),
-                    seed: 1,
-                },
                 revision: 1,
                 archived: false,
             };
@@ -333,18 +416,23 @@ impl Orchestrator {
         }))
     }
 
-    /// Seed the persistent Frank supervisor profile.  The profile is always
-    /// present, but the supervisor remains unconfigured until the owner
-    /// selects an OpenRouter model.
+    /// Seed the persistent Frank supervisor profile and the Luna default used
+    /// by coordinator/supervisor flows.  The default is written only when an
+    /// older database has no supervisor model, so an explicit owner choice is
+    /// preserved.
     pub async fn ensure_builtin_supervisor(&self) -> Result<AgentId> {
         for _ in 0..4 {
             let mut snapshot = self.store.snapshot().await?;
             if let Some(agent) = snapshot
                 .agents
                 .iter()
-                .find(|agent| agent.display_name == "Frank supervisor")
+                .find(|agent| agent.display_name == "Frank supervisor" && !agent.archived)
             {
-                return Ok(agent.id);
+                let agent_id = agent.id;
+                if snapshot.server.supervisor_model.is_none() {
+                    self.ensure_default_supervisor_model().await?;
+                }
+                return Ok(agent_id);
             }
             let supervisor = AgentView {
                 // The supervisor is persistent like any other profile, but
@@ -357,15 +445,12 @@ impl Orchestrator {
                 role_id: None,
                 role_revision: 0,
                 display_name: "Frank supervisor".to_string(),
-                template: AgentTemplate::Generalist,
-                model: None,
-                effective_model: None,
+                model: Some(DEFAULT_LUNA_MODEL.into()),
+                effective_model: Some(DEFAULT_LUNA_MODEL.into()),
                 model_source: ModelSource::Role,
                 model_override: None,
                 pending_model_override: None,
                 pending_model_change: false,
-                pack_id: Some("caveman".to_string()),
-                pack_level: Some("full".to_string()),
                 instructions:
                     "Decompose missions, coordinate workers, review results, and deliver safely."
                         .to_string(),
@@ -376,10 +461,6 @@ impl Orchestrator {
                     approval: ApprovalPolicy::Never,
                 },
                 budget: Budget::unlimited(),
-                avatar: AvatarSpec {
-                    palette: "frank-supervisor".to_string(),
-                    seed: 1,
-                },
                 status: AgentStatus::Offline,
                 provider_session_id: None,
                 last_claimed_at: None,
@@ -403,7 +484,42 @@ impl Orchestrator {
                 )
                 .await
             {
-                Ok(_) => return Ok(supervisor.id),
+                Ok(_) => {
+                    self.ensure_default_supervisor_model().await?;
+                    return Ok(supervisor.id);
+                }
+                Err(StoreError::StaleRevision { .. }) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(OrchestratorError::Store(StoreError::StaleRevision {
+            current: self.store.current_revision().await?,
+        }))
+    }
+
+    async fn ensure_default_supervisor_model(&self) -> Result<()> {
+        for _ in 0..4 {
+            let snapshot = self.store.snapshot().await?;
+            if snapshot.server.supervisor_model.is_some() {
+                return Ok(());
+            }
+            let mut next = snapshot.clone();
+            next.server.supervisor_model = Some(DEFAULT_LUNA_MODEL.into());
+            match self
+                .store
+                .commit_command(
+                    CommandId::new(),
+                    Some(snapshot.revision),
+                    ActorRef::system(),
+                    Event::SettingsChanged {
+                        settings: next.server.clone(),
+                    },
+                    next,
+                    CommandResult::Accepted,
+                )
+                .await
+            {
+                Ok(_) => return Ok(()),
                 Err(StoreError::StaleRevision { .. }) => continue,
                 Err(error) => return Err(error.into()),
             }
@@ -429,6 +545,10 @@ impl Orchestrator {
                 project_id: _,
                 objective,
             } => Some(objective.clone()),
+            _ => None,
+        };
+        let mission_to_retry = match &envelope.command {
+            Command::RetryMissionPlan { mission_id } => Some(*mission_id),
             _ => None,
         };
         let submitted_supervisor_plan = match &envelope.command {
@@ -558,6 +678,25 @@ impl Orchestrator {
                 {
                     let _ = self.block_mission(mission_id, error.to_string()).await;
                 }
+                if let Some(mission_id) = mission_to_retry
+                    && response.error.is_none()
+                {
+                    let objective = self.store.snapshot().await.ok().and_then(|snapshot| {
+                        snapshot
+                            .missions
+                            .iter()
+                            .find(|mission| mission.id == mission_id)
+                            .map(|mission| mission.objective.clone())
+                    });
+                    if let Some(objective) = objective {
+                        match self.plan_mission(mission_id, &objective).await {
+                            Ok(_) => {}
+                            Err(error) => {
+                                let _ = self.block_mission(mission_id, error.to_string()).await;
+                            }
+                        }
+                    }
+                }
                 if let Some(proposal) = submitted_supervisor_plan
                     && let Ok(plan) = supervisor::proposal_to_plan(proposal)
                 {
@@ -567,6 +706,59 @@ impl Orchestrator {
             }
             Err(error) => self.error_response(command_id, error).await,
         }
+    }
+}
+
+fn structured_checks_for_project(worktree: &Path) -> Result<Vec<ToolchainCheck>> {
+    let mut manifests = frank_toolchain::builtin_manifests();
+    let local_directory = worktree.join(".frank").join("toolchains");
+    match std::fs::symlink_metadata(&local_directory) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err(OrchestratorError::Validation(
+                "project toolchain manifest directory must be a real directory".into(),
+            ));
+        }
+        Ok(_) => {
+            let local = frank_toolchain::load_local_manifests(&local_directory)
+                .map_err(|error| OrchestratorError::Validation(error.to_string()))?;
+            manifests.extend(local);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(OrchestratorError::Validation(format!(
+                "project toolchain manifests are unavailable: {error}"
+            )));
+        }
+    }
+    let mut ids = HashSet::new();
+    let mut checks = Vec::new();
+    for manifest in manifests {
+        if !ids.insert(manifest.id.clone()) {
+            return Err(OrchestratorError::Validation(format!(
+                "duplicate toolchain manifest id '{}'",
+                manifest.id
+            )));
+        }
+        if frank_toolchain::detect_project(worktree, &manifest.detect).detected {
+            checks.extend(manifest.checks);
+        }
+    }
+    Ok(checks)
+}
+
+fn display_check_command(check: &ToolchainCheck) -> String {
+    std::iter::once(check.program.as_str())
+        .chain(check.args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn join_check_output(stdout: &str, stderr: &str) -> String {
+    match (stdout.trim_end(), stderr.trim_end()) {
+        ("", "") => String::new(),
+        (stdout, "") => stdout.to_string(),
+        ("", stderr) => stderr.to_string(),
+        (stdout, stderr) => format!("{stdout}\n{stderr}"),
     }
 }
 
@@ -612,22 +804,15 @@ mod tests {
             role_id: None,
             role_revision: 0,
             display_name: name.into(),
-            template: AgentTemplate::Reviewer,
             model: None,
             effective_model: None,
             model_source: ModelSource::Role,
             model_override: None,
             pending_model_override: None,
             pending_model_change: false,
-            pack_id: None,
-            pack_level: None,
             instructions: String::new(),
             policy: AgentPolicy::default(),
             budget: Budget::unlimited(),
-            avatar: AvatarSpec {
-                palette: "test".into(),
-                seed: 1,
-            },
             status: AgentStatus::Idle,
             provider_session_id: None,
             last_claimed_at: None,
@@ -720,6 +905,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/review-test".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
@@ -909,6 +1095,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/mission-message-test".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
@@ -1012,6 +1199,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/approval-cleanup-test".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
@@ -1083,6 +1271,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/mission-time-budget".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
@@ -1202,6 +1391,7 @@ mod tests {
             supervisor_session_id: None,
             branch: "frank/mission-lease".into(),
             budget: Budget::unlimited(),
+            last_error: None,
             created_at: timestamp_now(),
             updated_at: timestamp_now(),
         });
@@ -1210,22 +1400,15 @@ mod tests {
             role_id: None,
             role_revision: 0,
             display_name: "worker".into(),
-            template: AgentTemplate::Builder,
             model: None,
             effective_model: None,
             model_source: ModelSource::Role,
             model_override: None,
             pending_model_override: None,
             pending_model_change: false,
-            pack_id: None,
-            pack_level: None,
             instructions: String::new(),
             policy: AgentPolicy::default(),
             budget: Budget::unlimited(),
-            avatar: AvatarSpec {
-                palette: "worker".into(),
-                seed: 7,
-            },
             status: AgentStatus::Paused,
             provider_session_id: None,
             last_claimed_at: None,

@@ -251,16 +251,13 @@ class _AddPaletteState extends State<_AddPalette> {
         _PaletteEntry(
           id: 'role-${role.id}',
           label: role.name,
-          description: role.description.isEmpty
-              ? 'Reusable worker template'
-              : role.description,
+          description: 'Reusable role-backed worker',
           badge: 'Role',
           icon: FrankIcons.user,
           color: organizationRoleColor,
           kind: _PaletteEntryKind.role,
           choice: _RoleChoice(role),
-          metadata:
-              '${role.name} ${role.description} ${role.template} role worker agent template',
+          metadata: '${role.name} role worker agent',
         ),
       );
     }

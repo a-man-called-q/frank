@@ -196,7 +196,8 @@ impl Orchestrator {
                 .supervisor_model
                 .clone()
                 .or_else(|| supervisor.effective_model.clone())
-                .or_else(|| supervisor.model.clone()),
+                .or_else(|| supervisor.model.clone())
+                .or_else(|| Some(crate::DEFAULT_LUNA_MODEL.into())),
             resume_session_id: mission.supervisor_session_id.clone(),
             server_url: local_server_url(&snapshot.server),
             server_certificate_fingerprint: (!snapshot.server.tls_fingerprint.is_empty())
@@ -209,6 +210,7 @@ impl Orchestrator {
                     )
                     .await?,
             ),
+            reasoning_effort: Some(ReasoningEffort::Max),
         };
         let session = if let Some(session) = self.supervisor_sessions.lock().await.get(&mission_id)
         {
@@ -391,7 +393,7 @@ impl Orchestrator {
                             id: AttemptId::new(),
                             scope: BudgetScope::Agent,
                             scope_id: supervisor.id.to_string(),
-                            provider: UsageProviderId::openrouter(),
+                            provider: UsageProviderId::for_model(request.model.as_deref()),
                             model: request.model.clone(),
                             measured_input_tokens: usage.measured_input_tokens,
                             measured_output_tokens: usage.measured_output_tokens,
@@ -414,7 +416,9 @@ impl Orchestrator {
                         "supervisor exited before returning a plan ({code:?})"
                     )));
                 }
-                RuntimeEvent::Raw(_) | RuntimeEvent::ApprovalRequest { .. } => {}
+                RuntimeEvent::Raw(_)
+                | RuntimeEvent::ApprovalRequest { .. }
+                | RuntimeEvent::TurnCompleted { .. } => {}
             }
         }
         let plan = proposal

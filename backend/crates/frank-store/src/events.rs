@@ -106,6 +106,10 @@ impl Store {
             .bind(cutoff)
             .execute(&self.pool)
             .await?;
+        sqlx::query("DELETE FROM journal_entries WHERE occurred_at < ?")
+            .bind(cutoff)
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 }

@@ -24,8 +24,7 @@ impl Orchestrator {
                 let supervisor_model =
                     snapshot.server.supervisor_model.as_deref().ok_or_else(|| {
                         OrchestratorError::Validation(
-                            "choose an OpenRouter supervisor model before creating a mission"
-                                .into(),
+                            "choose a supervisor model before creating a mission".into(),
                         )
                     })?;
                 self.validate_openrouter_model(Some(supervisor_model))
@@ -49,6 +48,7 @@ impl Orchestrator {
                     supervisor_session_id: None,
                     branch,
                     budget: snapshot.server.default_budget.clone(),
+                    last_error: None,
                     created_at: timestamp_now(),
                     updated_at: timestamp_now(),
                 };
@@ -72,16 +72,43 @@ impl Orchestrator {
                         current_status, status
                     )));
                 }
+                let mission_task_count = snapshot
+                    .tasks
+                    .iter()
+                    .filter(|task| task.mission_id == mission_id)
+                    .count();
                 if status == MissionStatus::Completed
-                    && snapshot.tasks.iter().any(|task| {
-                        task.mission_id == mission_id && task.status != TaskStatus::Done
-                    })
+                    && (mission_task_count == 0
+                        || snapshot.tasks.iter().any(|task| {
+                            task.mission_id == mission_id && task.status != TaskStatus::Done
+                        }))
                 {
                     return Err(OrchestratorError::Validation(
-                        "all mission tasks must be done before completing the mission".into(),
+                        "all mission tasks must be planned and done before completing the mission"
+                            .into(),
                     ));
                 }
                 if status == MissionStatus::Active {
+                    if mission_task_count == 0 {
+                        return Err(OrchestratorError::Validation(
+                            "plan the mission before starting it".into(),
+                        ));
+                    }
+                    let has_worker_model = snapshot.agents.iter().any(|agent| {
+                        !agent.archived
+                            && agent.display_name != "Frank supervisor"
+                            && agent
+                                .effective_model
+                                .as_deref()
+                                .or(agent.model.as_deref())
+                                .is_some_and(|model| !model.trim().is_empty())
+                    });
+                    if !has_worker_model {
+                        return Err(OrchestratorError::Validation(
+                            "add a worker with an effective model before starting the mission"
+                                .into(),
+                        ));
+                    }
                     let mission = snapshot.missions[mission_index].clone();
                     let project = snapshot
                         .projects
@@ -106,7 +133,33 @@ impl Orchestrator {
                 }
                 let mission = &mut snapshot.missions[mission_index];
                 mission.status = status;
+                if status == MissionStatus::Active {
+                    mission.last_error = None;
+                }
                 mission.updated_at = timestamp_now();
+                Ok((
+                    snapshot,
+                    Event::MissionStatusChanged { mission_id, status },
+                    CommandResult::Accepted,
+                ))
+            }
+            Command::RetryMissionPlan { mission_id } => {
+                let mission = snapshot
+                    .missions
+                    .iter_mut()
+                    .find(|mission| mission.id == mission_id)
+                    .ok_or(OrchestratorError::NotFound)?;
+                if !matches!(
+                    mission.status,
+                    MissionStatus::Draft | MissionStatus::Blocked
+                ) {
+                    return Err(OrchestratorError::Validation(
+                        "only draft or blocked missions can retry planning".into(),
+                    ));
+                }
+                mission.last_error = None;
+                mission.updated_at = timestamp_now();
+                let status = mission.status;
                 Ok((
                     snapshot,
                     Event::MissionStatusChanged { mission_id, status },

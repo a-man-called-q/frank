@@ -596,11 +596,15 @@ struct Version<'a> {
 
 impl std::fmt::Display for Version<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            formatter,
-            "{}.{}.{}{}",
-            self.major, self.minor, self.patch, self.suffix
-        )
+        if self.suffix.is_empty() {
+            write!(formatter, "{}.{}.{}", self.major, self.minor, self.patch)
+        } else {
+            write!(
+                formatter,
+                "{}.{}.{}-{}",
+                self.major, self.minor, self.patch, self.suffix
+            )
+        }
     }
 }
 
@@ -755,5 +759,305 @@ mod tests {
             matches!(result, Err(UpdateError::Staging(message)) if message.contains("symlink"))
         );
         assert!(!real.join("staged").exists());
+    }
+
+    #[test]
+    fn manifest_validation_covers_protocol_artifact_and_metadata_guards() {
+        let mut value = manifest();
+        value.schema_version = MANIFEST_SCHEMA_VERSION + 1;
+        assert!(matches!(
+            value.validate(),
+            Err(UpdateError::UnsupportedSchema(_))
+        ));
+
+        let mut value = manifest();
+        value.protocol_min = 0;
+        assert!(matches!(
+            value.validate(),
+            Err(UpdateError::InvalidArtifact)
+        ));
+        let mut value = manifest();
+        value.protocol_min = 2;
+        value.protocol_max = 1;
+        assert!(matches!(
+            value.validate(),
+            Err(UpdateError::InvalidArtifact)
+        ));
+
+        for mutate in [
+            |v: &mut UpdateManifest| v.key_id.clear(),
+            |v: &mut UpdateManifest| v.release_notes_url = "http://example.invalid".into(),
+            |v: &mut UpdateManifest| v.artifacts.clear(),
+        ] {
+            let mut value = manifest();
+            mutate(&mut value);
+            assert!(matches!(
+                value.validate(),
+                Err(UpdateError::InvalidArtifact)
+            ));
+        }
+
+        for mutate in [
+            |a: &mut UpdateArtifact| a.target.clear(),
+            |a: &mut UpdateArtifact| a.package_kind.clear(),
+            |a: &mut UpdateArtifact| a.url = "http://example.invalid/artifact".into(),
+            |a: &mut UpdateArtifact| a.size = MAX_UPDATE_ARTIFACT_BYTES + 1,
+            |a: &mut UpdateArtifact| a.sha256 = "bad".into(),
+        ] {
+            let mut value = manifest();
+            mutate(&mut value.artifacts[0]);
+            assert!(matches!(
+                value.validate(),
+                Err(UpdateError::InvalidArtifact)
+            ));
+        }
+
+        let value = manifest();
+        assert!(value.accepts_protocol(1));
+        assert!(!value.accepts_protocol(0));
+        assert!(value.artifact("aarch64-apple-darwin", "dmg").is_ok());
+        assert!(matches!(
+            value.artifact("x86_64-unknown-linux-gnu", "tar.gz"),
+            Err(UpdateError::ArtifactNotFound)
+        ));
+        assert!(value.rejects_downgrade_from("1.0.0").is_ok());
+        assert!(value.rejects_downgrade_from("v1.0.1").is_ok());
+        assert!(matches!(
+            value.rejects_downgrade_from("not-a-version"),
+            Err(UpdateError::InvalidVersion(_))
+        ));
+    }
+
+    #[test]
+    fn version_parser_accepts_prereleases_and_rejects_malformed_values() {
+        assert_eq!(
+            parse_version("v1.2.3-alpha").unwrap().to_string(),
+            "1.2.3-alpha"
+        );
+        assert_eq!(parse_version("1.2.3").unwrap().to_string(), "1.2.3");
+        for value in ["", "1", "1.2", "1.2.x", "1.2.3.4"] {
+            assert!(
+                matches!(parse_version(value), Err(UpdateError::InvalidVersion(_))),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn detached_signature_accepts_bare_and_public_key_packets_but_rejects_bad_ids() {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        let pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let bytes = manifest().canonical_bytes().unwrap();
+        let minisig = sign_manifest(&bytes, pkcs8.as_ref()).unwrap();
+        let payload = minisig
+            .lines()
+            .find(|line| !line.starts_with("untrusted") && !line.starts_with("trusted"))
+            .unwrap();
+        let packet = base64::engine::general_purpose::STANDARD
+            .decode(payload)
+            .unwrap();
+        let bare = base64::engine::general_purpose::STANDARD.encode(&packet[10..]);
+        assert!(verify_detached_signature(&bytes, &bare, pair.public_key().as_ref()).is_ok());
+
+        let digest = Sha256::digest(pair.public_key().as_ref());
+        let mut public_packet = b"Ed".to_vec();
+        public_packet.extend_from_slice(&digest[..8]);
+        public_packet.extend_from_slice(pair.public_key().as_ref());
+        let public_key = base64::engine::general_purpose::STANDARD.encode(public_packet);
+        assert!(
+            verify_detached_signature(
+                &bytes,
+                payload,
+                &base64::engine::general_purpose::STANDARD
+                    .decode(&public_key)
+                    .unwrap()
+            )
+            .is_ok()
+        );
+
+        let mut bad_packet = packet;
+        bad_packet[2] ^= 0xff;
+        let bad = base64::engine::general_purpose::STANDARD.encode(bad_packet);
+        assert!(matches!(
+            verify_detached_signature(&bytes, &bad, pair.public_key().as_ref()),
+            Err(UpdateError::InvalidSignature)
+        ));
+        assert!(matches!(
+            verify_detached_signature(
+                &bytes,
+                "untrusted comment: only",
+                pair.public_key().as_ref()
+            ),
+            Err(UpdateError::SignatureEncoding)
+        ));
+        assert!(matches!(
+            verify_detached_signature(&bytes, &bare, &[1, 2, 3]),
+            Err(UpdateError::InvalidSignature)
+        ));
+        assert!(matches!(
+            sign_manifest(&bytes, b"bad key"),
+            Err(UpdateError::InvalidSignature)
+        ));
+        assert!(matches!(
+            public_key_base64_from_pkcs8(b"bad key"),
+            Err(UpdateError::InvalidSignature)
+        ));
+    }
+
+    #[tokio::test]
+    async fn local_update_source_verifies_manifest_and_artifact_without_network() {
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        let pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let value = manifest();
+        let bytes = value.canonical_bytes().unwrap();
+        let signature = sign_manifest(&bytes, pkcs8.as_ref()).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let manifest_path = root.path().join("manifest.json");
+        let signature_path = root.path().join("manifest.minisig");
+        let artifact_path = root.path().join("frank.dmg");
+        std::fs::write(&manifest_path, bytes).unwrap();
+        std::fs::write(&signature_path, signature).unwrap();
+        std::fs::write(&artifact_path, b"abc").unwrap();
+
+        // The fixture key is replaced directly for this isolated source; the
+        // production constructor still defaults to the embedded release key.
+        let mut source = HttpUpdateSource::new()
+            .unwrap()
+            .with_local_manifest(&manifest_path, &signature_path)
+            .with_local_artifact(&artifact_path)
+            .with_network_enabled(false);
+        source.public_key = pair.public_key().as_ref().to_vec();
+        let parsed = source.fetch_verified_manifest().await.unwrap();
+        let artifact = parsed.artifact("aarch64-apple-darwin", "dmg").unwrap();
+        assert_eq!(
+            source.download_verified_artifact(artifact).await.unwrap(),
+            b"abc"
+        );
+
+        source.local_signature = None;
+        assert!(matches!(
+            source.fetch_verified_manifest().await,
+            Err(UpdateError::InvalidArtifact)
+        ));
+        source.local_signature = Some(signature_path);
+        source.local_artifact = None;
+        assert!(matches!(
+            source.download_verified_artifact(artifact).await,
+            Err(UpdateError::Network(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn disabled_network_and_local_file_guards_fail_closed() {
+        let source = HttpUpdateSource::new().unwrap().with_network_enabled(false);
+        assert!(matches!(
+            source.fetch_verified_manifest().await,
+            Err(UpdateError::Network(message)) if message.contains("disabled")
+        ));
+        let artifact = manifest().artifacts[0].clone();
+        assert!(matches!(
+            source.download_verified_artifact(&artifact).await,
+            Err(UpdateError::Network(message)) if message.contains("disabled")
+        ));
+
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("directory");
+        std::fs::create_dir(&directory).unwrap();
+        let mut local = HttpUpdateSource::new().unwrap();
+        local.local_artifact = Some(directory);
+        assert!(matches!(
+            local.download_verified_artifact(&artifact).await,
+            Err(UpdateError::Staging(message)) if message.contains("regular file")
+        ));
+    }
+
+    #[tokio::test]
+    async fn http_update_source_uses_bounded_network_payloads() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
+        let pair = Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let value = manifest();
+        let manifest_bytes = value.canonical_bytes().unwrap();
+        let signature = sign_manifest(&manifest_bytes, pkcs8.as_ref())
+            .unwrap()
+            .into_bytes();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let responses = vec![manifest_bytes.clone(), signature, b"abc".to_vec()];
+        tokio::spawn(async move {
+            for body in responses {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0_u8; 256];
+                let _ = socket.read(&mut request).await;
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(headers.as_bytes()).await.unwrap();
+                socket.write_all(&body).await.unwrap();
+            }
+        });
+
+        let base = format!("http://{address}");
+        let mut source = HttpUpdateSource::new().unwrap().with_network_enabled(true);
+        source.public_key = pair.public_key().as_ref().to_vec();
+        source.manifest_url = format!("{base}/manifest");
+        source.signature_url = format!("{base}/signature");
+        let parsed = source.fetch_verified_manifest().await.unwrap();
+        let mut artifact = parsed.artifacts[0].clone();
+        artifact.url = format!("{base}/artifact");
+        assert_eq!(
+            source.download_verified_artifact(&artifact).await.unwrap(),
+            b"abc"
+        );
+    }
+
+    #[test]
+    fn staging_rejects_corrupt_existing_files_and_uses_safe_component_names() {
+        let mut artifact = manifest().artifacts[0].clone();
+        artifact.target = "!!!".into();
+        let root = tempfile::tempdir().unwrap();
+        let path = staged_artifact_path(&artifact, root.path());
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("artifact-")
+        );
+        let first = stage_artifact(&artifact, b"abc", root.path()).unwrap();
+        std::fs::write(&first, b"tampered").unwrap();
+        assert!(matches!(
+            stage_artifact(&artifact, b"abc", root.path()),
+            Err(UpdateError::SizeMismatch | UpdateError::DigestMismatch)
+        ));
+
+        let mut directory_artifact = manifest().artifacts[0].clone();
+        directory_artifact.target = "directory".into();
+        let directory_path = staged_artifact_path(&directory_artifact, root.path());
+        std::fs::create_dir(&directory_path).unwrap();
+        assert!(matches!(
+            stage_artifact(&directory_artifact, b"abc", root.path()),
+            Err(UpdateError::Staging(message)) if message.contains("regular file")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_rejects_a_symlinked_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let artifact = manifest().artifacts[0].clone();
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("outside");
+        let staged = staged_artifact_path(&artifact, root.path());
+        std::fs::write(&target, b"outside").unwrap();
+        symlink(&target, &staged).unwrap();
+        assert!(matches!(
+            stage_artifact(&artifact, b"abc", root.path()),
+            Err(UpdateError::Staging(message)) if message.contains("regular file")
+        ));
+        assert_eq!(std::fs::read(target).unwrap(), b"outside");
     }
 }
